@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход · P&L Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+<style>
+  body.login-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    grid-template-areas: "main";
+    background: #f7f8fa;
+  }
+  body.login-body .login-wrap {
+    grid-area: main;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  }
+  .login-brand {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .login-brand .muted { font-weight: 400; color: var(--muted); }
+  .login-sub {
+    font-size: 13px; color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .login-form { display: flex; flex-direction: column; gap: 12px; }
+  .login-form label {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .login-form input {
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    background: white;
+  }
+  .login-form input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+  }
+  .login-submit {
+    margin-top: 8px;
+    padding: 10px 16px;
+    background: var(--primary);
+    color: white;
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
+  .login-submit:hover { background: var(--primary-dark); }
+  .login-submit:disabled { opacity: 0.5; cursor: wait; }
+  .login-error {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--danger);
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 8px 10px;
+    display: none;
+  }
+  .login-error.visible { display: block; }
+</style>
+</head>
+<body class="login-body">
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-brand">P&amp;L Dashboard <span class="muted">· PlanFact</span></div>
+    <div class="login-sub">Войдите, чтобы получить доступ</div>
+    <form id="loginForm" class="login-form" autocomplete="on">
+      <label>Логин
+        <input type="text" name="username" id="username" required autofocus autocomplete="username">
+      </label>
+      <label>Пароль
+        <input type="password" name="password" id="password" required autocomplete="current-password">
+      </label>
+      <div id="loginError" class="login-error"></div>
+      <button type="submit" id="loginSubmit" class="login-submit">Войти</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById('loginForm');
+  const errBox = document.getElementById('loginError');
+  const submit = document.getElementById('loginSubmit');
+
+  function showError(msg) {
+    errBox.textContent = msg;
+    errBox.classList.add('visible');
+  }
+  function clearError() {
+    errBox.classList.remove('visible');
+    errBox.textContent = '';
+  }
+
+  // Поддержка ?next=/path — после логина возвращаем туда.
+  const params = new URLSearchParams(window.location.search);
+  const next = params.get('next') || '/';
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearError();
+    submit.disabled = true;
+    submit.textContent = 'Вход…';
+
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    try {
+      const r = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        credentials: 'same-origin',
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        showError(data.detail || `Ошибка ${r.status}`);
+        submit.disabled = false;
+        submit.textContent = 'Войти';
+        return;
+      }
+      // Успех — редирект на ?next или /
+      window.location.href = next;
+    } catch (err) {
+      showError('Сетевая ошибка: ' + (err.message || err));
+      submit.disabled = false;
+      submit.textContent = 'Войти';
+    }
+  });
+})();
+</script>
+</body>
+</html>

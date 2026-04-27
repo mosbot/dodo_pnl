@@ -1,18 +1,19 @@
 """FastAPI-приложение: дашборд + API."""
 from __future__ import annotations
 
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import dodois_client
 from . import pnl as pnl_module
 from . import storage
+from .auth.dependencies import optional_user, require_user
+from .auth.router import router as auth_router
+from .auth.models import User
 from .config import settings
 from .dodois_client import DodoISError
 from .planfact import PlanFactError, client
@@ -33,27 +34,23 @@ from .schemas import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # SQLite-init для legacy single-tenant store. Будет вырезано в S2.
     storage.init_db()
     yield
 
 
 app = FastAPI(title="PnL Dashboard", lifespan=lifespan)
 
-# --- optional basic auth ---
-security = HTTPBasic()
-
-
-def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    if not settings.basic_auth_user:
-        return
-    ok_user = secrets.compare_digest(credentials.username, settings.basic_auth_user)
-    ok_pass = secrets.compare_digest(credentials.password, settings.basic_auth_password)
-    if not (ok_user and ok_pass):
-        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
+# --- auth ---
+# Подключаем /auth/login, /auth/logout, /auth/me
+app.include_router(auth_router)
 
 
 def _auth_dep():
-    return require_auth if settings.basic_auth_user else (lambda: None)
+    """Совместимость: все существующие @app.get(..., dependencies=[Depends(_auth_dep())])
+    теперь требуют валидную сессию pnl_session. 401 без неё — для /api/* это
+    JSON-ошибка, фронт обрабатывает её редиректом на /login."""
+    return require_user
 
 
 # --- static files ---
@@ -61,14 +58,26 @@ static_dir = Path(__file__).resolve().parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
-@app.get("/", response_class=HTMLResponse, dependencies=[Depends(_auth_dep())])
-async def index():
-    return (static_dir / "index.html").read_text(encoding="utf-8")
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    """Страница логина — публичная, без auth-зависимости."""
+    return (static_dir / "login.html").read_text(encoding="utf-8")
 
 
-@app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(_auth_dep())])
-async def settings_page():
-    return (static_dir / "settings.html").read_text(encoding="utf-8")
+@app.get("/", response_class=HTMLResponse)
+async def index(user: User | None = Depends(optional_user)):
+    """Дашборд. Без сессии — редирект на /login (а не 401), чтобы пользователь
+    видел форму логина, а не голый JSON."""
+    if user is None:
+        return RedirectResponse("/login", status_code=302)
+    return HTMLResponse((static_dir / "index.html").read_text(encoding="utf-8"))
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(user: User | None = Depends(optional_user)):
+    if user is None:
+        return RedirectResponse("/login", status_code=302)
+    return HTMLResponse((static_dir / "settings.html").read_text(encoding="utf-8"))
 
 
 # --- API routes ---

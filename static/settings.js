@@ -67,6 +67,11 @@ const fmtPct = (v) => (v == null || isNaN(v)) ? '' : (v * 100).toFixed(1).replac
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
+  if (r.status === 401) {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = '/login?next=' + next;
+    return new Promise(() => {});
+  }
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
   return r.json();
 }

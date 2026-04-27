@@ -109,6 +109,13 @@ function monthToRange(key) {
 // --- API ---
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
+  if (r.status === 401) {
+    // Сессия истекла или отсутствует — редирект на /login с возвратом на текущий URL
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = '/login?next=' + next;
+    // Возвращаем неразрешающийся promise чтобы остановить дальнейший код
+    return new Promise(() => {});
+  }
   if (!r.ok) {
     const text = await r.text();
     throw new Error(`${r.status}: ${text}`);
