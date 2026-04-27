@@ -1,0 +1,13 @@
+services:
+  pnl:
+    build: .
+    container_name: pnl-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_PATH=/app/data/pnl.db
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data

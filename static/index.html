@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P&L по проектам · PlanFact</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <strong>P&L Dashboard</strong>
+    <span class="muted">· PlanFact</span>
+  </div>
+  <div class="controls">
+    <label>Месяц
+      <select id="monthSelect" class="month-select"></select>
+    </label>
+    <label class="inline">
+      <input type="checkbox" id="compareToggle">
+      Сравнить с прошлым годом (LFL)
+    </label>
+    <button id="refreshBtn" class="btn-primary" title="Сбросить кэш PlanFact + подтянуть ops из Dodo IS за выбранный месяц">Обновить данные</button>
+    <a href="/settings" class="btn-secondary" style="text-decoration:none;" title="Настройки">⚙ Настройки</a>
+  </div>
+</header>
+
+<aside id="projectsPanel" class="panel">
+  <h3>Проекты</h3>
+  <div id="projectsList" class="projects-list"></div>
+</aside>
+
+<main class="workspace">
+
+  <section id="kpiCards" class="cards"></section>
+
+  <div class="charts-toolbar">
+    <details class="charts-config">
+      <summary class="charts-config-trigger" title="Выбрать видимые графики">⚙ Графики</summary>
+      <div class="charts-config-popover">
+        <div class="charts-config-head">Видимые графики</div>
+        <div id="chartsConfigList"></div>
+        <div class="charts-config-foot">
+          <button type="button" id="chartsConfigShowAll" class="charts-config-btn">Показать все</button>
+          <button type="button" id="chartsConfigHideAll" class="charts-config-btn">Скрыть все</button>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <section class="charts" id="chartsGrid">
+    <div class="chart-box" data-chart-id="revProfit">
+      <h3>Выручка vs Чистая прибыль</h3>
+      <div class="chart-wrap"><canvas id="revProfit"></canvas></div>
+    </div>
+    <div class="chart-box" data-chart-id="margins">
+      <h3>Маржинальность по уровням, %</h3>
+      <div class="chart-wrap"><canvas id="margins"></canvas></div>
+    </div>
+    <div class="chart-box" data-chart-id="costShare">
+      <h3>Структура затрат, % от выручки</h3>
+      <div class="chart-wrap"><canvas id="costShare"></canvas></div>
+    </div>
+  </section>
+
+  <section class="table-wrap">
+    <h3>Детализация по статьям</h3>
+    <div class="table-scroll">
+      <table id="pnlTable"></table>
+    </div>
+  </section>
+
+</main>
+
+<!-- Hidden date inputs — драйвятся месячным пикером, нужны drill-down и старому коду -->
+<input type="hidden" id="dateStart">
+<input type="hidden" id="dateEnd">
+<input type="hidden" id="periodMonth">
+
+<!-- Drill-down modal -->
+<div id="drillModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header">
+      <h3 id="drillTitle">Операции</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <div id="drillBody"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

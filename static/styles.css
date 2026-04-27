@@ -1,0 +1,1029 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --card: #ffffff;
+  --text: #1a1f2e;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --border-light: #f1f3f5;
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --success: #10b981;
+  --success-bg: #dcfce7;
+  --danger: #ef4444;
+  --danger-bg: #fee2e2;
+  --warning: #f59e0b;
+  --header: #1a1f2e;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas: "top top" "side main";
+}
+
+.topbar {
+  grid-area: top;
+  background: white;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 100;
+}
+.brand { font-size: 15px; }
+.brand strong { color: var(--text); }
+.muted { color: var(--muted); }
+
+.controls {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  font-size: 13px;
+}
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+.controls label.inline { font-weight: 400; }
+
+input[type="date"], select {
+  padding: 5px 8px; border: 1px solid var(--border);
+  border-radius: 6px; font: inherit; font-size: 13px;
+  background: white;
+}
+
+button {
+  padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+  background: white; cursor: pointer; font: inherit; font-size: 13px;
+  font-weight: 500; transition: background .15s;
+}
+button:hover { background: var(--bg); }
+.btn-primary {
+  background: var(--primary); color: white; border-color: var(--primary);
+}
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { border-color: var(--border); }
+
+.panel {
+  grid-area: side;
+  background: white;
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+.panel h3 {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--muted); margin-bottom: 10px;
+}
+.projects-list label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 4px; cursor: pointer; font-size: 13px;
+  border-radius: 4px;
+}
+.projects-list label:hover { background: var(--bg); }
+
+.workspace {
+  grid-area: main;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.card {
+  background: white; border-radius: 10px; padding: 14px;
+  border-left: 4px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.card.profit { border-left-color: var(--success); }
+.card.loss { border-left-color: var(--danger); }
+.card-title {
+  font-size: 14px; font-weight: 700;
+  color: var(--text);
+}
+
+/* ---- Блок внутри карточки ---- */
+.card-block {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.card-block-head {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .4px;
+}
+
+/* ---- Grid плиток ---- */
+.tile-grid {
+  display: grid;
+  gap: 6px;
+}
+.tile-grid-metrics {
+  /* UC/LC/DC/TC + 3 ops = 7 плиток; auto-fit чтобы уместить без «дырок» */
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+}
+.tile-grid-fin {
+  /* Выручка, Маржин, EBITDA, Net — 2 в ряд */
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* ---- Плитка ---- */
+.tile {
+  background: #f9fafb;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 0;
+}
+.tile-label {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-sublabel {
+  font-weight: 400; color: #9ca3af;
+  text-transform: none; letter-spacing: 0;
+}
+.tile-value {
+  font-size: 20px; font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-unit {
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  margin-left: 2px;
+}
+.tile-sub {
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  margin-left: 4px;
+}
+.tile-hint {
+  font-size: 10px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-height: 12px;
+}
+
+/* ---- Статусы ---- */
+.tile.tile-ok {
+  background: #ecfdf5; border-color: #a7f3d0;
+}
+.tile.tile-ok .tile-value { color: #047857; }
+.tile.tile-bad {
+  background: #fef2f2; border-color: #fecaca;
+}
+.tile.tile-bad .tile-value { color: #b91c1c; }
+
+/* Фин-плитки — крупнее, чем метрики */
+.tile-fin .tile-value { font-size: 22px; }
+.tile-fin.tile-pos .tile-value { color: var(--success); }
+.tile-fin.tile-neg .tile-value { color: var(--danger); }
+
+.pos { color: var(--success); }
+.neg { color: var(--danger); }
+
+/* Тулбар над секцией графиков — пока содержит только конфигуратор видимости. */
+.charts-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 8px;
+  position: relative; z-index: 5;
+}
+
+/* «⚙ Графики» — собственный popover на <details>. Раскрывается панелью с
+   чекбоксами; новые пункты добавляются в JS-каталоге CHARTS. */
+.charts-config { position: relative; }
+.charts-config > summary {
+  list-style: none; cursor: pointer;
+  padding: 5px 12px;
+  font-size: 12px; font-weight: 500;
+  background: white; color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  user-select: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  transition: background .15s, border-color .15s;
+}
+.charts-config > summary::-webkit-details-marker { display: none; }
+.charts-config > summary:hover {
+  background: var(--bg);
+  border-color: #c7cdd5;
+}
+.charts-config[open] > summary {
+  background: var(--bg);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+
+.charts-config-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 260px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+  padding: 10px 12px;
+  z-index: 200;
+}
+.charts-config-head {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .4px;
+  margin-bottom: 8px;
+}
+.charts-config-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 4px;
+  font-size: 13px; cursor: pointer;
+  border-radius: 4px;
+}
+.charts-config-row:hover { background: var(--bg); }
+.charts-config-row input { margin: 0; cursor: pointer; }
+.charts-config-foot {
+  display: flex; gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+.charts-config-btn {
+  flex: 1;
+  font-size: 11px; padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.chart-box {
+  background: white; border-radius: 10px;
+  padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.chart-box.wide {
+  grid-column: 1 / -1;
+}
+.chart-box h3 {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  margin-bottom: 10px;
+}
+.chart-wrap { position: relative; height: 260px; }
+
+.targets-report {
+  max-height: 260px; overflow-y: auto;
+}
+.target-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 90px 90px 70px;
+  gap: 8px; padding: 6px 4px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px; align-items: center;
+}
+.target-row.over { background: var(--danger-bg); }
+.target-row.ok { background: var(--success-bg); }
+.target-row.header {
+  font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .3px;
+  font-size: 11px; background: transparent;
+}
+
+.table-wrap {
+  background: white; border-radius: 10px;
+  padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.table-wrap h3 {
+  font-size: 13px; font-weight: 600; margin-bottom: 10px;
+}
+.table-scroll { overflow-x: auto; }
+
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; min-width: 900px;
+}
+th, td {
+  padding: 6px 10px; text-align: right;
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+th:first-child, td:first-child {
+  text-align: left; position: sticky; left: 0;
+  background: inherit; min-width: 240px;
+}
+thead th {
+  background: var(--header); color: white;
+  font-weight: 600; position: sticky; top: 0;
+  font-size: 11px; z-index: 2;
+}
+thead th:first-child { background: var(--header); z-index: 3; }
+
+.lvl-1 { background: #eff6ff; font-weight: 700; }
+.lvl-1 td:first-child { background: #eff6ff; }
+.lvl-2 td:first-child { padding-left: 24px; }
+.lvl-3 td:first-child { padding-left: 40px; color: var(--muted); font-size: 11px; }
+.lvl-4 td:first-child { padding-left: 56px; color: var(--muted); font-size: 11px; font-style: italic; }
+.summary-row {
+  background: #f3f4f6; font-weight: 700;
+  border-top: 2px solid #d1d5db;
+}
+.summary-row td:first-child { background: #f3f4f6; }
+.final-row { background: var(--header); color: white; font-weight: 700; }
+.final-row td:first-child { background: var(--header); color: white; }
+
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #f9fafb; }
+tr.clickable:hover td:first-child { background: #f9fafb; }
+
+/* Кликабельная отдельная ячейка — для drill-down с фильтром по конкретному проекту/Итого */
+td.cell-clickable { cursor: pointer; }
+td.cell-clickable:hover {
+  background: #eff6ff !important;
+  outline: 1px solid #bfdbfe;
+  outline-offset: -1px;
+}
+
+.pct { font-size: 10px; color: var(--muted); display: block; }
+.delta { font-size: 10px; display: block; margin-top: 2px; }
+.delta.neg { color: var(--danger); }
+.delta.pos { color: var(--success); }
+
+.dash { color: #d1d5db; }
+.over-target { box-shadow: inset 0 0 0 2px var(--danger); }
+
+/* === Template-tree «Детализация по статьям» === */
+.tree-col-head {
+  display: flex; align-items: center; gap: 8px;
+  justify-content: space-between;
+}
+.tree-toolbar {
+  display: inline-flex; gap: 6px; align-items: center;
+  font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+.tree-toolbtn {
+  background: rgba(255,255,255,0.12); color: white;
+  border: 1px solid rgba(255,255,255,0.2); border-radius: 4px;
+  padding: 2px 8px; font-size: 10px; cursor: pointer;
+  font-family: inherit; line-height: 1.4;
+}
+.tree-toolbtn:hover { background: rgba(255,255,255,0.22); }
+.tree-toolbtn-check {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; color: rgba(255,255,255,0.9); cursor: pointer;
+  user-select: none;
+}
+.tree-toolbtn-check input { margin: 0; transform: scale(0.9); cursor: pointer; }
+
+/* Базовая таблица «Детализации» — табличные цифры и компактные строки. */
+.table-wrap table {
+  font-variant-numeric: tabular-nums;
+}
+.table-wrap td,
+.table-wrap th { font-variant-numeric: tabular-nums; }
+.table-wrap tbody td {
+  padding: 5px 10px;
+}
+
+tr.tpl-row td:first-child {
+  /* НЕ ставим display:flex — иначе TD теряет участие в табличном
+     row-height и фон не растягивается до низа в строках, где справа
+     value+% занимают две строки (Маржинальная прибыль и т.п.).
+     Используем обычную table-cell верстку с inline-block детьми. */
+  padding: 5px 10px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tpl-indent {
+  /* depth × 14px — отступ под уровень. Чуть уже чем раньше, чтобы при глубокой
+     вложенности (5+ уровней) дерево не съедало пол-колонки. */
+  display: inline-block;
+  width: calc(var(--d, 0) * 14px);
+  vertical-align: middle;
+}
+.tpl-toggle {
+  width: 28px; height: 28px; padding: 0; margin: 0 6px 0 -2px;
+  background: none; border: none; cursor: pointer;
+  font-size: 18px; color: var(--text); line-height: 1; font-weight: 700;
+  border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  vertical-align: middle;
+}
+.tpl-toggle:hover { color: var(--primary-dark); background: rgba(59,130,246,0.14); }
+.tpl-toggle.open { color: var(--text); }
+.tpl-toggle-spacer {
+  display: inline-block; width: 32px;
+  vertical-align: middle;
+}
+.tpl-title {
+  display: inline-block;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Hover — подсвечиваем всю строку, в т.ч. sticky-колонку.
+   :not(.tpl-final) — чтобы тёмная финальная строка «Чистая прибыль» при
+   наведении не превращалась в светлую (белый текст становится нечитаемым). */
+.table-wrap tbody tr.tpl-row:not(.tpl-final):hover td,
+.table-wrap tbody tr.tpl-row:not(.tpl-final):hover td:first-child {
+  background: #f3f6fa;
+}
+
+/* Итого — последняя колонка. Лёгкое отделение левой границей и
+   жирные цифры, без отдельного фонового заливания (чтобы не конфликтовать
+   с подсветками строк). */
+.table-wrap td:last-child,
+.table-wrap th:last-child {
+  border-left: 1px solid var(--border);
+}
+.table-wrap tbody td:last-child { font-weight: 700; }
+
+/* Уровни оформления — top-level секции «Выручка/Переменные расходы/...».
+   Делаем сдержанно: серый фон, обычный регистр, тонкая верхняя граница. */
+tr.tpl-h0 td {
+  background: #eef2f7;
+  font-weight: 700;
+  border-top: 1px solid #d6dde6;
+}
+tr.tpl-h0 td:first-child { background: #eef2f7; }
+
+tr.tpl-h1 td {
+  background: #f6f8fb;
+  font-weight: 600;
+}
+tr.tpl-h1 td:first-child { background: #f6f8fb; }
+
+tr.tpl-h2 td {
+  font-weight: 600;
+  color: var(--text);
+}
+
+tr.tpl-h3 td { font-weight: 500; }
+
+tr.tpl-leaf { font-size: 12px; }
+tr.tpl-leaf .tpl-title { color: #4b5563; }
+tr.tpl-leaf:hover .tpl-title { color: var(--text); }
+
+/* Итоговые расчётные строки (Маржинальная / Операционная / EBITDA / Чистая
+   прибыль) — стиль «summary»: голубой акцент с боковой полоской. Чётко
+   отличается от серых tpl-h0 по цвету и от листьев по толщине. */
+tr.tpl-calc td {
+  background: #eff6ff;
+  font-weight: 700;
+  border-top: 1px solid #bfdbfe;
+  border-bottom: 1px solid #bfdbfe;
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+tr.tpl-calc td:first-child { background: #eff6ff; }
+tr.tpl-calc .tpl-title { color: #1e3a8a; font-style: normal; }
+tr.tpl-calc .pct { color: #3b5998; }
+
+/* Финальная строка — Чистая прибыль. Жёстче, чем обычная tpl-calc:
+   тёмный фон, белый текст. Низ P&L должен быть очевиден. */
+tr.tpl-calc.tpl-final td {
+  background: var(--header);
+  color: white;
+  border-top: 2px solid #1a1f2e;
+  border-bottom: none;
+  box-shadow: none;
+}
+tr.tpl-calc.tpl-final td:first-child { background: var(--header); color: white; }
+tr.tpl-calc.tpl-final td:last-child { border-left-color: rgba(255,255,255,0.18); }
+tr.tpl-calc.tpl-final .tpl-title { color: white; }
+tr.tpl-calc.tpl-final .pct {
+  color: rgba(255,255,255,0.78);
+  font-size: 11px;
+  font-weight: 600;
+}
+tr.tpl-calc.tpl-final .neg { color: #fca5a5; }
+/* Hover на финальной строке — чуть светлее, чтобы был visual feedback,
+   но текст оставался белым и читаемым. */
+.table-wrap tbody tr.tpl-final:hover td,
+.table-wrap tbody tr.tpl-final:hover td:first-child {
+  background: #2a3349;
+}
+
+/* Modal */
+.modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal.hidden { display: none; }
+.modal-content {
+  background: white; border-radius: 12px; padding: 20px;
+  max-width: 560px; width: calc(100% - 40px); max-height: 85vh; overflow-y: auto;
+}
+.modal-content.wide { max-width: min(1280px, calc(100vw - 48px)); }
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.modal-footer { margin-top: 16px; display: flex; justify-content: flex-end; }
+.close-btn {
+  background: none; border: none; font-size: 24px;
+  cursor: pointer; padding: 0 8px; line-height: 1;
+}
+
+/* Drill-down: шапка-summary в стиле PlanFact (Проект / Период / Сумма) */
+.drill-summary {
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 4px;
+  font-size: 13px;
+}
+.drill-sum-row { display: contents; }
+.drill-sum-k { color: var(--muted); font-weight: 500; }
+.drill-sum-v { color: var(--text); }
+.drill-sum-v.neg { color: var(--danger); }
+
+/* Drill-down: таблица операций. Используем фиксированную раскладку
+   с клиппингом overflow + ellipsis. Длинные комментарии и контрагенты
+   режутся «…», полный текст доступен через title-tooltip. */
+.drill-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.drill-table col.c-date { width: 92px; }
+.drill-table col.c-cat { width: 200px; }
+.drill-table col.c-proj { width: 110px; }
+.drill-table col.c-ca { width: 200px; }
+.drill-table col.c-comment { width: auto; }
+.drill-table col.c-sum { width: 110px; }
+
+.drill-table th,
+.drill-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f3f4f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.drill-table thead th {
+  position: sticky; top: 0;
+  z-index: 1;
+  background: #f3f4f6;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text);
+}
+.drill-table thead th.th-sum { text-align: right; }
+.drill-table tbody tr:hover td { background: #f9fafb; }
+.drill-table .neg { color: var(--danger); }
+.drill-table td.td-sum {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+#targetsForm {
+  display: grid; gap: 10px; max-height: 50vh; overflow-y: auto;
+  margin: 12px 0; padding-right: 8px;
+}
+.target-input-row {
+  display: grid;
+  grid-template-columns: 1fr 160px 100px;
+  gap: 8px; align-items: center; font-size: 13px;
+}
+.target-input-row input[type="number"] {
+  padding: 5px 8px; border: 1px solid var(--border);
+  border-radius: 6px; font: inherit; font-size: 13px;
+  width: 100%;
+}
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 20px; right: 20px;
+  background: var(--header); color: white;
+  padding: 10px 16px; border-radius: 8px;
+  font-size: 13px; z-index: 1100;
+  box-shadow: 0 4px 12px rgba(0,0,0,.2);
+}
+.toast.hidden { display: none; }
+.toast.error { background: var(--danger); }
+.toast.success { background: var(--success); }
+
+@media (max-width: 800px) {
+  body { grid-template-columns: 1fr; grid-template-areas: "top" "main"; }
+  .panel { display: none; }
+}
+
+/* ========================================================================
+   Settings page — два таба «Структура» / «Таргеты»
+   ======================================================================== */
+body.settings-body {
+  grid-template-columns: 1fr;
+  grid-template-areas: "top" "main";
+}
+.brand-link { color: inherit; text-decoration: none; }
+.brand-link:hover { color: var(--primary); }
+
+/* Топбар на /settings: brand · tabs · back-link.
+   Tabs занимают центр через flex:1 + justify-content:center. */
+.settings-topbar { gap: 12px; }
+.settings-topbar .brand { flex: 0 0 auto; }
+.settings-topbar .controls { flex: 0 0 auto; }
+.settings-tabs {
+  flex: 1 1 auto;
+  display: flex; justify-content: center;
+  gap: 4px;
+}
+.settings-tabs .tab-btn {
+  padding: 6px 18px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.settings-tabs .tab-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.settings-tabs .tab-btn.active {
+  background: white;
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+/* main-обёртка теперь хранит оба пэйна; видим только активный. */
+.settings-page {
+  grid-area: main;
+  padding: 16px 24px 32px;
+  max-width: 1500px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.tab-pane {
+  display: none;
+  flex-direction: column;
+  gap: 24px;
+}
+.tab-pane.active { display: flex; }
+
+/* Sticky-полоска с подсказкой и контекстом таба (месяц-пикер / методология).
+   Прилипает под топбаром (56px). */
+.tab-toolbar {
+  position: sticky;
+  top: 56px;
+  z-index: 50;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding: 8px 14px;
+  background: rgba(247, 248, 250, 0.92);
+  backdrop-filter: saturate(140%) blur(6px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tab-toolbar .toolbar-hint {
+  font-size: 12px; color: var(--muted);
+}
+.tab-toolbar label.inline {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; cursor: pointer; user-select: none;
+}
+.tab-toolbar .hint {
+  display: inline-block; width: 14px; height: 14px; line-height: 14px;
+  text-align: center; border-radius: 50%; background: var(--border);
+  color: var(--muted); font-size: 10px; font-weight: 700;
+  cursor: help;
+}
+.tab-toolbar .month-select {
+  padding: 4px 10px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: white;
+}
+
+/* legacy alias — на случай если где-то ещё ссылаются на .settings-dense */
+.settings-dense {
+  grid-area: main;
+  padding: 18px 20px;
+  max-width: 1500px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Блок — белая карточка без тяжёлых теней */
+.dense-block {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.dense-block .block-head {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid var(--border);
+}
+.dense-block .block-head h2 {
+  font-size: 14px; font-weight: 700; margin: 0;
+  flex-shrink: 0;
+}
+.dense-block .block-head .block-sub {
+  font-size: 12px; flex: 1 1 auto; min-width: 0;
+}
+.dense-block .block-head .block-inline-ctl {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px;
+}
+.dense-block .block-head .block-inline-ctl label.inline {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+}
+.dense-block .block-head .hint {
+  display: inline-block; width: 14px; height: 14px; line-height: 14px;
+  text-align: center; border-radius: 50%; background: var(--border);
+  color: var(--muted); font-size: 10px; font-weight: 700;
+  cursor: help;
+}
+
+/* Body и горизонтальный скролл только внутри блока, не всей страницы */
+.dense-block .block-body { padding: 0; }
+.dense-block .block-scroll-x { overflow-x: auto; }
+/* Шаблон статей может быть на 80+ строк — даём ему фиксированную высоту
+   с внутренним вертикальным скроллом, чтобы Проекты ниже всегда были на виду. */
+.dense-block .block-scroll-y { max-height: 60vh; overflow-y: auto; }
+
+/* Внутри табов — больше воздуха в матрицах, чем в legacy-плотной верстке. */
+.tab-pane .dense-table { font-size: 13px; }
+.tab-pane .dense-table thead th { padding: 8px 10px; font-size: 11px; }
+.tab-pane .dense-table tbody td { padding: 6px 8px; }
+.tab-pane .matrix-table .col-proj { min-width: 110px; }
+.tab-pane .matrix-table .metric-col { min-width: 200px; }
+
+/* Плотная таблица — базовая */
+.dense-table {
+  width: 100%;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 12px;
+  min-width: 0;
+}
+.dense-table thead th {
+  background: #f3f4f6;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.dense-table tbody td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: middle;
+  white-space: nowrap;
+  background: white;
+}
+.dense-table tbody tr:hover td { background: #fafbfc; }
+.dense-table tbody tr:last-child td { border-bottom: none; }
+
+/* ---- flush-inputs (без рамки, рамка только на фокусе) ---- */
+.inp-flush {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: inherit; font-size: 12px;
+  background: transparent;
+  color: var(--text);
+}
+.inp-flush:hover { border-color: var(--border-light); background: #fcfcfd; }
+.inp-flush:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(59,130,246,.15);
+  background: white;
+}
+.inp-right { text-align: right; }
+.inp-center { text-align: center; }
+
+.cell-center { text-align: center; }
+
+/* auto-save flash */
+@keyframes flashOk { 0% { background: #bbf7d0; } 100% { background: white; } }
+@keyframes flashErr { 0% { background: #fecaca; } 100% { background: white; } }
+.cell-flash-ok { animation: flashOk .7s ease-out; }
+.cell-flash-err { animation: flashErr 1.2s ease-out; }
+
+/* ========== Проекты ========== */
+.projects-table tbody td { padding: 2px 6px; }
+.projects-table .cell-name { font-weight: 500; color: var(--text); }
+.projects-table tr.row-off td { color: var(--muted); }
+.projects-table tr.row-off .cell-name { text-decoration: line-through; color: #9ca3af; }
+.projects-table tr.row-off .inp-flush { color: #9ca3af; }
+
+/* Toggle switch */
+.switch {
+  display: inline-block; position: relative;
+  width: 28px; height: 16px;
+}
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch .slider {
+  position: absolute; inset: 0;
+  background: #d1d5db; border-radius: 16px;
+  transition: background .15s;
+  cursor: pointer;
+}
+.switch .slider::before {
+  content: ""; position: absolute;
+  top: 2px; left: 2px; width: 12px; height: 12px;
+  background: white; border-radius: 50%;
+  transition: transform .15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+.switch input:checked + .slider { background: var(--primary); }
+.switch input:checked + .slider::before { transform: translateX(12px); }
+
+/* ========== Матрицы (P&L и Ops) ========== */
+.matrix-table .sticky-col {
+  position: sticky; left: 0;
+  background: white;
+  z-index: 2;
+  border-right: 1px solid var(--border);
+}
+.matrix-table thead th.sticky-col {
+  background: #f3f4f6;
+  z-index: 3;
+}
+.matrix-table .metric-col {
+  min-width: 180px; text-align: left;
+  font-weight: 500;
+}
+.matrix-table thead th.metric-col { font-weight: 600; }
+
+.matrix-table .col-proj {
+  min-width: 90px;
+  max-width: 140px;
+  text-align: right;
+}
+.matrix-table .col-proj.has-override .inp-flush {
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+/* Ops и P&L матрицы — строка таргетов/дефолта */
+.ops-matrix .row-head-target td,
+.pnl-matrix .row-head-target td {
+  background: #fef3c7;
+  border-bottom: 2px solid #facc15;
+}
+.ops-matrix .row-head-target td.sticky-col,
+.pnl-matrix .row-head-target td.sticky-col {
+  background: #fef3c7;
+  font-weight: 600; text-transform: uppercase; letter-spacing: .3px;
+  font-size: 10px; color: #92400e;
+}
+.ops-matrix .target-input,
+.pnl-matrix .target-input {
+  font-weight: 600; color: #92400e;
+}
+.ops-matrix .ops-h-label,
+.pnl-matrix .ops-h-label {
+  font-size: 11px; font-weight: 600;
+  white-space: nowrap;
+}
+.ops-matrix .ops-h-unit,
+.pnl-matrix .ops-h-unit {
+  font-size: 10px; font-weight: 400;
+  text-transform: none; letter-spacing: 0;
+}
+
+/* Ячейки по проектам: ok / bad */
+.cell-ok { background: #dcfce7 !important; }
+.cell-ok .inp-flush { color: #047857; font-weight: 600; }
+.cell-bad { background: #fee2e2 !important; }
+.cell-bad .inp-flush { color: #b91c1c; font-weight: 600; }
+
+/* Факт из Dodo IS под инпутом таргета в ops-матрице */
+.ops-matrix .cell-sub {
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: right;
+  margin-top: 1px;
+  min-height: 12px;  /* чтобы высоты строк не плясали при пустых фактах */
+}
+
+/* Month select в block-head */
+.dense-block .month-select {
+  padding: 3px 8px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: white;
+}
+
+/* ========== Шаблон статей P&L (импорт из ПланФакт) ========== */
+table.tpl-tree {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+table.tpl-tree thead th {
+  background: #f3f4f6;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+  white-space: nowrap;
+}
+table.tpl-tree tbody td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: middle;
+  background: white;
+}
+table.tpl-tree tbody tr:hover td { background: #fafbfc; }
+table.tpl-tree td.tpl-title {
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+}
+table.tpl-tree td.tpl-code-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+table.tpl-tree td.tpl-code-cell select {
+  font-size: 11px;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: white;
+  color: var(--text);
+}
+table.tpl-tree td.tpl-path {
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+table.tpl-tree tr.tpl-calc td { background: #f8f8f8; }
+table.tpl-tree tr.tpl-calc td.tpl-title {
+  color: var(--muted);
+  font-style: italic;
+}
+table.tpl-tree tr.tpl-section td.tpl-title {
+  font-weight: 700;
+}
+.tpl-warnings {
+  padding: 8px 14px;
+  background: #fffbea;
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12px;
+}
+.tpl-warnings ul { margin: 4px 0 0 18px; }
+.tpl-stats {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border-light);
+  background: #fcfcfd;
+}
+.tpl-stats strong { color: var(--text); font-weight: 600; }
+
+/* Mobile */
+@media (max-width: 800px) {
+  .settings-dense { padding: 10px; gap: 10px; }
+  .dense-block .block-head { flex-direction: column; align-items: flex-start; }
+  .dense-block .block-head .block-inline-ctl { margin-left: 0; }
+  .matrix-table .metric-col { min-width: 140px; }
+  table.tpl-tree td.tpl-path { display: none; }
+}

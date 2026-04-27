@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройки · P&L Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="settings-body">
+
+<header class="topbar settings-topbar">
+  <div class="brand">
+    <a href="/" class="brand-link"><strong>P&amp;L Dashboard</strong></a>
+    <span class="muted">· Настройки</span>
+  </div>
+  <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
+    <button type="button" class="tab-btn" data-tab="structure" role="tab" aria-selected="false">Структура</button>
+    <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Таргеты</button>
+  </nav>
+  <div class="controls">
+    <a href="/" class="btn-secondary" style="text-decoration:none;">← К дашборду</a>
+  </div>
+</header>
+
+<main class="settings-page">
+
+  <!-- ============ TAB: СТРУКТУРА ============ -->
+  <section class="tab-pane" data-pane="structure" role="tabpanel">
+
+    <div class="tab-toolbar">
+      <span class="toolbar-hint">Разовые настройки. Меняются при онбординге или при изменениях в сети.</span>
+      <label class="inline">
+        <input type="checkbox" id="chkIncludeMgr">
+        <span>ЗП управляющего → LC</span>
+        <span class="hint" title="Если снять — затраты на управляющего переносятся в «Административный персонал» (MGMT), не попадая в LC.">?</span>
+      </label>
+    </div>
+
+    <section class="dense-block">
+      <div class="block-head">
+        <h2>Шаблон статей P&amp;L</h2>
+        <span class="muted block-sub">
+          Импорт «Отчёта о прибылях и убытках по проектам» из ПланФакт.
+          Иерархия и коды (UC/LC/DC/RENT/…) подставятся автоматически.
+          Эти коды перебивают встроенную эвристику классификации.
+        </span>
+        <div class="block-inline-ctl">
+          <input type="file" id="tplFileInput" accept=".xlsx,.xlsm" style="display:none;">
+          <button id="btnTplImport" type="button" class="btn-secondary">Импорт из ПланФакт (.xlsx)</button>
+          <button id="btnTplSave" type="button" class="btn-primary" disabled>Сохранить шаблон</button>
+          <button id="btnTplClear" type="button" class="btn-secondary" title="Удалить импортированный шаблон, вернуться к эвристике">Очистить</button>
+          <span id="tplStatus" class="muted" style="margin-left:8px;"></span>
+        </div>
+      </div>
+      <div id="templateTree" class="block-body block-scroll-y">
+        <p class="muted">Шаблон не загружен.</p>
+      </div>
+    </section>
+
+    <section class="dense-block">
+      <div class="block-head">
+        <h2>Проекты</h2>
+        <span class="muted block-sub">Только активные отображаются на дашборде. Порядок — сортировка на карточках. Dodo IS — юнит для автосинка ops-метрик.</span>
+        <div class="block-inline-ctl">
+          <button id="btnSyncUnits" type="button" class="btn-secondary" title="Загрузить список юнитов из Dodo IS">Подгрузить юниты Dodo IS</button>
+          <span id="unitsStatus" class="muted" style="margin-left:8px;"></span>
+        </div>
+      </div>
+      <div id="projectsTable" class="block-body">
+        <p class="muted">Загрузка…</p>
+      </div>
+    </section>
+
+  </section>
+
+  <!-- ============ TAB: ТАРГЕТЫ ============ -->
+  <section class="tab-pane" data-pane="targets" role="tabpanel">
+
+    <div class="tab-toolbar">
+      <span class="toolbar-hint">Цели и таргеты. Факты Ops показываются за выбранный месяц.</span>
+      <label class="inline">Период
+        <select id="opsMonthSelect" class="month-select"></select>
+      </label>
+    </div>
+
+    <section class="dense-block">
+      <div class="block-head">
+        <h2>Цели P&amp;L</h2>
+        <span class="muted block-sub">Ceiling-таргеты в % от выручки. Фактический % не должен превышать цель. Пусто в ячейке проекта → используется дефолт.</span>
+      </div>
+      <div id="pnlTargetsMatrix" class="block-body block-scroll-x">
+        <p class="muted">Загрузка…</p>
+      </div>
+    </section>
+
+    <section class="dense-block">
+      <div class="block-head">
+        <h2>Ops-таргеты</h2>
+        <span class="muted block-sub">Floor-таргеты (чем больше — тем лучше). Дефолт + переопределение на пиццерию. Под значением — факт за выбранный месяц (из Dodo IS).</span>
+      </div>
+      <div id="opsMetricsTable" class="block-body block-scroll-x">
+        <p class="muted">Загрузка…</p>
+      </div>
+    </section>
+
+  </section>
+
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/settings.js"></script>
+</body>
+</html>
