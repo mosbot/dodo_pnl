@@ -28,8 +28,8 @@ from app.config import settings  # noqa: E402
 from app.db import Base  # noqa: E402
 
 # Импортируем все ORM-модели здесь — чтобы alembic-autogenerate их видел.
-# Когда в S1.2 появится app/models/users.py — добавить импорт сюда.
-# (пока пусто — Base.metadata пуст)
+# При добавлении новой модели — приписать её импорт сюда.
+from app.auth import models as _auth_models  # noqa: E402,F401
 
 
 config = context.config
