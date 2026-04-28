@@ -129,9 +129,12 @@ async function loadProjects() {
     id: String(p.id),
     name: p.name || p.planfact_name || String(p.id),
     is_active: p.is_active !== false,
+    // Поля группы из PlanFact — нужны для группировки в сайдбаре.
+    project_group_id: p.project_group_id ?? null,
+    project_group_title: p.project_group_title ?? null,
+    project_group_is_undistributed: !!p.project_group_is_undistributed,
   }));
   // По умолчанию в сайдбаре отмечены все активные проекты.
-  // Неактивные тоже показываем в сайдбаре, но выключенными (без чекбокса).
   state.selectedProjects = new Set(
     state.allProjects.filter(p => p.is_active).map(p => p.id)
   );
