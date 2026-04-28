@@ -283,6 +283,10 @@ async def get_projects(
         if not pid:
             continue
         c = cfg.get(pid) or {}
+        # Группа из PlanFact: projectGroup={projectGroupId, title, isUndistributed, active}.
+        # Прокидываем во фронт как project_group_id / project_group_title для
+        # группировки в сайдбаре. БД не трогаем — PF — единственный источник истины.
+        pg = p.get("projectGroup") or {}
         norm.append({
             "id": pid,
             "planfact_name": p.get("title") or p.get("name") or "",
@@ -292,6 +296,9 @@ async def get_projects(
             "sort_order": c.get("sort_order"),
             "planfact_active": bool(p.get("active", True)),
             "dodo_unit_uuid": c.get("dodo_unit_uuid"),
+            "project_group_id": pg.get("projectGroupId"),
+            "project_group_title": pg.get("title"),
+            "project_group_is_undistributed": bool(pg.get("isUndistributed", False)),
         })
     return {"projects": norm}
 

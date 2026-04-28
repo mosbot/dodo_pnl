@@ -121,6 +121,49 @@ button:hover { background: var(--bg); }
 }
 .projects-list label:hover { background: var(--bg); }
 
+/* Группы проектов в сайдбаре — сворачиваемые секции по project_group_title.
+   Каждая группа: clickable header с кареткой + счётчик «выбрано/всего» +
+   actions «Все/Никого» и список чекбоксов под ним. */
+.proj-group { margin-bottom: 6px; }
+.proj-group-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 4px;
+  font-size: 11px; font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase; letter-spacing: .3px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+}
+.proj-group-head:hover { background: var(--bg); }
+.proj-group-caret {
+  display: inline-block; width: 10px; flex-shrink: 0;
+  font-size: 10px; color: var(--muted);
+}
+.proj-group-title {
+  flex: 1 1 auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.proj-group-count {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.proj-group-body { padding-left: 4px; }
+.proj-group-body[hidden] { display: none; }
+.proj-group-actions {
+  display: flex; gap: 4px;
+  padding: 4px 4px 6px;
+}
+.proj-group-actions button {
+  flex: 1;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
 .workspace {
   grid-area: main;
   padding: 20px;

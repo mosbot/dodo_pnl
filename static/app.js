@@ -138,25 +138,91 @@ async function loadProjects() {
   renderProjectsSidebar();
 }
 
+// Состояние свёрнутости групп — сохраняем в localStorage чтобы не сбрасывалось
+// при перезагрузке. Дефолт — все развёрнуты, кроме «Проекты без группы»
+// (служебная PlanFact-группа), которые сворачиваются.
+const GROUP_COLLAPSED_KEY = 'pnlDashboard.collapsedGroups';
+function loadCollapsedGroups() {
+  try {
+    const raw = localStorage.getItem(GROUP_COLLAPSED_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+function saveCollapsedGroups(s) {
+  try { localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify([...s])); } catch {}
+}
+
+// Группируем массив проектов по project_group_title. Возвращает массив
+// {title, projects[]} в стабильном порядке: «Текущий бизнес» сверху, затем
+// остальные по алфавиту, «Проекты без группы» (isUndistributed) в самом низу.
+function groupProjects(projects) {
+  const buckets = new Map();
+  for (const p of projects) {
+    const key = p.project_group_title || 'Без группы';
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        title: key,
+        is_undistributed: !!p.project_group_is_undistributed,
+        projects: [],
+      });
+    }
+    buckets.get(key).projects.push(p);
+  }
+  const arr = [...buckets.values()];
+  arr.sort((a, b) => {
+    // «Проекты без группы» / undistributed — в конец
+    if (a.is_undistributed !== b.is_undistributed) return a.is_undistributed ? 1 : -1;
+    // «Текущий бизнес» — наверх (если он точно так называется)
+    if (a.title === 'Текущий бизнес') return -1;
+    if (b.title === 'Текущий бизнес') return 1;
+    return a.title.localeCompare(b.title, 'ru');
+  });
+  return arr;
+}
+
 function renderProjectsSidebar() {
   const box = el('projectsList');
   const active = state.allProjects.filter(p => p.is_active);
   const inactive = state.allProjects.filter(p => !p.is_active);
+  const collapsed = loadCollapsedGroups();
 
-  let html = active.map(p => `
-    <label>
-      <input type="checkbox" data-pid="${p.id}" ${state.selectedProjects.has(p.id) ? 'checked' : ''}>
-      <span>${p.name}</span>
-    </label>
-  `).join('');
+  const groups = groupProjects(active);
+
+  let html = '';
+  groups.forEach((g, gi) => {
+    const isCollapsed = collapsed.has(g.title);
+    // Сколько в группе выбрано — для бейджа в шапке
+    const sel = g.projects.filter(p => state.selectedProjects.has(p.id)).length;
+    html += `
+      <div class="proj-group" data-group="${esc(g.title)}">
+        <div class="proj-group-head" data-toggle="${esc(g.title)}">
+          <span class="proj-group-caret">${isCollapsed ? '▸' : '▾'}</span>
+          <span class="proj-group-title">${esc(g.title)}</span>
+          <span class="proj-group-count">${sel}/${g.projects.length}</span>
+        </div>
+        <div class="proj-group-body" ${isCollapsed ? 'hidden' : ''}>
+          <div class="proj-group-actions">
+            <button class="js-grp-all" data-grp="${esc(g.title)}" type="button">Все</button>
+            <button class="js-grp-none" data-grp="${esc(g.title)}" type="button">Никого</button>
+          </div>
+          ${g.projects.map(p => `
+            <label>
+              <input type="checkbox" data-pid="${p.id}" ${state.selectedProjects.has(p.id) ? 'checked' : ''}>
+              <span>${esc(p.name)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  });
 
   if (inactive.length) {
     html += `
       <details class="inactive-projects" style="margin-top:12px;">
         <summary class="muted" style="cursor:pointer;font-size:11px;padding:4px;">
-          Неактивные (${inactive.length})
+          Архивные (${inactive.length})
         </summary>
-        ${inactive.map(p => `<div class="muted" style="padding:4px 8px;font-size:12px;">${p.name}</div>`).join('')}
+        ${inactive.map(p => `<div class="muted" style="padding:4px 8px;font-size:12px;">${esc(p.name)}</div>`).join('')}
       </details>
     `;
   }
@@ -172,12 +238,45 @@ function renderProjectsSidebar() {
   `;
 
   box.innerHTML = html;
+  // Чекбокс отдельного проекта
   box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', (e) => {
       const pid = e.target.dataset.pid;
       if (e.target.checked) state.selectedProjects.add(pid);
       else state.selectedProjects.delete(pid);
+      // Перерисуем счётчик в заголовке группы (без полного re-render)
+      renderProjectsSidebar();
       loadPnl();
+    });
+  });
+  // Свёртка/разворот заголовка группы
+  box.querySelectorAll('.proj-group-head').forEach(h => {
+    h.addEventListener('click', () => {
+      const t = h.dataset.toggle;
+      const c = loadCollapsedGroups();
+      if (c.has(t)) c.delete(t); else c.add(t);
+      saveCollapsedGroups(c);
+      renderProjectsSidebar();
+    });
+  });
+  // Кнопка «Все» внутри группы
+  box.querySelectorAll('.js-grp-all').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const grp = b.dataset.grp;
+      const grpProj = active.filter(p => (p.project_group_title || 'Без группы') === grp);
+      grpProj.forEach(p => state.selectedProjects.add(p.id));
+      renderProjectsSidebar(); loadPnl();
+    });
+  });
+  // «Никого» внутри группы
+  box.querySelectorAll('.js-grp-none').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const grp = b.dataset.grp;
+      const grpProj = active.filter(p => (p.project_group_title || 'Без группы') === grp);
+      grpProj.forEach(p => state.selectedProjects.delete(p.id));
+      renderProjectsSidebar(); loadPnl();
     });
   });
   el('projSelectAll').onclick = () => {

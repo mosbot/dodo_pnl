@@ -347,6 +347,7 @@ function renderProjects() {
         <tr>
           <th style="width:56px;text-align:center;">Вкл</th>
           <th>Название в PlanFact</th>
+          <th style="width:140px;">Группа PF</th>
           <th>Отображаемое имя</th>
           <th style="width:90px;text-align:center;">Порядок</th>
           <th style="width:320px;">Dodo IS юнит</th>
@@ -356,6 +357,7 @@ function renderProjects() {
   `;
   state.projects.forEach(p => {
     const unitName = dodoUnitName(p.dodo_unit_uuid);
+    const grp = p.project_group_title || '—';
     html += `
       <tr data-pid="${esc(p.id)}" class="${p.is_active ? '' : 'row-off'}">
         <td class="cell-center">
@@ -365,6 +367,7 @@ function renderProjects() {
           </label>
         </td>
         <td class="cell-name">${esc(p.planfact_name || p.name)}</td>
+        <td class="muted" style="font-size:11px;">${esc(grp)}</td>
         <td>
           <input type="text" class="js-display-name inp-flush"
             value="${esc(p.display_name || '')}"
