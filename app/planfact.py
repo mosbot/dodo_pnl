@@ -33,6 +33,13 @@ def _unwrap(payload: Any) -> Any:
 
 
 class PlanFactClient:
+    # LRU-bound: чтобы кэш не разрастался по памяти. operations за месяц могут
+    # быть мегабайтами JSON, и без bound память течёт быстро.
+    CACHE_MAX_ENTRIES = 50
+    # Эндпоинты с большим payload не кэшируем вообще — на них короткий TTL
+    # бесполезен (даты/фильтры всегда меняются), а memory cost огромный.
+    NO_CACHE_PATHS = ("/operations",)
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -42,7 +49,9 @@ class PlanFactClient:
         self.api_key = api_key or settings.planfact_api_key
         self.base_url = (base_url or settings.planfact_base_url).rstrip("/")
         self.cache_ttl = cache_ttl if cache_ttl is not None else settings.cache_ttl
-        self._cache: dict[str, tuple[float, Any]] = {}
+        # OrderedDict для LRU-эвикции (move_to_end на hit, popitem(last=False) на overflow)
+        from collections import OrderedDict
+        self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = asyncio.Lock()
 
     @property
@@ -68,12 +77,22 @@ class PlanFactClient:
         json: Any = None,
         use_cache: bool = True,
     ) -> Any:
+        # Большие endpoints (/operations) не кэшируем — каждый раз другие
+        # фильтры, в кэше копится на десятки/сотни МБ за день.
+        if any(np in path for np in self.NO_CACHE_PATHS):
+            use_cache = False
+
         ck = self._cache_key(method, path, params, json)
         now = time.time()
         if use_cache and method == "GET":
             hit = self._cache.get(ck)
             if hit and now - hit[0] < self.cache_ttl:
+                # LRU touch — двигаем в конец как недавно использованный
+                self._cache.move_to_end(ck)
                 return hit[1]
+            elif hit:
+                # Expired — удалить чтобы не накапливать
+                self._cache.pop(ck, None)
 
         async with httpx.AsyncClient(timeout=60.0) as http:
             url = f"{self.base_url}{path}"
@@ -85,6 +104,9 @@ class PlanFactClient:
         data = _unwrap(raw)
         if use_cache and method == "GET":
             self._cache[ck] = (now, data)
+            # LRU eviction: вышли за бортик — выкидываем самый старый
+            while len(self._cache) > self.CACHE_MAX_ENTRIES:
+                self._cache.popitem(last=False)
         return data
 
     # --- high-level methods ---

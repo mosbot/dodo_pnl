@@ -264,7 +264,32 @@ async def settings_page(user: User | None = Depends(optional_user)):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "planfact_key_set": bool(settings.planfact_api_key)}
+    """Live-проверка + диагностика памяти (для отладки утечек без SSH).
+
+    Читает /proc/self/status — это нативно в Linux, не требует psutil.
+    Возвращает RSS, кол-во инстансов PlanFactClient и общий размер их кэшей.
+    """
+    import os
+    info: dict = {"status": "ok"}
+    try:
+        with open(f"/proc/{os.getpid()}/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    info["rss_kb"] = int(line.split()[1])
+                elif line.startswith("VmSize:"):
+                    info["vsize_kb"] = int(line.split()[1])
+                elif line.startswith("Threads:"):
+                    info["threads"] = int(line.split()[1])
+    except Exception:
+        pass
+
+    # Размер per-user PlanFact-кэша
+    from .planfact import _clients
+    info["planfact_clients"] = len(_clients)
+    info["planfact_cache_entries_total"] = sum(
+        len(c._cache) for c in _clients.values()
+    )
+    return info
 
 
 @app.get("/api/projects")
