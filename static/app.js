@@ -180,57 +180,70 @@ function groupProjects(projects) {
   return arr;
 }
 
+// Сравнение двух Set'ов на равенство (по элементам).
+function _setsEqual(a, b) {
+  if (!a || !b) return a === b;
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
+
+
 function renderProjectsSidebar() {
   const box = el('projectsList');
   const active = state.allProjects.filter(p => p.is_active);
-  const inactive = state.allProjects.filter(p => !p.is_active);
   const collapsed = loadCollapsedGroups();
-
   const groups = groupProjects(active);
 
+  // appliedSelection — то, что сейчас отрисовано на дашборде. Кнопка
+  // «Применить» подтягивает его к selectedProjects и зовёт loadPnl.
+  if (state.appliedSelection === undefined) {
+    state.appliedSelection = new Set(state.selectedProjects);
+  }
+
   let html = '';
-  groups.forEach((g, gi) => {
+  groups.forEach(g => {
     const isCollapsed = collapsed.has(g.title);
-    // Сколько в группе выбрано — для бейджа в шапке
-    const sel = g.projects.filter(p => state.selectedProjects.has(p.id)).length;
+    const onN = g.projects.filter(p => state.selectedProjects.has(p.id)).length;
+    const total = g.projects.length;
+    const allOn = onN === total;
+    const noneOn = onN === 0;
+    const indeterminate = !allOn && !noneOn;
     html += `
       <div class="proj-group" data-group="${esc(g.title)}">
         <div class="proj-group-head" data-toggle="${esc(g.title)}">
+          <label class="switch js-stop">
+            <input type="checkbox" class="js-grp-toggle" data-grp="${esc(g.title)}"
+              ${allOn ? 'checked' : ''} ${indeterminate ? 'data-indeterminate="1"' : ''}>
+            <span class="slider"></span>
+          </label>
           <span class="proj-group-caret">${isCollapsed ? '▸' : '▾'}</span>
           <span class="proj-group-title">${esc(g.title)}</span>
-          <span class="proj-group-count">${sel}/${g.projects.length}</span>
+          <span class="proj-group-count">${onN}/${total}</span>
         </div>
         <div class="proj-group-body" ${isCollapsed ? 'hidden' : ''}>
-          <div class="proj-group-actions">
-            <button class="js-grp-all" data-grp="${esc(g.title)}" type="button">Все</button>
-            <button class="js-grp-none" data-grp="${esc(g.title)}" type="button">Никого</button>
-          </div>
           ${g.projects.map(p => `
-            <label>
-              <input type="checkbox" data-pid="${p.id}" ${state.selectedProjects.has(p.id) ? 'checked' : ''}>
-              <span>${esc(p.name)}</span>
-            </label>
+            <div class="proj-row">
+              <label class="switch">
+                <input type="checkbox" data-pid="${p.id}"
+                  ${state.selectedProjects.has(p.id) ? 'checked' : ''}>
+                <span class="slider"></span>
+              </label>
+              <span class="proj-name">${esc(p.name)}</span>
+            </div>
           `).join('')}
         </div>
       </div>
     `;
   });
 
-  if (inactive.length) {
-    html += `
-      <details class="inactive-projects" style="margin-top:12px;">
-        <summary class="muted" style="cursor:pointer;font-size:11px;padding:4px;">
-          Архивные (${inactive.length})
-        </summary>
-        ${inactive.map(p => `<div class="muted" style="padding:4px 8px;font-size:12px;">${esc(p.name)}</div>`).join('')}
-      </details>
-    `;
-  }
-
   html += `
-    <div style="margin-top:10px;display:flex;gap:6px;">
-      <button id="projSelectAll" style="flex:1;font-size:11px;padding:4px 8px;">Все</button>
-      <button id="projSelectNone" style="flex:1;font-size:11px;padding:4px 8px;">Никого</button>
+    <div id="projApplyBar" class="proj-apply-bar">
+      <div class="bar-text">Изменения не применены</div>
+      <div class="bar-actions">
+        <button type="button" class="btn-cancel" id="projApplyReset">Сбросить</button>
+        <button type="button" class="btn-apply" id="projApplyBtn">Применить</button>
+      </div>
     </div>
     <a href="/settings" class="muted" style="display:block;margin-top:10px;text-align:center;font-size:11px;">
       Настроить проекты →
@@ -238,20 +251,32 @@ function renderProjectsSidebar() {
   `;
 
   box.innerHTML = html;
-  // Чекбокс отдельного проекта
-  box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      const pid = e.target.dataset.pid;
-      if (e.target.checked) state.selectedProjects.add(pid);
-      else state.selectedProjects.delete(pid);
-      // Перерисуем счётчик в заголовке группы (без полного re-render)
+
+  // Восстановить indeterminate (атрибутом не выставляется)
+  box.querySelectorAll('input[data-indeterminate="1"]').forEach(cb => cb.indeterminate = true);
+
+  refreshApplyBar();
+
+  // Тумблер группы (включить/выключить все проекты группы)
+  box.querySelectorAll('input.js-grp-toggle').forEach(cb => {
+    // Чтобы клик на тумблер не сворачивал группу
+    cb.closest('.js-stop')?.addEventListener('click', e => e.stopPropagation());
+    cb.addEventListener('change', () => {
+      const grp = cb.dataset.grp;
+      const target = cb.checked;
+      const grpProj = active.filter(p => (p.project_group_title || 'Без группы') === grp);
+      grpProj.forEach(p => {
+        if (target) state.selectedProjects.add(p.id);
+        else state.selectedProjects.delete(p.id);
+      });
       renderProjectsSidebar();
-      loadPnl();
     });
   });
-  // Свёртка/разворот заголовка группы
+
+  // Свёртка/разворот по клику на заголовок группы (не по тумблеру)
   box.querySelectorAll('.proj-group-head').forEach(h => {
-    h.addEventListener('click', () => {
+    h.addEventListener('click', e => {
+      if (e.target.closest('.js-stop, input, label')) return;
       const t = h.dataset.toggle;
       const c = loadCollapsedGroups();
       if (c.has(t)) c.delete(t); else c.add(t);
@@ -259,34 +284,35 @@ function renderProjectsSidebar() {
       renderProjectsSidebar();
     });
   });
-  // Кнопка «Все» внутри группы
-  box.querySelectorAll('.js-grp-all').forEach(b => {
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const grp = b.dataset.grp;
-      const grpProj = active.filter(p => (p.project_group_title || 'Без группы') === grp);
-      grpProj.forEach(p => state.selectedProjects.add(p.id));
-      renderProjectsSidebar(); loadPnl();
+
+  // Тумблер отдельного проекта
+  box.querySelectorAll('input[data-pid]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const pid = cb.dataset.pid;
+      if (cb.checked) state.selectedProjects.add(pid);
+      else state.selectedProjects.delete(pid);
+      renderProjectsSidebar();
     });
   });
-  // «Никого» внутри группы
-  box.querySelectorAll('.js-grp-none').forEach(b => {
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const grp = b.dataset.grp;
-      const grpProj = active.filter(p => (p.project_group_title || 'Без группы') === grp);
-      grpProj.forEach(p => state.selectedProjects.delete(p.id));
-      renderProjectsSidebar(); loadPnl();
-    });
+
+  // Применить — подтянуть applied к selected, загрузить P&L
+  document.getElementById('projApplyBtn')?.addEventListener('click', () => {
+    state.appliedSelection = new Set(state.selectedProjects);
+    refreshApplyBar();
+    loadPnl();
   });
-  el('projSelectAll').onclick = () => {
-    state.selectedProjects = new Set(active.map(p => p.id));
-    renderProjectsSidebar(); loadPnl();
-  };
-  el('projSelectNone').onclick = () => {
-    state.selectedProjects.clear();
-    renderProjectsSidebar(); loadPnl();
-  };
+  // Сбросить — откатить selected к applied (отказ от изменений)
+  document.getElementById('projApplyReset')?.addEventListener('click', () => {
+    state.selectedProjects = new Set(state.appliedSelection);
+    renderProjectsSidebar();
+  });
+}
+
+function refreshApplyBar() {
+  const bar = document.getElementById('projApplyBar');
+  if (!bar) return;
+  const dirty = !_setsEqual(state.selectedProjects, state.appliedSelection);
+  bar.classList.toggle('visible', dirty);
 }
 
 async function loadPnl() {
