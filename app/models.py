@@ -24,6 +24,7 @@ from typing import Optional
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -52,6 +53,7 @@ class Target(Base):
     metric_code: Mapped[str] = mapped_column(String(32), nullable=False)
     target_pct: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -72,6 +74,7 @@ class DefaultTarget(Base):
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
     target_pct: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -88,6 +91,7 @@ class CategoryMapping(Base):
     planfact_category_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     pnl_code: Mapped[str] = mapped_column(String(32), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -108,6 +112,7 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -129,6 +134,7 @@ class ProjectConfig(Base):
     sort_order: Mapped[Optional[int]] = mapped_column(Integer)
     dodo_unit_uuid: Mapped[Optional[str]] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -151,6 +157,7 @@ class OpsMetric(Base):
     delivery_orders_count: Mapped[Optional[int]] = mapped_column(Integer)
     late_delivery_certs_pct: Mapped[Optional[float]] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -171,6 +178,7 @@ class OpsTarget(Base):
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
     target_value: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -186,6 +194,7 @@ class OpsProjectTarget(Base):
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
     target_value: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
@@ -217,6 +226,7 @@ class PnLTemplateNode(Base):
     pnl_code: Mapped[Optional[str]] = mapped_column(String(32))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
     )
 
