@@ -12,9 +12,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
+from . import audit
 from .dependencies import SESSION_COOKIE, require_user
 from .models import User
 from .passwords import verify_password
+from .ratelimit import login_limiter
 from .sessions import (
     SESSION_TTL_DAYS,
     create_session,
@@ -67,32 +69,56 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_session),
 ):
-    """Аутентификация. Успех → ставим HttpOnly cookie pnl_session, возвращаем user."""
+    """Аутентификация. Успех → ставим HttpOnly cookie pnl_session.
+
+    Rate-limit: 5 неудачных попыток / 15 мин / IP. Каждое событие пишется
+    в audit_log."""
+    ip = request.client.host if request.client else "unknown"
+
+    allowed, retry_after = login_limiter.check(ip)
+    if not allowed:
+        await audit.log_audit(
+            db, audit.ACTION_LOGIN_RATE_LIMITED,
+            request=request,
+            details={"username": body.username, "retry_after_sec": retry_after},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Слишком много неудачных попыток. Повторите через {retry_after // 60 + 1} мин.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     u = await get_user_by_username(db, body.username)
     if u is None or not verify_password(body.password, u.password_hash):
-        # Намеренно не различаем «нет такого юзера» и «неверный пароль» —
-        # один и тот же 401, чтобы не давать enumeration.
+        login_limiter.record_failure(ip)
+        await audit.log_audit(
+            db, audit.ACTION_LOGIN_FAILED,
+            user_id=(u.id if u else None),
+            request=request,
+            details={"username": body.username, "user_found": u is not None},
+        )
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль",
         )
 
+    login_limiter.reset(ip)
     s = await create_session(
         db, u,
         user_agent=request.headers.get("user-agent"),
-        ip=(request.client.host if request.client else None),
+        ip=ip if ip != "unknown" else None,
+    )
+    await audit.log_audit(
+        db, audit.ACTION_LOGIN_SUCCESS,
+        user_id=u.id, request=request,
     )
 
-    # Cookie: HttpOnly + Secure + SameSite=Lax + Path=/
-    # max_age в секундах
     response.set_cookie(
-        key=SESSION_COOKIE,
-        value=s.token,
+        key=SESSION_COOKIE, value=s.token,
         max_age=SESSION_TTL_DAYS * 24 * 3600,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        path="/",
+        httponly=True, secure=True, samesite="lax", path="/",
     )
     return UserPublic.from_user(u)
 
@@ -107,6 +133,10 @@ async def logout(
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         await delete_session(db, token)
+        await audit.log_audit(
+            db, audit.ACTION_LOGOUT,
+            request=request,
+        )
     response.delete_cookie(SESSION_COOKIE, path="/")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -146,8 +176,14 @@ async def change_password(
     await update_password(session, user.id, body.new_password)
     # Отозвать все сессии кроме текущей — security best practice
     current_token = request.state.session_token if hasattr(request.state, "session_token") else None
+    revoked = 0
     if current_token:
-        await revoke_other_sessions(session, user.id, current_token)
+        revoked = await revoke_other_sessions(session, user.id, current_token)
+    await audit.log_audit(
+        session, audit.ACTION_PASSWORD_CHANGED,
+        user_id=user.id, request=request,
+        details={"other_sessions_revoked": revoked},
+    )
     return {"status": "ok"}
 
 
@@ -213,6 +249,11 @@ async def revoke_my_session(
             "Нельзя отозвать текущую сессию — используйте кнопку «Выйти»",
         )
     await delete_session(session, target.token)
+    await audit.log_audit(
+        session, audit.ACTION_SESSION_REVOKED,
+        user_id=user.id, request=request,
+        details={"token_short": token_short},
+    )
     return {"status": "ok"}
 
 
@@ -226,6 +267,7 @@ class IntegrationsRequest(BaseModel):
 @router.patch("/api/me/integrations")
 async def patch_integrations(
     body: IntegrationsRequest,
+    request: Request,
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -236,6 +278,15 @@ async def patch_integrations(
         dodois_credentials_name=body.dodois_credentials_name,
         planfact_api_key=body.planfact_api_key,
     )
+    await audit.log_audit(
+        session, audit.ACTION_INTEGRATIONS_UPDATED,
+        user_id=user.id, request=request,
+        details={
+            # Не пишем сами значения — только что меняли
+            "planfact_changed": body.planfact_api_key is not None,
+            "dodois_changed": body.dodois_credentials_name is not None,
+        },
+    )
     return {"status": "ok"}
 
 
@@ -243,6 +294,43 @@ class IntegrationStatus(BaseModel):
     """Маскированное представление текущих интеграций (без полного ключа)."""
     planfact_key_masked: Optional[str]   # '_pUi...RGXs' или None
     dodois_credentials_name: Optional[str]
+
+
+# ---------- Audit log: свои события ----------
+
+class AuditEntry(BaseModel):
+    id: int
+    action: str
+    details: Optional[dict]
+    ip: Optional[str]
+    user_agent: Optional[str]
+    created_at: datetime
+
+
+@router.get("/api/me/audit", response_model=list[AuditEntry])
+async def list_my_audit(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+    limit: int = 50,
+):
+    """Последние audit-события текущего юзера. Без чувствительных данных."""
+    from sqlalchemy import select
+    from .models import AuditLog
+    stmt = (
+        select(AuditLog)
+        .where(AuditLog.user_id == user.id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+    )
+    result = await session.execute(stmt)
+    return [
+        AuditEntry(
+            id=r.id, action=r.action, details=r.details,
+            ip=str(r.ip) if r.ip else None,
+            user_agent=r.user_agent, created_at=r.created_at,
+        )
+        for r in result.scalars()
+    ]
 
 
 @router.get("/api/me/integrations", response_model=IntegrationStatus)

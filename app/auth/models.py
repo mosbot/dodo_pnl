@@ -24,7 +24,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -107,3 +107,39 @@ class UserSession(Base):
 
     def __repr__(self) -> str:
         return f"<UserSession token={self.token[:8]}... user_id={self.user_id}>"
+
+
+class AuditLog(Base):
+    """Журнал security-событий. user_id NULL для login_failed (юзера не нашли).
+
+    action — короткий код (login_success, login_failed, login_rate_limited,
+    logout, password_changed, integrations_changed, admin_user_created,
+    admin_user_deleted, admin_user_updated, admin_password_reset).
+    details — произвольный JSONB (никогда не кладём пароли/токены, только
+    метаданные: имена, флаги, target user_id и т.п.).
+
+    ON DELETE SET NULL у user_id — не теряем историю, когда юзер удалён;
+    запись остаётся для аудита.
+    """
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    details: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    ip: Mapped[Optional[str]] = mapped_column(INET, nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+        index=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<AuditLog id={self.id} action={self.action!r} user_id={self.user_id}>"

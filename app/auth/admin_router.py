@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import store
 from ..db import get_session
+from . import audit
 from .dependencies import require_admin
 from .models import User
 from .users import (
@@ -103,6 +104,7 @@ async def admin_list_users(
 @admin_router.post("/api/admin/users", response_model=AdminUserPublic)
 async def admin_create_user(
     body: AdminUserCreate,
+    request: Request,
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -115,6 +117,11 @@ async def admin_create_user(
             is_admin=body.is_admin,
             dodois_credentials_name=body.dodois_credentials_name,
             planfact_api_key=body.planfact_api_key,
+        )
+        await audit.log_audit(
+            session, audit.ACTION_ADMIN_USER_CREATED,
+            user_id=admin.id, request=request,
+            details={"target_user_id": u.id, "target_username": u.username, "is_admin": u.is_admin},
         )
         await session.commit()
         return AdminUserPublic.from_user(u)
@@ -130,6 +137,7 @@ async def admin_create_user(
 async def admin_update_user(
     user_id: int,
     body: AdminUserUpdate,
+    request: Request,
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -137,25 +145,33 @@ async def admin_update_user(
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
 
-    # Нельзя снимать admin-флаг с самого себя — иначе можно случайно потерять
-    # доступ к админке (никто не сможет его восстановить).
-    if (
-        body.is_admin is False
-        and admin.id == u.id
-    ):
+    if body.is_admin is False and admin.id == u.id:
         raise HTTPException(400, "Нельзя снять админ-флаг с самого себя")
 
+    fields_changed: list[str] = []
     if body.display_name is not None:
         u.display_name = body.display_name or None
+        fields_changed.append("display_name")
     if body.is_admin is not None:
         u.is_admin = bool(body.is_admin)
-    # Интеграции — через update_integrations (не трогаем поля если не переданы)
+        fields_changed.append("is_admin")
     if body.dodois_credentials_name is not None or body.planfact_api_key is not None:
         await update_integrations(
             session, u.id,
             dodois_credentials_name=body.dodois_credentials_name,
             planfact_api_key=body.planfact_api_key,
         )
+        if body.dodois_credentials_name is not None:
+            fields_changed.append("dodois_credentials_name")
+        if body.planfact_api_key is not None:
+            fields_changed.append("planfact_api_key")
+
+    await audit.log_audit(
+        session, audit.ACTION_ADMIN_USER_UPDATED,
+        user_id=admin.id, request=request,
+        details={"target_user_id": u.id, "target_username": u.username,
+                 "fields_changed": fields_changed},
+    )
     await session.flush()
     await session.commit()
     fresh = await get_user_by_id(session, user_id)
@@ -167,6 +183,7 @@ async def admin_update_user(
 )
 async def admin_reset_password(
     user_id: int,
+    request: Request,
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -175,6 +192,11 @@ async def admin_reset_password(
         raise HTTPException(404, "Пользователь не найден")
     new_pwd = _gen_password(16)
     await update_password(session, u.id, new_pwd)
+    await audit.log_audit(
+        session, audit.ACTION_ADMIN_PASSWORD_RESET,
+        user_id=admin.id, request=request,
+        details={"target_user_id": u.id, "target_username": u.username},
+    )
     await session.commit()
     return ResetPasswordResponse(password=new_pwd)
 
@@ -182,6 +204,7 @@ async def admin_reset_password(
 @admin_router.delete("/api/admin/users/{user_id}")
 async def admin_delete_user(
     user_id: int,
+    request: Request,
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -190,7 +213,14 @@ async def admin_delete_user(
     u = await get_user_by_id(session, user_id)
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
+    target_username = u.username
     await session.delete(u)
+    await audit.log_audit(
+        session, audit.ACTION_ADMIN_USER_DELETED,
+        user_id=admin.id, request=request,
+        # user_id целевого юзера уже невалиден после delete — пишем только snapshot
+        details={"target_user_id": user_id, "target_username": target_username},
+    )
     await session.commit()
     return {"status": "ok"}
 
@@ -248,3 +278,53 @@ async def admin_patch_project_for_user(
     await store.upsert_project_config(session, u.id, project_id, **kwargs)
     await session.commit()
     return {"status": "ok"}
+
+
+# ---------- Audit log: глобальный для админа ----------
+
+class AdminAuditEntry(BaseModel):
+    id: int
+    user_id: Optional[int]
+    username: Optional[str]
+    action: str
+    details: Optional[dict]
+    ip: Optional[str]
+    user_agent: Optional[str]
+    created_at: str
+
+
+@admin_router.get("/api/admin/audit", response_model=list[AdminAuditEntry])
+async def admin_list_audit(
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    limit: int = 100,
+    user_id: Optional[int] = None,
+    action: Optional[str] = None,
+):
+    """Audit-события всех юзеров. Опциональные фильтры: user_id, action."""
+    from sqlalchemy import select
+    from .models import AuditLog
+    stmt = (
+        select(AuditLog, User.username)
+        .outerjoin(User, AuditLog.user_id == User.id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(min(max(limit, 1), 500))
+    )
+    if user_id is not None:
+        stmt = stmt.where(AuditLog.user_id == user_id)
+    if action:
+        stmt = stmt.where(AuditLog.action == action)
+    result = await session.execute(stmt)
+    return [
+        AdminAuditEntry(
+            id=row[0].id,
+            user_id=row[0].user_id,
+            username=row[1],
+            action=row[0].action,
+            details=row[0].details,
+            ip=str(row[0].ip) if row[0].ip else None,
+            user_agent=row[0].user_agent,
+            created_at=row[0].created_at.isoformat(),
+        )
+        for row in result.all()
+    ]
