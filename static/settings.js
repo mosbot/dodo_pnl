@@ -1584,7 +1584,7 @@ function renderMetrics() {
   });
   if (!state.metrics || state.metrics.length === 0) {
     tbody.innerHTML = `
-      <tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">
+      <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">
         Метрик пока нет. Нажми «+ Метрика» сверху.
       </td></tr>
     `;
@@ -1608,7 +1608,6 @@ function renderMetrics() {
         <input type="checkbox" data-f="is_target" ${m.is_target ? 'checked' : ''}>
       </td>
       <td><input type="number" data-f="sort_order" value="${m.sort_order || 0}" style="width:60px"></td>
-      <td class="metric-value-cell">—</td>
       <td>
         <button type="button" class="btn-secondary metric-check" title="Проверить формулу">✓</button>
         <button type="button" class="btn-danger metric-delete" title="Удалить">×</button>
