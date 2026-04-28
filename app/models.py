@@ -82,11 +82,18 @@ class DefaultTarget(Base):
 # ---------- Category mapping ----------
 
 class CategoryMapping(Base):
-    """planfact_category_id → pnl_code. PK на (owner_id, planfact_category_id)."""
+    """planfact_category_id → pnl_code.
+
+    Привязка к ключу PlanFact, а не к юзеру: один аккаунт PlanFact = один
+    набор категорий = один маппинг. Юзеры с одним planfact_key делят одну
+    запись. PK на (planfact_key_id, planfact_category_id).
+    """
     __tablename__ = "category_mapping"
 
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     planfact_category_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     pnl_code: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -96,7 +103,7 @@ class CategoryMapping(Base):
     )
 
     __table_args__ = (
-        Index("ix_mapping_owner_code", "owner_id", "pnl_code"),
+        Index("ix_mapping_pfkey_code", "planfact_key_id", "pnl_code"),
     )
 
 
@@ -202,14 +209,21 @@ class OpsProjectTarget(Base):
 # ---------- PnL template ----------
 
 class PnLTemplateNode(Base):
-    """Узел шаблона P&L. parent_id — self-FK на pnl_template.id."""
+    """Узел шаблона P&L. parent_id — self-FK на pnl_template.id.
+
+    Привязан к planfact_key, а не к юзеру: один аккаунт PlanFact = одна
+    структура. Юзеры с одним ключом делят шаблон. Write-доступ контролирует
+    роутер (admin only), БД сама различает только владельца ключа.
+    """
     __tablename__ = "pnl_template"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        nullable=False,
     )
-    # parent_id ссылается на pnl_service.pnl_template.id того же owner.
+    # parent_id ссылается на pnl_service.pnl_template.id того же ключа.
     # FK не ставим — упрощает batch-replace при импорте шаблона (DELETE всё,
     # потом INSERT по порядку: иначе пришлось бы возиться с ON DELETE SET NULL).
     parent_id: Mapped[Optional[int]] = mapped_column(BigInteger)
@@ -231,7 +245,7 @@ class PnLTemplateNode(Base):
     )
 
     __table_args__ = (
-        Index("ix_template_owner_path", "owner_id", "path_lc"),
-        Index("ix_template_owner_parent", "owner_id", "parent_id"),
-        Index("ix_template_owner_sort", "owner_id", "sort_order"),
+        Index("ix_template_pfkey_path", "planfact_key_id", "path_lc"),
+        Index("ix_template_pfkey_parent", "planfact_key_id", "parent_id"),
+        Index("ix_template_pfkey_sort", "planfact_key_id", "sort_order"),
     )

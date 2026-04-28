@@ -16,7 +16,7 @@
   <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
     <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
     <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
-    <button type="button" class="tab-btn" data-tab="structure" role="tab" aria-selected="false">Структура</button>
+    <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Структура</button>
     <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Таргеты</button>
     <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Пользователи</button>
   </nav>
@@ -101,8 +101,8 @@
     </div>
   </section>
 
-  <!-- ============ TAB: СТРУКТУРА ============ -->
-  <section class="tab-pane" data-pane="structure" role="tabpanel">
+  <!-- ============ TAB: СТРУКТУРА (admin only) ============ -->
+  <section class="tab-pane admin-only hidden" data-pane="structure" role="tabpanel">
 
     <div class="tab-toolbar">
       <span class="toolbar-hint">Разовые настройки. Меняются при онбординге или при изменениях в сети.</span>

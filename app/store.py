@@ -150,25 +150,32 @@ async def delete_default_target(
 
 
 # ---------- Category mapping ----------
+# Привязан к planfact_key_id (см. модель). list_/upsert_ принимают
+# planfact_key_id юзера; если у юзера нет ключа — возвращаем пусто/no-op
+# в вызывающем коде до обращения сюда.
 
 async def list_mappings(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> dict[str, str]:
-    stmt = select(CategoryMapping).where(CategoryMapping.owner_id == owner_id)
+    stmt = select(CategoryMapping).where(
+        CategoryMapping.planfact_key_id == planfact_key_id
+    )
     result = await session.execute(stmt)
     return {m.planfact_category_id: m.pnl_code for m in result.scalars()}
 
 
 async def upsert_mapping(
-    session: AsyncSession, owner_id: int, planfact_id: str, pnl_code: str
+    session: AsyncSession, planfact_key_id: int, planfact_id: str, pnl_code: str
 ) -> None:
     stmt = (
         pg_insert(CategoryMapping)
         .values(
-            owner_id=owner_id, planfact_category_id=planfact_id, pnl_code=pnl_code
+            planfact_key_id=planfact_key_id,
+            planfact_category_id=planfact_id,
+            pnl_code=pnl_code,
         )
         .on_conflict_do_update(
-            index_elements=["owner_id", "planfact_category_id"],
+            index_elements=["planfact_key_id", "planfact_category_id"],
             set_={"pnl_code": pnl_code, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -497,13 +504,14 @@ def effective_ops_target(
 
 
 # ---------- PnL template ----------
+# Привязан к planfact_key_id. Юзеры с одним PF-ключом видят один шаблон.
 
 async def list_template_nodes(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> list[dict]:
     stmt = (
         select(PnLTemplateNode)
-        .where(PnLTemplateNode.owner_id == owner_id)
+        .where(PnLTemplateNode.planfact_key_id == planfact_key_id)
         .order_by(PnLTemplateNode.sort_order)
     )
     result = await session.execute(stmt)
@@ -524,19 +532,19 @@ async def list_template_nodes(
     ]
 
 
-async def template_is_empty(session: AsyncSession, owner_id: int) -> bool:
+async def template_is_empty(session: AsyncSession, planfact_key_id: int) -> bool:
     stmt = select(PnLTemplateNode.id).where(
-        PnLTemplateNode.owner_id == owner_id
+        PnLTemplateNode.planfact_key_id == planfact_key_id
     ).limit(1)
     result = await session.execute(stmt)
     return result.first() is None
 
 
 async def template_path_to_code(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> dict[str, str]:
     stmt = select(PnLTemplateNode.path_lc, PnLTemplateNode.pnl_code).where(
-        PnLTemplateNode.owner_id == owner_id,
+        PnLTemplateNode.planfact_key_id == planfact_key_id,
         PnLTemplateNode.is_calc == False,  # noqa: E712
         PnLTemplateNode.pnl_code.isnot(None),
         PnLTemplateNode.pnl_code != "",
@@ -546,9 +554,9 @@ async def template_path_to_code(
 
 
 async def template_leaf_title_to_code(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> dict[str, str]:
-    nodes = await list_template_nodes(session, owner_id)
+    nodes = await list_template_nodes(session, planfact_key_id)
     out: dict[str, str] = {}
     for n in nodes:
         if n["is_calc"] or not n["pnl_code"]:
@@ -560,12 +568,14 @@ async def template_leaf_title_to_code(
 
 
 async def replace_template_tree(
-    session: AsyncSession, owner_id: int, nodes: list[dict]
+    session: AsyncSession, planfact_key_id: int, nodes: list[dict]
 ) -> int:
-    """Полная замена шаблона для текущего owner. Не трогает чужих."""
+    """Полная замена шаблона для ключа PlanFact. Не трогает чужих ключей."""
     # Удаляем всё текущее
     await session.execute(
-        delete(PnLTemplateNode).where(PnLTemplateNode.owner_id == owner_id)
+        delete(PnLTemplateNode).where(
+            PnLTemplateNode.planfact_key_id == planfact_key_id
+        )
     )
     await session.flush()  # чтобы DELETE применился перед INSERT
 
@@ -578,7 +588,7 @@ async def replace_template_tree(
         )
         path_str = " / ".join(n["path"])
         node = PnLTemplateNode(
-            owner_id=owner_id,
+            planfact_key_id=planfact_key_id,
             parent_id=parent_id,
             depth=int(n["depth"]),
             title=n["title"],
@@ -596,13 +606,14 @@ async def replace_template_tree(
 
 
 async def update_template_node_code(
-    session: AsyncSession, owner_id: int, node_id: int, pnl_code: Optional[str]
+    session: AsyncSession, planfact_key_id: int,
+    node_id: int, pnl_code: Optional[str],
 ) -> bool:
     stmt = (
         update(PnLTemplateNode)
         .where(
             PnLTemplateNode.id == node_id,
-            PnLTemplateNode.owner_id == owner_id,
+            PnLTemplateNode.planfact_key_id == planfact_key_id,
         )
         .values(pnl_code=(pnl_code or None), updated_at=datetime.now(timezone.utc))
     )
@@ -610,7 +621,9 @@ async def update_template_node_code(
     return result.rowcount > 0
 
 
-async def clear_template(session: AsyncSession, owner_id: int) -> None:
+async def clear_template(session: AsyncSession, planfact_key_id: int) -> None:
     await session.execute(
-        delete(PnLTemplateNode).where(PnLTemplateNode.owner_id == owner_id)
+        delete(PnLTemplateNode).where(
+            PnLTemplateNode.planfact_key_id == planfact_key_id
+        )
     )

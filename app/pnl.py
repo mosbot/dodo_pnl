@@ -69,7 +69,8 @@ def _detect_revenue_channel(path_str: str) -> str:
 
 
 async def _build_category_index(
-    session, owner_id: int, categories: list[dict]
+    session, owner_id: int, planfact_key_id: int | None,
+    categories: list[dict],
 ) -> dict[str, dict]:
     """id категории → {id, title, parent_id, path, op_type, activity_type, outcome_class, pnl_code}."""
     by_id: dict[str, dict] = {}
@@ -106,9 +107,19 @@ async def _build_category_index(
     #   1) user_map по PlanFact-ID (точечный override через UI)
     #   2) шаблон, импортированный из экспорта ПланФакт (match по path)
     #   3) classify_category() — эвристика на словах в path
-    user_map = await store.list_mappings(session, owner_id)
-    template_by_path = await store.template_path_to_code(session, owner_id)
-    template_by_leaf = await store.template_leaf_title_to_code(session, owner_id) if template_by_path else {}
+    # Шаблон и user_map — per planfact_key. Если у юзера нет ключа,
+    # пропускаем оба источника и матчим только эвристикой.
+    if planfact_key_id is not None:
+        user_map = await store.list_mappings(session, planfact_key_id)
+        template_by_path = await store.template_path_to_code(session, planfact_key_id)
+        template_by_leaf = (
+            await store.template_leaf_title_to_code(session, planfact_key_id)
+            if template_by_path else {}
+        )
+    else:
+        user_map = {}
+        template_by_path = {}
+        template_by_leaf = {}
     for cid, info in by_id.items():
         path_str_orig = " / ".join(info["path"])
         path_lc = path_str_orig.lower()
@@ -212,6 +223,7 @@ async def build_pnl(
     *,
     session,                       # AsyncSession (не аннотируем — circular import)
     owner_id: int,
+    planfact_key_id: int | None,   # для чтения шаблона/маппинга (общие на ключ)
     categories: list[dict],
     operations: list[dict],
     projects: list[dict],
@@ -244,7 +256,7 @@ async def build_pnl(
         proj_set = set(projects_by_id.keys())
 
     # --- категории ---
-    cat_index = await _build_category_index(session, owner_id, categories)
+    cat_index = await _build_category_index(session, owner_id, planfact_key_id, categories)
 
     # --- настройки ---
     include_manager_in_lc = await store.get_bool_setting(
@@ -518,7 +530,7 @@ async def build_pnl(
     # отдать реально посчитанные значения, а не «—».
     template_lines = await build_template_breakdown(
         session=session,
-        owner_id=owner_id,
+        planfact_key_id=planfact_key_id,
         cat_index=cat_index,
         cat_totals=cat_totals,
         revenues=revenues,
@@ -660,7 +672,7 @@ CALC_TITLE_TO_PCT_BASE: dict[str, str] = {
 async def build_template_breakdown(
     *,
     session,
-    owner_id: int,
+    planfact_key_id: int | None,
     cat_index: dict[str, dict],
     cat_totals: dict[tuple[str, str], float],
     revenues: dict[str, float],
@@ -679,7 +691,9 @@ async def build_template_breakdown(
     Возвращает плоский список в порядке sort_order; иерархия восстанавливается
     клиентом по parent_id/depth.
     """
-    nodes = await store.list_template_nodes(session, owner_id)
+    if planfact_key_id is None:
+        return []
+    nodes = await store.list_template_nodes(session, planfact_key_id)
     if not nodes:
         return []
 

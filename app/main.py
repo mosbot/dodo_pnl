@@ -337,7 +337,9 @@ async def get_categories(
         cats = await pf.list_operation_categories()
     except PlanFactError as e:
         raise HTTPException(502, str(e))
-    index = await pnl_module._build_category_index(session, user.id, cats)
+    index = await pnl_module._build_category_index(
+        session, user.id, user.planfact_key_id, cats
+    )
     out = []
     for cid, info in index.items():
         out.append({
@@ -348,7 +350,11 @@ async def get_categories(
             "activity_type": info["activity_type"],
             "pnl_code": info["pnl_code"],
         })
-    return {"categories": out, "mappings": await store.list_mappings(session, user.id)}
+    mappings = (
+        await store.list_mappings(session, user.planfact_key_id)
+        if user.planfact_key_id else {}
+    )
+    return {"categories": out, "mappings": mappings}
 
 
 def _derive_period_month(date_start: str, date_end: str) -> str | None:
@@ -413,6 +419,7 @@ async def get_pnl(
         )
         result = await pnl_module.build_pnl(
             session=session, owner_id=user.id,
+            planfact_key_id=user.planfact_key_id,
             categories=categories, operations=operations, projects=projects,
             project_filter=effective_projects,
             date_start=date_start, date_end=date_end,
@@ -425,6 +432,7 @@ async def get_pnl(
             )
             prev = await pnl_module.build_pnl(
                 session=session, owner_id=user.id,
+                planfact_key_id=user.planfact_key_id,
                 categories=categories, operations=prev_operations, projects=projects,
                 project_filter=effective_projects,
                 date_start=compare_start, date_end=compare_end,
@@ -949,15 +957,31 @@ async def sync_ops_metrics_from_dodois(
 
 
 # --- Category mapping ---
+# Маппинг и шаблон привязаны к planfact_key (см. модель CategoryMapping/
+# PnLTemplateNode). Read — любой юзер с привязанным ключом, write — admin only.
+
+def _require_user_pf_key(user: User) -> int:
+    """Достать planfact_key_id юзера или вернуть 400 если не настроен."""
+    if not user.planfact_key_id:
+        raise HTTPException(
+            400,
+            "У пользователя не задан ключ PlanFact. "
+            "Настройте его в /settings → Интеграции."
+        )
+    return user.planfact_key_id
+
 
 @app.post("/api/mappings")
 async def upsert_mapping(
     payload: MappingIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    """Override маппинга PlanFact-категории на код P&L. Только админ —
+    маппинг общий для всех юзеров с этим ключом."""
+    pf_key_id = _require_user_pf_key(user)
     await store.upsert_mapping(
-        session, user.id, payload.planfact_category_id, payload.pnl_code
+        session, pf_key_id, payload.planfact_category_id, payload.pnl_code
     )
     return {"status": "ok"}
 
@@ -969,13 +993,16 @@ async def get_template(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Возвращает текущий шаблон. nodes=[] означает, что шаблон не задан."""
-    return {"nodes": await store.list_template_nodes(session, user.id)}
+    """Возвращает текущий шаблон. nodes=[] означает, что шаблон не задан
+    либо у юзера нет ключа PlanFact."""
+    if not user.planfact_key_id:
+        return {"nodes": [], "no_planfact_key": True}
+    return {"nodes": await store.list_template_nodes(session, user.planfact_key_id)}
 
 
 @app.post("/api/template/preview")
 async def template_preview(
-    file: UploadFile = File(...), user: User = Depends(require_user)
+    file: UploadFile = File(...), user: User = Depends(require_admin)
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Ожидается .xlsx-файл (экспорт из ПланФакт).")
@@ -990,27 +1017,31 @@ async def template_preview(
 @app.put("/api/template")
 async def save_template(
     payload: TemplateSaveIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    """Полная замена шаблона для ключа PlanFact юзера. Только админ —
+    шаблон общий для всех юзеров с этим ключом."""
+    pf_key_id = _require_user_pf_key(user)
     nodes = payload.nodes or []
     if not nodes:
         raise HTTPException(400, "Список узлов пуст — нечего сохранять.")
     for n in nodes:
         if "title" not in n or "depth" not in n or "path" not in n:
             raise HTTPException(400, "Узлы должны содержать title/depth/path.")
-    inserted = await store.replace_template_tree(session, user.id, nodes)
+    inserted = await store.replace_template_tree(session, pf_key_id, nodes)
     return {"status": "ok", "inserted": inserted}
 
 
 @app.patch("/api/template/{node_id}")
 async def patch_template_node(
     node_id: int, payload: TemplateNodeCodeIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    pf_key_id = _require_user_pf_key(user)
     ok = await store.update_template_node_code(
-        session, user.id, node_id, payload.pnl_code
+        session, pf_key_id, node_id, payload.pnl_code
     )
     if not ok:
         raise HTTPException(404, f"Узел {node_id} не найден.")
@@ -1019,10 +1050,11 @@ async def patch_template_node(
 
 @app.delete("/api/template")
 async def delete_template(
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.clear_template(session, user.id)
+    pf_key_id = _require_user_pf_key(user)
+    await store.clear_template(session, pf_key_id)
     return {"status": "ok"}
 
 
