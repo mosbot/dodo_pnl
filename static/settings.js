@@ -95,8 +95,8 @@ function flashErr(inputEl) {
   setTimeout(() => inputEl.classList.remove('cell-flash-err'), 1500);
 }
 
-// ---------- Tabs (Профиль / Интеграции / Структура / Таргеты) ----------
-const TABS = ['profile', 'integrations', 'structure', 'targets'];
+// ---------- Tabs (Профиль / Интеграции / Структура / Таргеты / Пользователи) ----------
+const TABS = ['profile', 'integrations', 'structure', 'targets', 'users'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
 function showTab(name) {
@@ -1030,12 +1030,190 @@ function initIntegrationsTab() {
   loadIntegrationStatus();
 }
 
+// ======================================================
+// Пользователи (admin only)
+// ======================================================
+async function renderUsersTable() {
+  const tbody = document.querySelector('#usersTable tbody');
+  if (!tbody) return;
+  try {
+    const users = await api('/api/admin/users');
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">Пользователей нет.</td></tr>';
+      return;
+    }
+    const fmtDt = (s) => {
+      try { return new Date(s).toLocaleDateString('ru-RU'); }
+      catch { return s; }
+    };
+    tbody.innerHTML = users.map(u => `
+      <tr data-id="${u.id}">
+        <td>${u.id}</td>
+        <td><strong>${esc(u.username)}</strong></td>
+        <td>${esc(u.display_name || '—')}</td>
+        <td>${u.is_admin ? '★ да' : 'нет'}</td>
+        <td>${esc(u.dodois_credentials_name || '—')}</td>
+        <td>${u.planfact_key_masked ? '<code>' + esc(u.planfact_key_masked) + '</code>' : '<span class="muted">—</span>'}</td>
+        <td>${fmtDt(u.created_at)}</td>
+        <td><button class="btn-secondary js-edit-user" data-id="${u.id}">Изменить</button></td>
+      </tr>
+    `).join('');
+    tbody.querySelectorAll('.js-edit-user').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const u = users.find(x => x.id === Number(btn.dataset.id));
+        if (u) openEditUserModal(u);
+      });
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" class="neg">Ошибка: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function openModal(id) {
+  document.getElementById(id)?.classList.remove('hidden');
+}
+function closeModal(id) {
+  document.getElementById(id)?.classList.add('hidden');
+}
+
+function openCreateUserModal() {
+  document.getElementById('createUserForm').reset();
+  setMsg('cuMsg', '', '');
+  openModal('userCreateModal');
+}
+
+function openEditUserModal(u) {
+  document.getElementById('ueId').value = u.id;
+  document.getElementById('ueUsername').value = u.username;
+  document.getElementById('ueDisplayName').value = u.display_name || '';
+  document.getElementById('ueIsAdmin').checked = !!u.is_admin;
+  document.getElementById('ueDodoisName').value = u.dodois_credentials_name || '';
+  document.getElementById('uePfKey').value = '';
+  setMsg('ueMsg', '', '');
+  openModal('userEditModal');
+}
+
+function showGeneratedPassword(pwd) {
+  document.getElementById('generatedPwd').textContent = pwd;
+  openModal('passwordShownModal');
+}
+
+function initUsersTab() {
+  // Скрываем admin-only элементы для не-админов; показываем для админов.
+  const isAdmin = !!(state.me && state.me.is_admin);
+  document.querySelectorAll('.admin-only').forEach(e => {
+    e.classList.toggle('hidden', !isAdmin);
+  });
+  if (!isAdmin) return;
+
+  // Закрытие модалок по [data-close]
+  document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.modal')?.classList.add('hidden');
+    });
+  });
+
+  // Кнопка «Создать»
+  document.getElementById('btnCreateUser').addEventListener('click', openCreateUserModal);
+
+  // Submit формы создания
+  document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setMsg('cuMsg', '', '');
+    const body = {
+      username: document.getElementById('cuUsername').value.trim(),
+      password: document.getElementById('cuPassword').value,
+      display_name: document.getElementById('cuDisplayName').value.trim() || null,
+      is_admin: document.getElementById('cuIsAdmin').checked,
+      dodois_credentials_name: document.getElementById('cuDodoisName').value.trim() || null,
+      planfact_api_key: document.getElementById('cuPfKey').value.trim() || null,
+    };
+    try {
+      await post('/api/admin/users', body);
+      closeModal('userCreateModal');
+      toast('Пользователь создан');
+      await renderUsersTable();
+    } catch (err) {
+      setMsg('cuMsg', err.message, 'err');
+    }
+  });
+
+  // Submit формы редактирования
+  document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setMsg('ueMsg', '', '');
+    const id = document.getElementById('ueId').value;
+    const body = {
+      display_name: document.getElementById('ueDisplayName').value.trim() || null,
+      is_admin: document.getElementById('ueIsAdmin').checked,
+      dodois_credentials_name: document.getElementById('ueDodoisName').value.trim() || null,
+    };
+    const newPf = document.getElementById('uePfKey').value.trim();
+    if (newPf) body.planfact_api_key = newPf;
+    try {
+      await api(`/api/admin/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      closeModal('userEditModal');
+      toast('Сохранено');
+      await renderUsersTable();
+    } catch (err) {
+      setMsg('ueMsg', err.message, 'err');
+    }
+  });
+
+  // Сброс пароля
+  document.getElementById('ueResetPwd').addEventListener('click', async () => {
+    const id = document.getElementById('ueId').value;
+    const username = document.getElementById('ueUsername').value;
+    if (!confirm(`Сгенерировать новый пароль для ${username}?\n\nСтарый пароль перестанет работать. Скопируйте новый и передайте пользователю.`)) return;
+    try {
+      const r = await post(`/api/admin/users/${id}/reset-password`, {});
+      closeModal('userEditModal');
+      showGeneratedPassword(r.password);
+    } catch (err) {
+      setMsg('ueMsg', err.message, 'err');
+    }
+  });
+
+  // Удаление
+  document.getElementById('ueDelete').addEventListener('click', async () => {
+    const id = document.getElementById('ueId').value;
+    const username = document.getElementById('ueUsername').value;
+    if (!confirm(`Удалить пользователя ${username}? Это удалит ВСЕ его данные (проекты, таргеты, шаблон).`)) return;
+    try {
+      await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+      closeModal('userEditModal');
+      toast('Пользователь удалён');
+      await renderUsersTable();
+    } catch (err) {
+      setMsg('ueMsg', err.message, 'err');
+    }
+  });
+
+  // Кнопка «Скопировать» в модалке нового пароля
+  document.getElementById('copyPwdBtn').addEventListener('click', async () => {
+    const text = document.getElementById('generatedPwd').textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Скопировано в буфер обмена');
+    } catch (err) {
+      toast('Не удалось скопировать: ' + err.message, 'error');
+    }
+  });
+
+  renderUsersTable();
+}
+
 // ---------- Bootstrap ----------
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await loadAll();
     initProfileTab();
     initIntegrationsTab();
+    initUsersTab();
   } catch (e) {
     console.error(e);
     toast('Ошибка загрузки: ' + e.message, 'error');

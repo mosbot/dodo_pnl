@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import dodois_client
 from . import pnl as pnl_module
 from . import store
+from .auth.admin_router import admin_router
 from .auth.dependencies import optional_user, require_admin, require_user
 from .auth.router import router as auth_router
 from .auth.models import User
@@ -42,8 +43,9 @@ from .schemas import (
 app = FastAPI(title="PnL Dashboard")
 
 # --- auth ---
-# Подключаем /auth/login, /auth/logout, /auth/me
+# Подключаем /auth/login, /auth/logout, /auth/me + /api/me/* + /api/admin/*
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 # --- token resolver helpers ---

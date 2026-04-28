@@ -18,6 +18,7 @@
     <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
     <button type="button" class="tab-btn" data-tab="structure" role="tab" aria-selected="false">Структура</button>
     <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Таргеты</button>
+    <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Пользователи</button>
   </nav>
   <div class="controls">
     <a href="/" class="btn-secondary" style="text-decoration:none;">← К дашборду</a>
@@ -194,7 +195,123 @@
 
   </section>
 
+  <!-- ============ TAB: ПОЛЬЗОВАТЕЛИ (admin only) ============ -->
+  <section class="tab-pane admin-only hidden" data-pane="users" role="tabpanel">
+    <div class="dense-block">
+      <div class="block-head">
+        <h2>Пользователи</h2>
+        <span class="block-sub muted">CRUD — видно только администратору</span>
+        <div class="block-inline-ctl">
+          <button type="button" id="btnCreateUser" class="btn-primary">+ Создать пользователя</button>
+        </div>
+      </div>
+      <div class="block-body block-scroll-x">
+        <table class="dense-table" id="usersTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>Логин</th><th>Имя</th><th>Админ</th>
+              <th>Dodo IS name</th><th>PF key</th><th>Создан</th><th></th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="8" class="muted">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 </main>
+
+<!-- ============ Модалка: Создать пользователя ============ -->
+<div id="userCreateModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Создать пользователя</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <form id="createUserForm" class="profile-form" style="max-width:none;">
+      <label>Логин (lowercase, до 64 символов)
+        <input type="text" id="cuUsername" required minlength="1" maxlength="64">
+      </label>
+      <label>Пароль (мин. 8 символов)
+        <input type="password" id="cuPassword" required minlength="8">
+      </label>
+      <label>Отображаемое имя (опционально)
+        <input type="text" id="cuDisplayName" maxlength="128">
+      </label>
+      <label class="inline" style="flex-direction:row !important;align-items:center;gap:8px;">
+        <input type="checkbox" id="cuIsAdmin">
+        <span>Сделать администратором</span>
+      </label>
+      <label>Имя в dodois_credentials (опционально)
+        <input type="text" id="cuDodoisName" maxlength="128">
+      </label>
+      <label>PlanFact API key (опционально)
+        <input type="password" id="cuPfKey">
+      </label>
+      <div id="cuMsg" class="profile-msg"></div>
+      <div class="modal-footer">
+        <button type="submit" class="btn-primary">Создать</button>
+        <button type="button" class="btn-secondary" data-close>Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Модалка: Редактировать пользователя ============ -->
+<div id="userEditModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="ueTitle">Изменить пользователя</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <form id="editUserForm" class="profile-form" style="max-width:none;">
+      <input type="hidden" id="ueId">
+      <label>Логин <input type="text" id="ueUsername" disabled></label>
+      <label>Отображаемое имя
+        <input type="text" id="ueDisplayName" maxlength="128">
+      </label>
+      <label class="inline" style="flex-direction:row !important;align-items:center;gap:8px;">
+        <input type="checkbox" id="ueIsAdmin">
+        <span>Администратор</span>
+      </label>
+      <label>Имя в dodois_credentials
+        <input type="text" id="ueDodoisName" maxlength="128">
+      </label>
+      <label>PlanFact API key (оставить пустым = не менять)
+        <input type="password" id="uePfKey" placeholder="новый ключ или пусто чтобы сохранить">
+      </label>
+      <div id="ueMsg" class="profile-msg"></div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button type="button" class="btn-secondary" id="ueResetPwd" style="background:#fef3c7;border-color:#fde68a;color:#92400e;">Сбросить пароль</button>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="btn-secondary" id="ueDelete" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;">Удалить</button>
+          <button type="submit" class="btn-primary">Сохранить</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Модалка: Сгенерированный пароль ============ -->
+<div id="passwordShownModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Новый пароль</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <p class="muted" style="font-size:13px;">
+      Передайте этот пароль пользователю безопасным способом. Повторно его узнать нельзя — только сгенерировать новый.
+    </p>
+    <code id="generatedPwd"
+      style="display:block;padding:10px;background:#f3f4f6;border-radius:6px;
+             font-family:ui-monospace,Menlo,monospace;font-size:14px;
+             margin:12px 0;word-break:break-all;"></code>
+    <div class="modal-footer">
+      <button type="button" id="copyPwdBtn" class="btn-secondary">Скопировать</button>
+      <button type="button" class="btn-primary" data-close>OK</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast hidden"></div>
 
