@@ -871,29 +871,43 @@ async def sync_ops_metrics_from_dodois(
     import asyncio as _asyncio
     import logging
     import time
-    log = logging.getLogger(__name__)
+    # uvicorn.error — настроенный логгер, чей INFO попадает в journal.
+    # Свой `app.main` без явного config'а молчит.
+    log = logging.getLogger("uvicorn.error")
+
+    async def _timed(name, coro):
+        t = time.monotonic()
+        try:
+            res = await coro
+            log.info("ops sync %s: %s done in %.1fs", period, name, time.monotonic() - t)
+            return res
+        except Exception as e:
+            log.warning("ops sync %s: %s FAILED in %.1fs: %s",
+                        period, name, time.monotonic() - t, e)
+            raise
+
     t0 = time.monotonic()
     try:
         stats, cert_counts, delivery_stats = await _asyncio.gather(
-            with_dodois_retry(
+            _timed("productivity", with_dodois_retry(
                 session, user,
                 dodois_client.fetch_productivity_many, unit_uuids, from_dt, to_dt,
-            ),
-            with_dodois_retry(
+            )),
+            _timed("vouchers", with_dodois_retry(
                 session, user,
                 dodois_client.fetch_late_delivery_vouchers_count, unit_uuids, from_dt, to_dt,
-            ),
-            with_dodois_retry(
+            )),
+            _timed("delivery-stats", with_dodois_retry(
                 session, user,
                 dodois_client.fetch_delivery_statistics, unit_uuids, from_dt, to_dt,
-            ),
+            )),
         )
     except DodoISError as e:
         raise HTTPException(502, str(e))
     log.info(
-        "ops sync %s: productivity=%d / certs=%d / delivery=%d juckers, fetched in %.1fs",
-        period, len(stats), len(cert_counts), len(delivery_stats),
-        time.monotonic() - t0,
+        "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d / certs=%d / delivery=%d",
+        period, time.monotonic() - t0, len(unit_uuids),
+        len(stats), len(cert_counts), len(delivery_stats),
     )
 
     by_uuid = {s.get("unitId", "").lower(): s for s in stats}
