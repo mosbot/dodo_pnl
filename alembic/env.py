@@ -30,6 +30,7 @@ from app.db import Base  # noqa: E402
 # Импортируем все ORM-модели здесь — чтобы alembic-autogenerate их видел.
 # При добавлении новой модели — приписать её импорт сюда.
 from app.auth import models as _auth_models  # noqa: E402,F401
+from app import models as _data_models  # noqa: E402,F401
 
 
 config = context.config
