@@ -22,6 +22,7 @@ from .models import (
     OpsMetric,
     OpsProjectTarget,
     OpsTarget,
+    PnLMetric,
     PnLTemplateNode,
     ProjectConfig,
     Target,
@@ -630,3 +631,77 @@ async def clear_template(session: AsyncSession, planfact_key_id: int) -> None:
             PnLTemplateNode.planfact_key_id == planfact_key_id
         )
     )
+
+
+# ---------- P&L metrics (формулы) ----------
+# Per planfact_key. Read для всех с ключом, write — admin (контроль в роутере).
+
+async def list_metrics(
+    session: AsyncSession, planfact_key_id: int
+) -> list[dict]:
+    stmt = (
+        select(PnLMetric)
+        .where(PnLMetric.planfact_key_id == planfact_key_id)
+        .order_by(PnLMetric.sort_order, PnLMetric.code)
+    )
+    result = await session.execute(stmt)
+    return [
+        {
+            "code": m.code,
+            "label": m.label,
+            "formula": m.formula,
+            "is_target": bool(m.is_target),
+            "format": m.format,
+            "sort_order": m.sort_order,
+        }
+        for m in result.scalars()
+    ]
+
+
+async def upsert_metric(
+    session: AsyncSession, planfact_key_id: int, *,
+    code: str, label: str, formula: str,
+    is_target: bool, format: str, sort_order: int,
+) -> None:
+    stmt = (
+        pg_insert(PnLMetric)
+        .values(
+            planfact_key_id=planfact_key_id,
+            code=code, label=label, formula=formula,
+            is_target=is_target, format=format, sort_order=sort_order,
+        )
+        .on_conflict_do_update(
+            index_elements=["planfact_key_id", "code"],
+            set_={
+                "label": label,
+                "formula": formula,
+                "is_target": is_target,
+                "format": format,
+                "sort_order": sort_order,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
+    )
+    await session.execute(stmt)
+
+
+async def delete_metric(
+    session: AsyncSession, planfact_key_id: int, code: str
+) -> None:
+    await session.execute(
+        delete(PnLMetric).where(
+            PnLMetric.planfact_key_id == planfact_key_id,
+            PnLMetric.code == code,
+        )
+    )
+
+
+async def template_line_nos(
+    session: AsyncSession, planfact_key_id: int
+) -> set[int]:
+    """Множество line_no'ов в шаблоне — для валидации формул при сохранении."""
+    stmt = select(PnLTemplateNode.line_no).where(
+        PnLTemplateNode.planfact_key_id == planfact_key_id
+    )
+    result = await session.execute(stmt)
+    return {ln for (ln,) in result.all()}

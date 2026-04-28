@@ -1154,3 +1154,65 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   .matrix-table .metric-col { min-width: 140px; }
   table.tpl-tree td.tpl-path { display: none; }
 }
+
+/* ============ Метрики (KPI с формулами) ============ */
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.metrics-table th, .metrics-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  vertical-align: middle;
+}
+.metrics-table th {
+  background: var(--bg-soft, #f9fafb);
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted, #6b7280);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.metrics-table td input[type="text"],
+.metrics-table td input[type="number"],
+.metrics-table td select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+}
+.metrics-table .formula-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.metrics-table .formula-status {
+  font-size: 11.5px;
+  margin-top: 3px;
+  color: var(--muted, #6b7280);
+  min-height: 14px;
+  line-height: 1.3;
+}
+.metrics-table .formula-status.ok { color: #047857; }
+.metrics-table .formula-status.err { color: #b91c1c; }
+.metrics-table .metric-value-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--muted, #6b7280);
+  text-align: right;
+}
+.metrics-table .metric-check, .metrics-table .metric-delete {
+  padding: 3px 9px;
+  font-size: 13px;
+}
+.btn-danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-danger:hover { background: #fee2e2; }

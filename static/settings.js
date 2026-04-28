@@ -96,7 +96,7 @@ function flashErr(inputEl) {
 }
 
 // ---------- Tabs (Профиль / Интеграции / Структура / Таргеты / Пользователи) ----------
-const TABS = ['profile', 'integrations', 'structure', 'targets', 'users'];
+const TABS = ['profile', 'integrations', 'structure', 'metrics', 'targets', 'users'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
 function showTab(name) {
@@ -1552,12 +1552,176 @@ async function initUsersTab() {
 }
 
 // ---------- Bootstrap ----------
+// ============ Метрики (KPI с формулами) ============
+// admin only. Загружается лениво — только при активации табы или сразу для
+// админа. Каждая строка таблицы редактируется inline + кнопка «Проверить»
+// (POST /api/metrics/preview, рисует line_refs с подсветкой missing).
+
+const METRICS_FORMATS = [
+  { value: 'pct', label: '%' },
+  { value: 'rub', label: '₽' },
+  { value: 'x',   label: '×' },
+];
+
+async function loadMetrics() {
+  const resp = await api('/api/metrics').catch(() => ({ metrics: [] }));
+  state.metrics = resp.metrics || [];
+}
+
+function renderMetrics() {
+  const tbody = document.getElementById('metricsTbody');
+  if (!tbody) return;
+  const lineByNo = new Map();
+  (state.template?.nodes || []).forEach(n => {
+    if (n.line_no) lineByNo.set(n.line_no, n);
+  });
+  if (!state.metrics || state.metrics.length === 0) {
+    tbody.innerHTML = `
+      <tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">
+        Метрик пока нет. Нажми «+ Метрика» сверху.
+      </td></tr>
+    `;
+    return;
+  }
+  tbody.innerHTML = state.metrics.map(m => `
+    <tr data-code="${esc(m.code)}">
+      <td><code>${esc(m.code)}</code></td>
+      <td><input type="text" data-f="label" value="${esc(m.label)}"></td>
+      <td>
+        <input type="text" data-f="formula" value="${esc(m.formula)}" class="formula-input"
+               title="Ссылки на строки шаблона: [N]. Пример: [13] / [7]">
+        <div class="formula-status" data-f="status"></div>
+      </td>
+      <td>
+        <select data-f="format">
+          ${METRICS_FORMATS.map(f => `<option value="${f.value}" ${f.value === m.format ? 'selected' : ''}>${f.label}</option>`).join('')}
+        </select>
+      </td>
+      <td style="text-align:center">
+        <input type="checkbox" data-f="is_target" ${m.is_target ? 'checked' : ''}>
+      </td>
+      <td><input type="number" data-f="sort_order" value="${m.sort_order || 0}" style="width:60px"></td>
+      <td class="metric-value-cell">—</td>
+      <td>
+        <button type="button" class="btn-secondary metric-check" title="Проверить формулу">✓</button>
+        <button type="button" class="btn-danger metric-delete" title="Удалить">×</button>
+      </td>
+    </tr>
+  `).join('');
+  // Хендлеры
+  tbody.querySelectorAll('tr[data-code]').forEach(tr => {
+    const code = tr.dataset.code;
+    // Сохранение по blur любого поля
+    tr.querySelectorAll('input, select').forEach(input => {
+      input.addEventListener('change', () => saveMetricRow(tr));
+    });
+    // Кнопка «Проверить»
+    tr.querySelector('.metric-check').addEventListener('click', () => previewMetricFormula(tr));
+    // Кнопка «Удалить»
+    tr.querySelector('.metric-delete').addEventListener('click', async () => {
+      if (!confirm(`Удалить метрику ${code}?`)) return;
+      try {
+        await api(`/api/metrics/${encodeURIComponent(code)}`, { method:'DELETE' });
+        await loadMetrics();
+        renderMetrics();
+        toast('Метрика удалена', 'ok');
+      } catch (e) { toast('Не удалось удалить: ' + e.message, 'error'); }
+    });
+  });
+}
+
+async function saveMetricRow(tr) {
+  const code = tr.dataset.code;
+  const body = {
+    code,
+    label: tr.querySelector('[data-f=label]').value.trim(),
+    formula: tr.querySelector('[data-f=formula]').value.trim(),
+    format: tr.querySelector('[data-f=format]').value,
+    is_target: tr.querySelector('[data-f=is_target]').checked,
+    sort_order: parseInt(tr.querySelector('[data-f=sort_order]').value, 10) || 0,
+  };
+  try {
+    await api(`/api/metrics/${encodeURIComponent(code)}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    flashOk(tr.querySelector('[data-f=formula]'));
+    showFormulaStatus(tr, { ok: true, msg: 'Сохранено' });
+  } catch (e) {
+    flashErr(tr.querySelector('[data-f=formula]'));
+    showFormulaStatus(tr, { ok: false, msg: e.message });
+  }
+}
+
+async function previewMetricFormula(tr) {
+  const formula = tr.querySelector('[data-f=formula]').value.trim();
+  try {
+    const r = await post('/api/metrics/preview', { formula });
+    if (r.ok) {
+      const refs = (r.line_refs || []).map(x => `[${x.line_no}] ${esc(x.title || '?')}`).join(', ');
+      showFormulaStatus(tr, { ok: true, msg: `OK · ссылки: ${refs || '—'}` });
+    } else {
+      showFormulaStatus(tr, { ok: false, msg: r.error || 'Ошибка формулы' });
+    }
+  } catch (e) {
+    showFormulaStatus(tr, { ok: false, msg: e.message });
+  }
+}
+
+function showFormulaStatus(tr, { ok, msg }) {
+  const el = tr.querySelector('[data-f=status]');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'formula-status ' + (ok ? 'ok' : 'err');
+}
+
+async function addMetric() {
+  const code = prompt('Код метрики (UC, LC, DC, CUSTOM_X и т.п.):');
+  if (!code) return;
+  const codeUp = code.trim().toUpperCase();
+  if (!/^[A-Z0-9_]{1,32}$/.test(codeUp)) {
+    toast('Код должен быть из латиницы/цифр/_, до 32 символов', 'error');
+    return;
+  }
+  if ((state.metrics || []).some(m => m.code === codeUp)) {
+    toast('Метрика с таким кодом уже есть', 'error');
+    return;
+  }
+  // Сохраним заглушку — юзер допишет формулу прямо в таблице
+  const body = {
+    code: codeUp, label: codeUp,
+    formula: '[1]', format: 'pct',
+    is_target: false, sort_order: (state.metrics?.length || 0) + 100,
+  };
+  try {
+    await api(`/api/metrics/${encodeURIComponent(codeUp)}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    await loadMetrics();
+    renderMetrics();
+    toast(`Метрика ${codeUp} добавлена`, 'ok');
+  } catch (e) {
+    toast('Не удалось создать: ' + e.message, 'error');
+  }
+}
+
+async function initMetricsTab() {
+  const isAdmin = !!(state.me && state.me.is_admin);
+  if (!isAdmin) return;
+  document.getElementById('btnAddMetric')?.addEventListener('click', addMetric);
+  await loadMetrics();
+  renderMetrics();
+}
+
+
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await loadAll();
     initProfileTab();
     initIntegrationsTab();
     initUsersTab();
+    initMetricsTab();
   } catch (e) {
     console.error(e);
     toast('Ошибка загрузки: ' + e.message, 'error');

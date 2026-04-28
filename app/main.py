@@ -19,6 +19,7 @@ from . import store
 from .auth.admin_router import admin_router
 from .auth.dependencies import optional_user, require_admin, require_user
 from .auth.router import router as auth_router
+from . import formulas, schemas
 from .auth.models import User
 from .auth.tokens import NoTokenError, get_dodois_token, get_planfact_key
 from .config import settings
@@ -1032,6 +1033,98 @@ async def delete_template(
     pf_key_id = _require_user_pf_key(user)
     await store.clear_template(session, pf_key_id)
     return {"status": "ok"}
+
+
+# --- P&L metrics (KPI с формулами) ---
+# Привязаны к planfact_key (см. модель PnLMetric). Read — любой юзер с ключом,
+# write — admin only. Формулы валидируются перед сохранением.
+
+@app.get("/api/metrics")
+async def list_metrics(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список метрик ключа юзера. Если ключа нет — пусто + флаг."""
+    if not user.planfact_key_id:
+        return {"metrics": [], "no_planfact_key": True}
+    return {"metrics": await store.list_metrics(session, user.planfact_key_id)}
+
+
+@app.put("/api/metrics/{code}")
+async def upsert_metric(
+    code: str, payload: schemas.MetricIn,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    pf_key_id = _require_user_pf_key(user)
+    if payload.code != code:
+        raise HTTPException(400, "code в URL и теле не совпадают")
+    if payload.format not in ("pct", "rub", "x"):
+        raise HTTPException(400, "format должен быть pct | rub | x")
+    # Валидация формулы — парсим + проверяем что все [N] существуют в шаблоне.
+    try:
+        valid_lines = await store.template_line_nos(session, pf_key_id)
+        formulas.parse_and_validate(payload.formula, valid_lines)
+    except formulas.FormulaError as e:
+        raise HTTPException(400, f"Формула: {e}")
+    await store.upsert_metric(
+        session, pf_key_id,
+        code=payload.code,
+        label=payload.label,
+        formula=payload.formula,
+        is_target=payload.is_target,
+        format=payload.format,
+        sort_order=payload.sort_order,
+    )
+    return {"status": "ok"}
+
+
+@app.delete("/api/metrics/{code}")
+async def delete_metric(
+    code: str,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    pf_key_id = _require_user_pf_key(user)
+    await store.delete_metric(session, pf_key_id, code)
+    return {"status": "ok"}
+
+
+@app.post("/api/metrics/preview")
+async def preview_metric(
+    payload: schemas.FormulaPreviewIn,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Распарсить формулу + валидировать ссылки. Возвращаем список line_refs
+    с метками строк шаблона — UI показывает «формула ссылается на: [13]
+    Себестоимость, [7] Выручка, ...»."""
+    pf_key_id = _require_user_pf_key(user)
+    try:
+        node = formulas.parse(payload.formula)
+    except formulas.FormulaError as e:
+        return {"ok": False, "error": str(e), "line_refs": []}
+    refs = sorted(formulas.line_refs(node))
+    # Подтянем title для каждой существующей строки
+    nodes = await store.list_template_nodes(session, pf_key_id)
+    line_to_title = {n["line_no"]: n["title"] for n in nodes}
+    refs_info = [
+        {
+            "line_no": ln,
+            "title": line_to_title.get(ln),
+            "exists": ln in line_to_title,
+        }
+        for ln in refs
+    ]
+    missing = [r["line_no"] for r in refs_info if not r["exists"]]
+    error_msg = None
+    if missing:
+        error_msg = "Несуществующие строки: " + ", ".join(f"[{ln}]" for ln in missing)
+    return {
+        "ok": not missing,
+        "error": error_msg,
+        "line_refs": refs_info,
+    }
 
 
 # --- helpers ---

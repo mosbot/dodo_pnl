@@ -19,6 +19,20 @@ class DefaultTargetIn(BaseModel):
     target_pct: float
 
 
+class MetricIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=32,
+                      description="UC | LC | DC | TC | EBITDA | ... — стабильный код")
+    label: str = Field(..., min_length=1, max_length=128)
+    formula: str = Field(..., min_length=1)
+    is_target: bool = False
+    format: str = Field(default="pct", description="pct | rub | x")
+    sort_order: int = 0
+
+
+class FormulaPreviewIn(BaseModel):
+    formula: str
+
+
 class SettingIn(BaseModel):
     key: str = Field(..., description="Имя настройки, напр. include_manager_in_lc")
     value: str = Field(..., description="Строковое значение; для bool — 'true'/'false'")

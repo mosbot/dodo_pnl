@@ -17,6 +17,7 @@
     <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
     <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
     <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Структура</button>
+    <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Метрики</button>
     <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Таргеты</button>
     <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Пользователи</button>
   </nav>
@@ -149,6 +150,36 @@
       </div>
     </section>
 
+  </section>
+
+  <!-- ============ TAB: МЕТРИКИ (admin only) ============ -->
+  <section class="tab-pane admin-only hidden" data-pane="metrics" role="tabpanel">
+    <div class="tab-toolbar">
+      <span class="toolbar-hint">
+        Формулы расчёта KPI. Ссылки на строки шаблона — через <code>[N]</code> (см. № в табе «Структура»).
+        Например: <code>UC = [13] / [7]</code>, <code>DC = [20] / [9]</code>.
+      </span>
+      <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
+    </div>
+    <section class="block">
+      <div class="block-body" id="metricsTableWrap">
+        <table class="metrics-table" id="metricsTable">
+          <thead>
+            <tr>
+              <th style="width:90px">Код</th>
+              <th>Название</th>
+              <th>Формула</th>
+              <th style="width:80px">Формат</th>
+              <th style="width:80px">Таргет</th>
+              <th style="width:60px">Сорт.</th>
+              <th style="width:120px">Значение</th>
+              <th style="width:90px"></th>
+            </tr>
+          </thead>
+          <tbody id="metricsTbody"></tbody>
+        </table>
+      </div>
+    </section>
   </section>
 
   <!-- ============ TAB: ТАРГЕТЫ ============ -->
