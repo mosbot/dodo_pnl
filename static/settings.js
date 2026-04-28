@@ -222,6 +222,48 @@ function initDodoSync() {
       btn.disabled = false;
     }
   });
+
+  // Автопривязка по совпадающему имени — для админа.
+  const autoBtn = el('btnAutoLinkUnits');
+  if (autoBtn) {
+    autoBtn.addEventListener('click', async () => {
+      const status = el('unitsStatus');
+      autoBtn.disabled = true;
+      status.textContent = 'Сопоставляю по имени…';
+      try {
+        const r = await post('/api/projects/auto-link-dodois', {});
+        status.textContent = r.summary || '';
+        // Покажем подробности через toast/alert
+        const lines = [r.summary];
+        if (r.linked && r.linked.length) {
+          lines.push('Привязано:');
+          for (const l of r.linked) lines.push(`  • ${l.name} → ${l.unit_name}`);
+        }
+        if (r.no_match && r.no_match.length) {
+          lines.push('Не нашли пару:');
+          for (const m of r.no_match) lines.push(`  • ${m.name}`);
+        }
+        if (r.duplicate_unit_id && r.duplicate_unit_id.length) {
+          lines.push('Юнит уже привязан к другому проекту:');
+          for (const d of r.duplicate_unit_id) lines.push(`  • ${d.name} ↛ ${d.unit_name}`);
+        }
+        alert(lines.join('\n'));
+        // Перезагрузим список проектов чтобы обновить uuid в таблице
+        const projResp = await api('/api/projects');
+        state.projects = (projResp.projects || []).slice().sort((a, b) => {
+          if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+          return (a.sort_order ?? 999) - (b.sort_order ?? 999);
+        });
+        renderProjects();
+        toast('Автопривязка завершена');
+      } catch (e) {
+        status.textContent = '';
+        toast('Ошибка: ' + e.message, 'error');
+      } finally {
+        autoBtn.disabled = false;
+      }
+    });
+  }
 }
 
 function dodoUnitName(uuid) {

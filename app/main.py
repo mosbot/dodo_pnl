@@ -98,6 +98,96 @@ async def _no_token_handler(request: Request, exc: NoTokenError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+# --- Авто-привязка PlanFact projects ↔ Dodo IS units по имени ---
+
+def _normalize_name(s: str) -> str:
+    """Нормализация для match'инга имён: lowercase + убрать пробелы/дефисы/нбсп."""
+    import re
+    s = (s or "").strip().lower().replace("\xa0", " ")
+    return re.sub(r"[\s\-_]+", "", s)
+
+
+@app.post("/api/projects/auto-link-dodois")
+async def auto_link_dodois(
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Автопривязка projects_config.dodo_unit_uuid по совпадающему имени.
+    Проекты с уже непустым uuid пропускаем. Юниты, которые уже привязаны к
+    другому проекту, не используем повторно."""
+    pf = await planfact_for(session, user)
+    try:
+        projects = await pf.list_projects()
+    except PlanFactError as e:
+        raise HTTPException(502, f"PlanFact: {e}")
+
+    try:
+        token = await get_dodois_token(session, user)
+        units = await dodois_client.fetch_units(token)
+    except DodoISError as e:
+        raise HTTPException(502, f"Dodo IS: {e}")
+
+    pizzerias = [u for u in units if u.get("unitType") == 1]
+    cfg = await store.list_projects_config(session, user.id)
+
+    units_by_norm: dict[str, dict] = {}
+    for u in pizzerias:
+        n = _normalize_name(u.get("name") or "")
+        if n:
+            units_by_norm[n] = u
+
+    used_uuids = {
+        c["dodo_unit_uuid"] for c in cfg.values() if c.get("dodo_unit_uuid")
+    }
+
+    linked: list[dict] = []
+    skipped_already: list[dict] = []
+    no_match: list[dict] = []
+    duplicate: list[dict] = []
+
+    for p in projects:
+        pid = str(p.get("projectId") or p.get("id") or "")
+        if not pid:
+            continue
+        pf_name = p.get("title") or p.get("name") or ""
+        existing = cfg.get(pid) or {}
+        if existing.get("dodo_unit_uuid"):
+            skipped_already.append({"project_id": pid, "name": pf_name})
+            continue
+        norm = _normalize_name(pf_name)
+        match = units_by_norm.get(norm)
+        if not match:
+            no_match.append({"project_id": pid, "name": pf_name})
+            continue
+        uuid = match.get("id")
+        if uuid in used_uuids:
+            duplicate.append({
+                "project_id": pid, "name": pf_name,
+                "unit_name": match.get("name"), "unit_id": uuid,
+            })
+            continue
+        await store.upsert_project_config(
+            session, user.id, pid, dodo_unit_uuid=uuid
+        )
+        used_uuids.add(uuid)
+        linked.append({
+            "project_id": pid, "name": pf_name,
+            "unit_name": match.get("name"), "unit_id": uuid,
+        })
+
+    await session.commit()
+    return {
+        "linked": linked,
+        "skipped_already_linked": skipped_already,
+        "no_match": no_match,
+        "duplicate_unit_id": duplicate,
+        "summary": (
+            f"Привязано: {len(linked)}, уже было: {len(skipped_already)}, "
+            f"не нашли пару: {len(no_match)}, дубль uuid: {len(duplicate)}"
+        ),
+    }
+
+
 # --- Test-connection эндпоинты для UI «Интеграции» ---
 
 @app.post("/api/me/test-planfact")
