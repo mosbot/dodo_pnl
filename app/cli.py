@@ -35,6 +35,7 @@ from .auth.users import (
     set_admin, update_integrations, update_password,
 )
 from .db import get_session_factory
+from . import store
 
 
 async def _with_session(fn):
@@ -159,6 +160,52 @@ async def cmd_list_users(args: argparse.Namespace) -> int:
     return 0 if await _with_session(_do) else 1
 
 
+async def cmd_set_project_active(args: argparse.Namespace) -> int:
+    """Архивировать или активировать проект для конкретного юзера.
+
+    Используется админом, например, чтобы скрыть тестовые/архивные проекты
+    PlanFact. Идемпотентно: если записи в projects_config нет — создаст её.
+    """
+    async def _do(s):
+        u = await get_user_by_username(s, args.username)
+        if not u:
+            print(f"Пользователь {args.username!r} не найден", file=sys.stderr)
+            return False
+        await store.upsert_project_config(
+            s, u.id, args.project_id, is_active=args.is_active
+        )
+        await s.commit()
+        state = "активен" if args.is_active else "архивирован"
+        print(f"OK: проект {args.project_id} для {u.username} → {state}")
+        return True
+
+    return 0 if await _with_session(_do) else 1
+
+
+async def cmd_list_user_projects(args: argparse.Namespace) -> int:
+    """Показать настройки projects_config (is_active, display_name и т.п.) для юзера."""
+    async def _do(s):
+        u = await get_user_by_username(s, args.username)
+        if not u:
+            print(f"Пользователь {args.username!r} не найден", file=sys.stderr)
+            return False
+        cfg = await store.list_projects_config(s, u.id)
+        if not cfg:
+            print(f"У {u.username} нет переопределений projects_config "
+                  f"(все проекты PlanFact активны по умолчанию).")
+            return True
+        print(f"{'PROJECT_ID':<14} {'ACTIVE':<8} {'DISPLAY_NAME':<24} {'DODOIS_UUID':<40}")
+        print("-" * 92)
+        for pid, c in sorted(cfg.items()):
+            active = "yes" if c["is_active"] else "no"
+            name = c["display_name"] or "—"
+            uuid = c["dodo_unit_uuid"] or "—"
+            print(f"{pid:<14} {active:<8} {name:<24} {uuid:<40}")
+        return True
+
+    return 0 if await _with_session(_do) else 1
+
+
 async def cmd_delete_user(args: argparse.Namespace) -> int:
     async def _do(s):
         u = await get_user_by_username(s, args.username)
@@ -211,6 +258,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("list-users", help="показать всех пользователей")
     s.set_defaults(fn=cmd_list_users)
+
+    s = sub.add_parser("set-project-active",
+                       help="архивировать/активировать проект для юзера")
+    s.add_argument("--username", required=True)
+    s.add_argument("--project-id", required=True)
+    s.add_argument(
+        "--is-active",
+        type=lambda x: x.lower() in {"true", "yes", "1", "on"},
+        required=True,
+        help="true (активен) / false (архивирован)",
+    )
+    s.set_defaults(fn=cmd_set_project_active)
+
+    s = sub.add_parser("list-user-projects",
+                       help="показать projects_config переопределения юзера")
+    s.add_argument("--username", required=True)
+    s.set_defaults(fn=cmd_list_user_projects)
 
     s = sub.add_parser("delete-user", help="удалить пользователя")
     s.add_argument("--username", required=True)

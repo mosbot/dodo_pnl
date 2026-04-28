@@ -36,6 +36,9 @@ const state = {
     TC: 'Итого (UC+LC+DC)',
   },
   currentMonth: null,
+  // Текущий пользователь — заполняется при загрузке через /auth/me.
+  // is_admin = true → секция «Проекты» редактируемая, false → read-only.
+  me: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -136,9 +139,11 @@ async function loadAll() {
     api('/api/targets'),
     api('/api/ops-targets'),
     api('/api/template'),
+    api('/auth/me'),
   ]);
-  const [projR, setR, defR, tarR, opsTgR, tplR] = results;
+  const [projR, setR, defR, tarR, opsTgR, tplR, meR] = results;
   const ok = (r, fb) => r.status === 'fulfilled' ? r.value : fb;
+  state.me = ok(meR, null);
 
   const projResp = ok(projR, { projects: [] });
   const setResp  = ok(setR,  { settings: {} });
@@ -150,7 +155,7 @@ async function loadAll() {
   // Уведомим про упавшие запросы — но не прервём загрузку.
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      const url = ['/api/projects','/api/settings','/api/targets/defaults','/api/targets','/api/ops-targets','/api/template'][i];
+      const url = ['/api/projects','/api/settings','/api/targets/defaults','/api/targets','/api/ops-targets','/api/template','/auth/me'][i];
       console.error(`[loadAll] ${url} failed:`, r.reason);
     }
   });
@@ -275,12 +280,25 @@ function renderProjects() {
     box.innerHTML = '<p class="muted">Проекты не найдены.</p>';
     return;
   }
+  // Только админ редактирует projects_config (is_active, display_name,
+  // sort_order, dodo_unit_uuid). Для остальных — read-only с подсказкой.
+  const isAdmin = !!(state.me && state.me.is_admin);
+  const dis = isAdmin ? '' : 'disabled';
+
   // <datalist> для подсказок — id юнита + читаемое имя в label.
   const dlOpts = state.dodoUnits
     .map(u => `<option value="${esc(u.id)}" label="${esc(u.name || '')}">${esc(u.name || '')}</option>`)
     .join('');
 
-  let html = `
+  const adminBadge = isAdmin
+    ? ''
+    : `<div class="muted" style="margin-bottom:8px;font-size:12px;
+         background:#fef3c7;border:1px solid #fde68a;color:#92400e;
+         padding:6px 10px;border-radius:6px;">
+         Управление проектами доступно только администратору. Поля ниже — только для просмотра.
+       </div>`;
+
+  let html = adminBadge + `
     <datalist id="dodoUnitsList">${dlOpts}</datalist>
     <table class="dense-table projects-table">
       <thead>
@@ -300,7 +318,7 @@ function renderProjects() {
       <tr data-pid="${esc(p.id)}" class="${p.is_active ? '' : 'row-off'}">
         <td class="cell-center">
           <label class="switch">
-            <input type="checkbox" class="js-active" ${p.is_active ? 'checked' : ''}>
+            <input type="checkbox" class="js-active" ${p.is_active ? 'checked' : ''} ${dis}>
             <span class="slider"></span>
           </label>
         </td>
@@ -308,18 +326,18 @@ function renderProjects() {
         <td>
           <input type="text" class="js-display-name inp-flush"
             value="${esc(p.display_name || '')}"
-            placeholder="${esc(p.planfact_name || '')}">
+            placeholder="${esc(p.planfact_name || '')}" ${dis}>
         </td>
         <td>
           <input type="number" class="js-sort inp-flush inp-center"
-            value="${p.sort_order ?? ''}" step="1" placeholder="—">
+            value="${p.sort_order ?? ''}" step="1" placeholder="—" ${dis}>
         </td>
         <td>
           <input type="text" class="js-dodo-uuid inp-flush"
             list="dodoUnitsList"
             value="${esc(p.dodo_unit_uuid || '')}"
             placeholder="— не привязан —"
-            title="${esc(unitName)}">
+            title="${esc(unitName)}" ${dis}>
           <span class="muted js-unit-name" style="font-size:11px;">${esc(unitName)}</span>
         </td>
       </tr>
@@ -327,6 +345,10 @@ function renderProjects() {
   });
   html += '</tbody></table>';
   box.innerHTML = html;
+
+  // Не-админу хендлеры не нужны — поля уже disabled, но для чистоты не вешаем
+  // обработчики в принципе.
+  if (!isAdmin) return;
 
   box.querySelectorAll('tr[data-pid]').forEach(tr => {
     const pid = tr.dataset.pid;

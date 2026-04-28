@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import dodois_client
 from . import pnl as pnl_module
 from . import store
-from .auth.dependencies import optional_user, require_user
+from .auth.dependencies import optional_user, require_admin, require_user
 from .auth.router import router as auth_router
 from .auth.models import User
 from .config import settings
@@ -475,7 +475,10 @@ async def get_projects_config(
 @app.post("/api/projects/config")
 async def upsert_projects_config(
     payload: ProjectConfigIn,
-    user: User = Depends(require_user),
+    # Только администратор может архивировать проекты, переименовывать и
+    # подвязывать Dodo IS unit. Обычный юзер видит итог через GET и пользуется
+    # сайдбар-чекбоксами как сессионным фильтром.
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     kwargs: dict = {
