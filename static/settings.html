@@ -156,30 +156,41 @@
   <section class="tab-pane admin-only hidden" data-pane="metrics" role="tabpanel">
     <div class="tab-toolbar">
       <span class="toolbar-hint">
-        Формулы расчёта KPI. Ссылки на строки шаблона — через <code>[N]</code> (см. № в табе «Структура»).
-        Например: <code>UC = [13] / [7]</code>, <code>DC = [20] / [9]</code>.
+        Формулы расчёта KPI. Ссылки на строки шаблона — <code>[N]</code> (см. справа).
+        Клик по строке справочника подставляет <code>[N]</code> в активную формулу.
       </span>
       <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
     </div>
-    <section class="block">
-      <div class="block-body" id="metricsTableWrap">
-        <table class="metrics-table" id="metricsTable">
-          <thead>
-            <tr>
-              <th style="width:90px">Код</th>
-              <th>Название</th>
-              <th>Формула</th>
-              <th style="width:80px">Формат</th>
-              <th style="width:80px">Таргет</th>
-              <th style="width:60px">Сорт.</th>
-              <th style="width:120px">Значение</th>
-              <th style="width:90px"></th>
-            </tr>
-          </thead>
-          <tbody id="metricsTbody"></tbody>
-        </table>
-      </div>
-    </section>
+    <div class="metrics-layout">
+      <section class="block metrics-main">
+        <div class="block-body" id="metricsTableWrap">
+          <table class="metrics-table" id="metricsTable">
+            <thead>
+              <tr>
+                <th style="width:90px">Код</th>
+                <th>Название</th>
+                <th>Формула</th>
+                <th style="width:80px">Формат</th>
+                <th style="width:80px">Таргет</th>
+                <th style="width:60px">Сорт.</th>
+                <th style="width:120px">Значение</th>
+                <th style="width:90px"></th>
+              </tr>
+            </thead>
+            <tbody id="metricsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+      <aside class="block metrics-aside">
+        <div class="block-head">
+          <h3>Строки шаблона</h3>
+        </div>
+        <div class="block-body">
+          <input type="search" id="metricsLineSearch" placeholder="Поиск по названию или [N]…" class="metrics-line-search">
+          <div id="metricsLineList" class="metrics-line-list"></div>
+        </div>
+      </aside>
+    </div>
   </section>
 
   <!-- ============ TAB: ТАРГЕТЫ ============ -->

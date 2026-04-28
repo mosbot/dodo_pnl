@@ -2,22 +2,27 @@
 
 Задача: после миграции 0007 в pnl_metrics пусто. Чтобы юзеру не пришлось
 руками настраивать формулы, для каждого ключа с непустым шаблоном
-генерим базовый набор формул на основе уже проставленных pnl_code'ов
-в узлах шаблона.
+генерим базовый набор формул на основе уже проставленных pnl_code'ов.
 
-Логика:
-- REVENUE — line_no узла с pnl_code='REVENUE' depth=1
-- Delivery revenue — узел в подпути «Доставка» под REVENUE root
-- UC, LC, DC, RENT, MARKETING, FRANCHISE, MGMT, OTHER_OPEX — собираем
-  line_no'ы узлов с этим pnl_code, формула = sum / [REVENUE]; для DC
-  знаменатель = [delivery_revenue]
-- TC = (UC + LC + DC) / [REVENUE] — собирается из тех же узлов
-- EBITDA, NET_PROFIT — ищем is_calc-узел с соответствующим title,
-  формула = `[line_no]`, format=rub
-- EBITDA_PCT, NET_PROFIT_PCT — как процент от выручки
+Семантика `[N]` в формулах: значение узла включает все потомки (rollup).
+Поэтому для `UC = …` берём **верхний** узел с pnl_code='UC' (root sub-tree),
+а не сумму всех листьев. Например: UC=[6]/[1] вместо UC=([7]+[8]+…)/[1].
+Если в шаблоне у одного pnl_code есть несколько НЕ-вложенных корней —
+суммируем их. Внутренних узлов с тем же кодом не учитываем (они и так
+включены в rollup родителя).
 
-Если для какого-то кода в шаблоне нет узлов — пропускаем, метрика не
-добавляется. Юзер потом дозаведёт через UI.
+Конкретно:
+- REVENUE — корень с pnl_code='REVENUE' (минимальная глубина)
+- Delivery revenue — узел с pnl_code='REVENUE' где в path_lc встречается
+  «доставк» (для знаменателя DC)
+- UC / LC / DC / RENT / MARKETING / FRANCHISE / MGMT / OTHER_OPEX — корни
+  суб-деревьев с этим кодом, формула = (rollup-сумма) / [REVENUE].
+  Для DC знаменатель = [delivery_revenue].
+- TC = UC + LC + DC по тем же корням, делённое на REVENUE
+- EBITDA, NET_PROFIT — is_calc узлы, формула = `[line_no]`, format=rub
+- EBITDA_PCT, NET_PROFIT_PCT — процент от выручки
+
+Если для какого-то кода в шаблоне нет узлов — пропускаем.
 
 Запуск:
     python -m app.seed_metrics              # все ключи
@@ -73,6 +78,24 @@ def _is_delivery_revenue(node: dict) -> bool:
     return "доставк" in path_lc and "выручка" in path_lc
 
 
+def _top_level_in_group(group_nodes: list[dict]) -> list[dict]:
+    """Из набора узлов одной группы pnl_code оставить только «верхние» —
+    те, у кого нет предка с тем же кодом в группе. Семантика [N] = rollup,
+    поэтому потомки уже учтены в родителе.
+
+    Иерархия определяется через path_lc: узел A потомок B, если path_lc(B)
+    + " / " является префиксом path_lc(A).
+    """
+    paths = sorted(((n.get("path_lc") or "") for n in group_nodes), key=len)
+    top_paths: list[str] = []
+    for p in paths:
+        if any(p.startswith(t + " / ") for t in top_paths):
+            continue  # есть предок в группе — пропустить
+        top_paths.append(p)
+    top_set = set(top_paths)
+    return [n for n in group_nodes if (n.get("path_lc") or "") in top_set]
+
+
 def _build_formula(line_nos: list[int], denominator_line: int, fmt: str) -> str:
     """Формула sum-of-lines / denominator или просто `[line]` для rub."""
     if not line_nos:
@@ -95,7 +118,8 @@ def _gather_metrics_for_template(
     шаблону. nodes — список dict из БД (line_no, depth, title, pnl_code,
     is_calc, path_lc).
     """
-    by_code: dict[str, list[int]] = {}
+    # Группируем по pnl_code — все узлы с этим кодом
+    nodes_by_code: dict[str, list[dict]] = {}
     revenue_line: Optional[int] = None
     delivery_line: Optional[int] = None
     ebitda_line: Optional[int] = None
@@ -105,10 +129,9 @@ def _gather_metrics_for_template(
         code = n.get("pnl_code")
         title_lc = (n.get("title") or "").lower().strip()
         if code:
-            by_code.setdefault(code, []).append(n["line_no"])
+            nodes_by_code.setdefault(code, []).append(n)
         # REVENUE root — узел с pnl_code='REVENUE' минимальной глубины,
-        # т.е. сам корень «Выручка». Дочерние «Доставка»/«Ресторан» тоже
-        # с кодом REVENUE — это как раз каналы.
+        # т.е. сам корень «Выручка».
         if code == "REVENUE":
             if revenue_line is None or n["depth"] < (
                 next((m["depth"] for m in nodes if m["line_no"] == revenue_line), 99)
@@ -116,13 +139,20 @@ def _gather_metrics_for_template(
                 revenue_line = n["line_no"]
             if _is_delivery_revenue(n) and delivery_line is None:
                 delivery_line = n["line_no"]
-        # is_calc узлы для EBITDA/Net profit — берём по title (PF выводит
-        # их в стандартизированных названиях).
+        # is_calc узлы для EBITDA/Net profit — по title.
         if n.get("is_calc"):
             if "ebitda" in title_lc and ebitda_line is None and "рентабельн" not in title_lc:
                 ebitda_line = n["line_no"]
             if "чистая прибыль" in title_lc and net_profit_line is None and "рентабельн" not in title_lc:
                 net_profit_line = n["line_no"]
+
+    # Для каждой группы pnl_code оставляем только «верхние» узлы
+    # (rollup-семантика [N] делает учёт потомков автоматически).
+    top_lines_by_code: dict[str, list[int]] = {}
+    for code, group in nodes_by_code.items():
+        tops = _top_level_in_group(group)
+        top_lines_by_code[code] = sorted(t["line_no"] for t in tops)
+    by_code = top_lines_by_code
 
     out: list[tuple[str, str, str, str, bool, int]] = []
     for sort_order, (code, label, fmt, is_target) in enumerate(_METRIC_SPEC, start=1):
@@ -132,11 +162,16 @@ def _gather_metrics_for_template(
             if revenue_line is not None:
                 formula = f"[{revenue_line}]"
         elif code == "TC":
-            ucs = by_code.get("UC", [])
-            lcs = by_code.get("LC", [])
-            dcs = by_code.get("DC", [])
-            line_nos = ucs + lcs + dcs
-            if line_nos and revenue_line is not None:
+            # Объединяем top-узлы UC+LC+DC и снова отсекаем вложенные.
+            # У PiX DC лежит внутри LC, и при rollup-семантике [LC] уже
+            # включает DC — иначе получим double counting.
+            ucs = nodes_by_code.get("UC", [])
+            lcs = nodes_by_code.get("LC", [])
+            dcs = nodes_by_code.get("DC", [])
+            combined = ucs + lcs + dcs
+            if combined and revenue_line is not None:
+                tops = _top_level_in_group(combined)
+                line_nos = sorted(t["line_no"] for t in tops)
                 formula = _build_formula(line_nos, revenue_line, "pct")
         elif code == "EBITDA":
             if ebitda_line is not None:

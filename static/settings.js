@@ -865,7 +865,14 @@ function renderTemplate() {
     const select = n.is_calc
       ? '<span class="muted">—</span>'
       : `<select class="js-tpl-code" ${idAttr}>${codeOptions(n.pnl_code || '')}</select>`;
+    // line_no — порядковый номер строки. Используется в формулах метрик [N].
+    // В preview-режиме line_no ещё нет (он проставляется при сохранении на бэке).
+    const lineNo = n.line_no ?? '';
+    const lineNoCell = lineNo
+      ? `<td class="tpl-lineno"><code>[${lineNo}]</code></td>`
+      : `<td class="tpl-lineno muted">—</td>`;
     return `<tr class="${n.is_calc ? 'tpl-calc' : ''}">
+      ${lineNoCell}
       <td class="tpl-title">${indent}${esc(n.title)} ${flag}</td>
       <td class="tpl-code-cell">${select}</td>
       <td class="muted tpl-path">${esc(Array.isArray(n.path) ? n.path.join(' / ') : (n.path || ''))}</td>
@@ -875,7 +882,7 @@ function renderTemplate() {
   box.innerHTML = `
     ${warnHtml}
     <table class="tpl-tree">
-      <thead><tr><th>Статья</th><th>P&amp;L-код</th><th class="muted">Полный путь</th></tr></thead>
+      <thead><tr><th class="tpl-lineno-head">№</th><th>Статья</th><th>P&amp;L-код</th><th class="muted">Полный путь</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -1706,12 +1713,83 @@ async function addMetric() {
   }
 }
 
+// Список строк шаблона справа от таблицы метрик. Клик подставляет [N] в
+// последнее активное поле формулы (где курсор) — самый частый кейс
+// «настраиваю формулу, нужна строка».
+let _lastActiveFormulaInput = null;
+
+function trackActiveFormulaInput() {
+  document.body.addEventListener('focusin', (e) => {
+    if (e.target?.classList?.contains('formula-input')) {
+      _lastActiveFormulaInput = e.target;
+    }
+  });
+}
+
+function renderMetricsLineList(filter = '') {
+  const wrap = document.getElementById('metricsLineList');
+  if (!wrap) return;
+  const nodes = (state.template?.nodes || []).filter(n => n.line_no);
+  const f = filter.trim().toLowerCase();
+  const matched = f
+    ? nodes.filter(n =>
+        String(n.line_no).includes(f) ||
+        (n.title || '').toLowerCase().includes(f) ||
+        (n.path_lc || '').includes(f)
+      )
+    : nodes;
+  if (!matched.length) {
+    wrap.innerHTML = '<div class="muted" style="padding:8px;">Ничего не найдено</div>';
+    return;
+  }
+  wrap.innerHTML = matched.map(n => {
+    const indent = '&nbsp;&nbsp;'.repeat(Math.min(n.depth || 0, 4));
+    const flag = n.is_calc ? ' <span class="muted">[calc]</span>' : '';
+    return `<div class="line-row" data-lineno="${n.line_no}" title="Клик — вставить [${n.line_no}] в формулу">
+      <code>[${n.line_no}]</code>
+      <span class="line-title">${indent}${esc(n.title)}${flag}</span>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('.line-row').forEach(row => {
+    row.addEventListener('click', () => insertLineRefIntoFormula(parseInt(row.dataset.lineno, 10)));
+  });
+}
+
+function insertLineRefIntoFormula(lineNo) {
+  const target = _lastActiveFormulaInput;
+  if (!target || !document.body.contains(target)) {
+    // Скопируем в буфер обмена как fallback
+    const txt = `[${lineNo}]`;
+    navigator.clipboard?.writeText(txt).then(
+      () => toast(`${txt} → буфер обмена`, 'ok'),
+      () => toast(`Скопируй вручную: ${txt}`, 'error')
+    );
+    return;
+  }
+  const ref = `[${lineNo}]`;
+  const start = target.selectionStart ?? target.value.length;
+  const end = target.selectionEnd ?? target.value.length;
+  const before = target.value.slice(0, start);
+  const after = target.value.slice(end);
+  target.value = before + ref + after;
+  target.focus();
+  const newPos = start + ref.length;
+  target.setSelectionRange(newPos, newPos);
+  // Триггерим change → сохранение строки
+  target.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 async function initMetricsTab() {
   const isAdmin = !!(state.me && state.me.is_admin);
   if (!isAdmin) return;
   document.getElementById('btnAddMetric')?.addEventListener('click', addMetric);
+  trackActiveFormulaInput();
   await loadMetrics();
   renderMetrics();
+  renderMetricsLineList();
+  document.getElementById('metricsLineSearch')?.addEventListener('input', (e) => {
+    renderMetricsLineList(e.target.value);
+  });
 }
 
 
