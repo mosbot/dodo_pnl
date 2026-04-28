@@ -64,10 +64,11 @@ _METRIC_SPEC = [
     ("OTHER_OPEX", "Прочие операционные расходы", "pct", False),
     ("MGMT", "Административный персонал", "pct", False),
     ("EBITDA", "EBITDA", "rub", False),
-    ("EBITDA_PCT", "Рентабельность по EBITDA", "pct", False),
     ("NET_PROFIT", "Чистая прибыль", "rub", False),
-    ("NET_PROFIT_PCT", "Рентабельность чистой прибыли", "pct", False),
 ]
+# EBITDA_PCT / NET_PROFIT_PCT не нужны — pct_of_revenue для них уже считается
+# автоматически в _apply_metric_formulas (для format=rub возвращаем pct=value/revenue).
+# Если хочется отдельной строкой — заведите вручную через UI «Метрики».
 
 
 def _is_delivery_revenue(node: dict) -> bool:
@@ -176,15 +177,9 @@ def _gather_metrics_for_template(
         elif code == "EBITDA":
             if ebitda_line is not None:
                 formula = f"[{ebitda_line}]"
-        elif code == "EBITDA_PCT":
-            if ebitda_line is not None and revenue_line is not None:
-                formula = f"[{ebitda_line}] / [{revenue_line}]"
         elif code == "NET_PROFIT":
             if net_profit_line is not None:
                 formula = f"[{net_profit_line}]"
-        elif code == "NET_PROFIT_PCT":
-            if net_profit_line is not None and revenue_line is not None:
-                formula = f"[{net_profit_line}] / [{revenue_line}]"
         else:
             line_nos = by_code.get(code, [])
             if line_nos and revenue_line is not None:
