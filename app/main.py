@@ -866,21 +866,35 @@ async def sync_ops_metrics_from_dodois(
         return {"status": "ok", "updated": [], "skipped_no_uuid": list(cfg)}
 
     unit_uuids = [uuid for _, uuid in targets]
+    # Три endpoint'а Dodo IS — независимы, тянем параллельно через asyncio.gather.
+    # Каждый внутри уже батчится по юнитам с sem=_MAX_PARALLEL.
+    import asyncio as _asyncio
+    import logging
+    import time
+    log = logging.getLogger(__name__)
+    t0 = time.monotonic()
     try:
-        stats = await with_dodois_retry(
-            session, user,
-            dodois_client.fetch_productivity_many, unit_uuids, from_dt, to_dt,
-        )
-        cert_counts = await with_dodois_retry(
-            session, user,
-            dodois_client.fetch_late_delivery_vouchers_count, unit_uuids, from_dt, to_dt,
-        )
-        delivery_stats = await with_dodois_retry(
-            session, user,
-            dodois_client.fetch_delivery_statistics, unit_uuids, from_dt, to_dt,
+        stats, cert_counts, delivery_stats = await _asyncio.gather(
+            with_dodois_retry(
+                session, user,
+                dodois_client.fetch_productivity_many, unit_uuids, from_dt, to_dt,
+            ),
+            with_dodois_retry(
+                session, user,
+                dodois_client.fetch_late_delivery_vouchers_count, unit_uuids, from_dt, to_dt,
+            ),
+            with_dodois_retry(
+                session, user,
+                dodois_client.fetch_delivery_statistics, unit_uuids, from_dt, to_dt,
+            ),
         )
     except DodoISError as e:
         raise HTTPException(502, str(e))
+    log.info(
+        "ops sync %s: productivity=%d / certs=%d / delivery=%d juckers, fetched in %.1fs",
+        period, len(stats), len(cert_counts), len(delivery_stats),
+        time.monotonic() - t0,
+    )
 
     by_uuid = {s.get("unitId", "").lower(): s for s in stats}
     by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
