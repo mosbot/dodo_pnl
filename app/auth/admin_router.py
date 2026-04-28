@@ -276,11 +276,36 @@ async def admin_user_projects_config(
     return {"config": cfg}
 
 
+# Удалено в S8.6: GET /api/admin/users/{user_id}/projects и
+# PATCH /api/admin/users/{user_id}/projects/{project_id}/config —
+# заменены на /api/admin/users/{user_id}/visibility и
+# /api/admin/planfact-keys/{key_id}/projects.
+
+# legacy stub (тело удалено) — оставлен только сигнатура чтобы старый
+# фронт не падал с 404; эндпоинт сразу возвращает пустой список с
+# подсказкой переустановить страницу:
 @admin_router.get("/api/admin/users/{user_id}/projects")
-async def admin_user_projects(
+async def admin_user_projects_deprecated(
     user_id: int,
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+):
+    return {
+        "projects": [],
+        "message": (
+            "Эндпоинт устарел. Обновите страницу: "
+            "теперь модалка использует /visibility (per-user) "
+            "и /planfact-keys/{id}/projects (структура)."
+        ),
+    }
+
+
+# legacy fragment ниже сохранён для совместимости истории; будет вычищен
+# в следующем рефакторинге, не вызывается фронтендом.
+async def _legacy_admin_user_projects(
+    user_id: int,
+    admin: User,
+    session: AsyncSession,
 ):
     """Список ВСЕХ PlanFact-проектов целевого юзера + флаг is_active.
 
@@ -340,41 +365,10 @@ async def admin_user_projects(
     return {"projects": out}
 
 
-@admin_router.patch(
-    "/api/admin/users/{user_id}/projects/{project_id}/config"
-)
-async def admin_patch_project_for_user(
-    user_id: int,
-    project_id: str,
-    body: AdminProjectConfigUpdate,
-    admin: User = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
-):
-    """Изменить is_active/display_name/sort_order/dodo_unit_uuid у конкретного
-    проекта чужого юзера. None = не менять, '' = очистить (для текстовых)."""
-    u = await get_user_by_id(session, user_id)
-    if u is None:
-        raise HTTPException(404, "Пользователь не найден")
-    if not u.planfact_key_id:
-        raise HTTPException(
-            400, "У пользователя не задан ключ PlanFact — нечего настраивать."
-        )
-
-    kwargs: dict = {}
-    if body.is_active is not None:
-        kwargs["is_active"] = bool(body.is_active)
-    if body.display_name is not None:
-        kwargs["display_name"] = body.display_name
-    if body.sort_order is not None:
-        kwargs["sort_order"] = body.sort_order
-    if body.dodo_unit_uuid is not None:
-        kwargs["dodo_unit_uuid"] = body.dodo_unit_uuid
-
-    await store.upsert_project_config(
-        session, u.planfact_key_id, project_id, **kwargs,
-    )
-    await session.commit()
-    return {"status": "ok"}
+# Удалён старый PATCH /api/admin/users/{user_id}/projects/{pid}/config:
+# его роль заменили /api/admin/planfact-keys/{key_id}/projects/{pid}/config
+# (для структуры) и /api/admin/users/{user_id}/visibility/{pid} (для per-user
+# видимости).
 
 
 # ---------- Cross-user Dodo IS units (для модалки «Проекты» в админке) ----------
@@ -394,6 +388,197 @@ async def admin_user_dodois_units(
     u = await get_user_by_id(session, user_id)
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
+    try:
+        token = await get_dodois_token(session, u)
+    except NoTokenError as e:
+        return {"units": [], "message": str(e)}
+    try:
+        units = await dodois_client.fetch_units(token)
+    except DodoISError as e:
+        raise HTTPException(502, f"Dodo IS: {e}")
+    pizzerias = [u for u in units if u.get("unitType") == 1]
+    return {"units": pizzerias}
+
+
+# ---------- Visibility per user (упрощённая модалка «Проекты юзера») ----------
+
+class VisibilityUpdate(BaseModel):
+    is_visible: bool
+
+
+@admin_router.get("/api/admin/users/{user_id}/visibility")
+async def admin_user_visibility(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список проектов под ключом юзера + персональная видимость.
+    Структурные поля (имя, порядок, dodo_unit) сюда НЕ возвращаются —
+    они общие на ключ и редактируются через каталог PlanFact-ключей."""
+    from ..planfact import PlanFactClient, PlanFactError
+    u = await get_user_by_id(session, user_id)
+    if u is None:
+        raise HTTPException(404, "Пользователь не найден")
+    if not u.planfact_key_id:
+        return {
+            "projects": [],
+            "message": "У пользователя не назначен PlanFact-ключ.",
+        }
+
+    pk = await session.get(PlanfactKey, u.planfact_key_id)
+    pf_key = (pk.api_key or "").strip() if pk else ""
+    if not pf_key:
+        return {"projects": [], "message": "PF-ключ пустой."}
+
+    pf = PlanFactClient(api_key=pf_key)
+    try:
+        projects = await pf.list_projects()
+    except PlanFactError as e:
+        raise HTTPException(502, f"PlanFact API: {e}")
+
+    visibility = await store.list_user_visibility(session, u.id)
+    out = []
+    for p in projects:
+        pid = str(p.get("projectId") or p.get("id") or "")
+        if not pid:
+            continue
+        pg = p.get("projectGroup") or {}
+        # is_visible default True если записи нет
+        is_visible = visibility.get(pid, True)
+        out.append({
+            "id": pid,
+            "planfact_name": p.get("title") or p.get("name") or "",
+            "is_visible": is_visible,
+            "planfact_active": bool(p.get("active", True)),
+            "project_group_id": pg.get("projectGroupId"),
+            "project_group_title": pg.get("title"),
+            "project_group_is_undistributed": bool(pg.get("isUndistributed", False)),
+        })
+    return {"projects": out}
+
+
+@admin_router.patch(
+    "/api/admin/users/{user_id}/visibility/{project_id}"
+)
+async def admin_set_user_visibility(
+    user_id: int, project_id: str,
+    body: VisibilityUpdate,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    u = await get_user_by_id(session, user_id)
+    if u is None:
+        raise HTTPException(404, "Пользователь не найден")
+    await store.set_user_visibility(session, u.id, project_id, body.is_visible)
+    await session.commit()
+    return {"status": "ok"}
+
+
+# ---------- Структура проектов на уровне PlanFact-ключа ----------
+
+@admin_router.get("/api/admin/planfact-keys/{key_id}/projects")
+async def admin_key_projects(
+    key_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Структура проектов под ключом PlanFact (общая для всех юзеров ключа):
+    is_active (архивация), display_name, sort_order, dodo_unit_uuid."""
+    from ..planfact import PlanFactClient, PlanFactError
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+    pf_key = (pk.api_key or "").strip()
+    if not pf_key:
+        return {"projects": [], "message": "PF-ключ пустой."}
+
+    pf = PlanFactClient(api_key=pf_key)
+    try:
+        projects = await pf.list_projects()
+    except PlanFactError as e:
+        raise HTTPException(502, f"PlanFact API: {e}")
+
+    cfg = await store.list_projects_config(session, key_id)
+    out = []
+    for p in projects:
+        pid = str(p.get("projectId") or p.get("id") or "")
+        if not pid:
+            continue
+        c = cfg.get(pid) or {}
+        pg = p.get("projectGroup") or {}
+        out.append({
+            "id": pid,
+            "planfact_name": p.get("title") or p.get("name") or "",
+            "is_active": bool(c.get("is_active", True)),
+            "display_name": c.get("display_name"),
+            "sort_order": c.get("sort_order"),
+            "dodo_unit_uuid": c.get("dodo_unit_uuid"),
+            "planfact_active": bool(p.get("active", True)),
+            "project_group_id": pg.get("projectGroupId"),
+            "project_group_title": pg.get("title"),
+            "project_group_is_undistributed": bool(pg.get("isUndistributed", False)),
+        })
+    return {"projects": out}
+
+
+@admin_router.patch(
+    "/api/admin/planfact-keys/{key_id}/projects/{project_id}/config"
+)
+async def admin_patch_key_project_config(
+    key_id: int, project_id: str,
+    body: AdminProjectConfigUpdate,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+
+    kwargs: dict = {}
+    if body.is_active is not None:
+        kwargs["is_active"] = bool(body.is_active)
+    if body.display_name is not None:
+        kwargs["display_name"] = body.display_name
+    if body.sort_order is not None:
+        kwargs["sort_order"] = body.sort_order
+    if body.dodo_unit_uuid is not None:
+        kwargs["dodo_unit_uuid"] = body.dodo_unit_uuid
+
+    await store.upsert_project_config(session, key_id, project_id, **kwargs)
+    await session.commit()
+    return {"status": "ok"}
+
+
+@admin_router.get("/api/admin/planfact-keys/{key_id}/dodois-units")
+async def admin_key_dodois_units(
+    key_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список Dodo IS юнитов под токеном первого юзера, у которого есть
+    привязанные dodois-кредсы. Используется в модалке «Проекты ключа» для
+    подсказок при выборе dodo_unit_uuid."""
+    from .. import dodois_client
+    from ..dodois_client import DodoISError
+    from .tokens import NoTokenError, get_dodois_token
+    from sqlalchemy import select as _sel
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+
+    # Первый юзер с этим ключом + непустым dodois_credentials_name
+    stmt = (
+        _sel(User)
+        .where(
+            User.planfact_key_id == key_id,
+            User.dodois_credentials_name.isnot(None),
+        )
+        .order_by(User.id)
+        .limit(1)
+    )
+    u = (await session.execute(stmt)).scalar_one_or_none()
+    if u is None:
+        return {"units": [], "message": "Ни у одного юзера ключа нет Dodo IS-кредсов."}
     try:
         token = await get_dodois_token(session, u)
     except NoTokenError as e:

@@ -321,22 +321,28 @@ async def get_projects(
         await store.list_projects_config(session, user.planfact_key_id)
         if user.planfact_key_id else {}
     )
+    # Личный фильтр видимости: то, что админ выключил конкретно этому юзеру.
+    hidden = await store.get_user_hidden_projects(session, user.id)
     norm = []
     for p in projects:
         pid = str(p.get("projectId") or p.get("id") or "")
         if not pid:
             continue
         c = cfg.get(pid) or {}
+        # is_active = «архивация на ключ» AND «не скрыт лично у юзера».
+        # Юзер увидит проект на главной только когда оба true.
+        key_active = bool(c.get("is_active", True))
+        user_visible = pid not in hidden
         # Группа из PlanFact: projectGroup={projectGroupId, title, isUndistributed, active}.
-        # Прокидываем во фронт как project_group_id / project_group_title для
-        # группировки в сайдбаре. БД не трогаем — PF — единственный источник истины.
         pg = p.get("projectGroup") or {}
         norm.append({
             "id": pid,
             "planfact_name": p.get("title") or p.get("name") or "",
             "name": c.get("display_name") or p.get("title") or p.get("name") or "",
             "display_name": c.get("display_name"),
-            "is_active": bool(c.get("is_active", True)),
+            "is_active": key_active and user_visible,
+            "key_active": key_active,
+            "user_visible": user_visible,
             "sort_order": c.get("sort_order"),
             "planfact_active": bool(p.get("active", True)),
             "dodo_unit_uuid": c.get("dodo_unit_uuid"),
@@ -356,7 +362,9 @@ def _derive_period_month(date_start: str, date_end: str) -> str | None:
 
 
 async def _resolve_project_filter(
-    session: AsyncSession, planfact_key_id: int | None,
+    session: AsyncSession,
+    user_id: int,
+    planfact_key_id: int | None,
     project_ids: list[str] | None,
 ) -> list[str] | None:
     if project_ids:
@@ -366,6 +374,10 @@ async def _resolve_project_filter(
     active = await store.get_active_project_ids(session, planfact_key_id)
     if active is None:
         return None
+    # Дополнительно вычитаем личный hidden-list юзера.
+    hidden = await store.get_user_hidden_projects(session, user_id)
+    if hidden:
+        active = active - hidden
     return sorted(active) if active else []
 
 
@@ -382,7 +394,9 @@ async def get_pnl(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    effective_projects = await _resolve_project_filter(session, user.planfact_key_id, project_ids)
+    effective_projects = await _resolve_project_filter(
+        session, user.id, user.planfact_key_id, project_ids,
+    )
     if effective_projects is not None and len(effective_projects) == 0:
         return {
             "projects": [], "lines": [], "template_lines": [], "targets": [],
@@ -459,7 +473,9 @@ async def get_revenue_history(
     session: AsyncSession = Depends(get_session),
 ):
     """Выручка по месяцам за окно [anchor-months+1 .. anchor], опционально + LFL (тот же месяц годом ранее)."""
-    effective_projects = await _resolve_project_filter(session, user.planfact_key_id, project_ids)
+    effective_projects = await _resolve_project_filter(
+        session, user.id, user.planfact_key_id, project_ids,
+    )
     if effective_projects is not None and len(effective_projects) == 0:
         return {"months": [], "totals": {}, "projects": {}, "project_names": {}}
 

@@ -26,6 +26,7 @@ from .models import (
     PnLTemplateNode,
     ProjectConfig,
     Target,
+    UserProjectVisibility,
 )
 
 
@@ -272,6 +273,56 @@ async def get_active_project_ids(
     if not cfg:
         return None
     return {pid for pid, c in cfg.items() if c["is_active"]}
+
+
+# ---------- User project visibility (per-user override) ----------
+
+async def get_user_hidden_projects(
+    session: AsyncSession, owner_id: int
+) -> set[str]:
+    """Список project_id, скрытых лично для этого юзера. По умолчанию все
+    проекты видимы — пуст set, если для юзера нет ни одной записи с
+    is_visible=False."""
+    stmt = select(UserProjectVisibility.project_id).where(
+        UserProjectVisibility.owner_id == owner_id,
+        UserProjectVisibility.is_visible == False,  # noqa: E712
+    )
+    result = await session.execute(stmt)
+    return {pid for (pid,) in result.all()}
+
+
+async def list_user_visibility(
+    session: AsyncSession, owner_id: int
+) -> dict[str, bool]:
+    """Все записи visibility юзера. {project_id → is_visible}.
+    Отсутствующие в этом dict проекты считаются видимыми (default True)."""
+    stmt = select(UserProjectVisibility).where(
+        UserProjectVisibility.owner_id == owner_id
+    )
+    result = await session.execute(stmt)
+    return {v.project_id: v.is_visible for v in result.scalars()}
+
+
+async def set_user_visibility(
+    session: AsyncSession, owner_id: int, project_id: str, is_visible: bool,
+) -> None:
+    """Установить флаг видимости. По умолчанию проект видим, поэтому если
+    is_visible=True и записи нет — можно её даже не создавать. Но для
+    единообразия всё равно UPSERT'им — это даёт явный аудит-трейл."""
+    stmt = (
+        pg_insert(UserProjectVisibility)
+        .values(
+            owner_id=owner_id, project_id=project_id, is_visible=is_visible,
+        )
+        .on_conflict_do_update(
+            index_elements=["owner_id", "project_id"],
+            set_={
+                "is_visible": is_visible,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
+    )
+    await session.execute(stmt)
 
 
 # ---------- Ops metrics ----------

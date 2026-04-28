@@ -1092,13 +1092,21 @@ async function renderPfKeysTable() {
       <td><code style="font-size:11px;">${esc(k.api_key_masked)}</code></td>
       <td class="muted">${esc(k.note || '—')}</td>
       <td>${k.used_by_count > 0 ? k.used_by_count + ' юзер(ов)' : '<span class="muted">—</span>'}</td>
-      <td><button class="btn-secondary js-edit-pfkey" data-id="${k.id}">Изменить</button></td>
+      <td>
+        <button class="btn-secondary js-edit-pfkey" data-id="${k.id}">Изменить</button>
+        <button class="btn-secondary js-key-projects" data-id="${k.id}" data-name="${esc(k.name)}" style="margin-left:4px;">Проекты</button>
+      </td>
     </tr>
   `).join('');
   tbody.querySelectorAll('.js-edit-pfkey').forEach(btn => {
     btn.addEventListener('click', () => {
       const k = keys.find(x => x.id === Number(btn.dataset.id));
       if (k) openPfKeyModal(k);
+    });
+  });
+  tbody.querySelectorAll('.js-key-projects').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openKeyProjectsModal(Number(btn.dataset.id), btn.dataset.name);
     });
   });
 }
@@ -1261,24 +1269,220 @@ function showGeneratedPassword(pwd) {
   openModal('passwordShownModal');
 }
 
+// ====================================================================
+// Модалка «Проекты юзера» — упрощённая, только видимость per-user.
+// Структурные поля (имя/порядок/dodo_unit) — в openKeyProjectsModal
+// (открывается из каталога PF-ключей в табе «Интеграции»).
+// ====================================================================
 async function openUserProjectsModal(userId, username) {
   document.getElementById('upTitle').textContent = `Проекты: ${username}`;
   const wrap = document.getElementById('upTableWrap');
   wrap.innerHTML = '<p class="muted">Загрузка…</p>';
   openModal('userProjectsModal');
 
-  // Параллельно тянем проекты и список юнитов Dodo IS этого юзера
+  let resp;
+  try {
+    resp = await api(`/api/admin/users/${userId}/visibility`);
+  } catch (e) {
+    wrap.innerHTML = `<p class="neg">Ошибка: ${esc(e.message)}</p>`;
+    return;
+  }
+  if (resp.message && (!resp.projects || !resp.projects.length)) {
+    wrap.innerHTML = `<p class="muted" style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;color:#92400e;">${esc(resp.message)}</p>`;
+    return;
+  }
+  const projects = resp.projects || [];
+  if (!projects.length) {
+    wrap.innerHTML = '<p class="muted">Под этим PF-ключом нет ни одного проекта.</p>';
+    return;
+  }
+  // Группируем по project_group_title — внутри группы видимые сверху.
+  const groups = _groupProjectsForModal(projects, p => p.is_visible);
+
+  wrap.innerHTML = `
+    <p class="muted" style="font-size:11px;margin-bottom:8px;">
+      Снимите тумблер у проекта, который этот юзер не должен видеть на дашборде.
+      Имена / порядок / привязки к Dodo IS — общие для всех юзеров под одним
+      PlanFact-ключом и редактируются в табе «Интеграции» → каталог ключей →
+      «Проекты».
+    </p>
+    <table class="dense-table">
+      <thead><tr>
+        <th style="width:60px;text-align:center;">Вкл</th>
+        <th>PlanFact-имя</th>
+      </tr></thead>
+      <tbody>
+        ${groups.map(g => _renderGroupRows(
+          g,
+          p => ({ rowClass: p.is_visible ? '' : 'row-off', checked: p.is_visible }),
+          1,
+        )).join('')}
+      </tbody>
+    </table>
+  `;
+
+  _wireGroupCheckboxes(wrap, async (pid, target) => {
+    await api(`/api/admin/users/${userId}/visibility/${pid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_visible: target }),
+    });
+  });
+}
+
+
+// Группировщик + рендер строки группы — переиспользуется для модалок
+// «юзер» и «ключ». Возвращает отсортированный массив групп.
+function _groupProjectsForModal(projects, includedFn) {
+  const buckets = new Map();
+  for (const p of projects) {
+    const key = p.project_group_title || 'Без группы';
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        title: key,
+        is_undistributed: !!p.project_group_is_undistributed,
+        projects: [],
+      });
+    }
+    buckets.get(key).projects.push(p);
+  }
+  const groups = [...buckets.values()];
+  groups.sort((a, b) => {
+    if (a.is_undistributed !== b.is_undistributed) return a.is_undistributed ? 1 : -1;
+    if (a.title === 'Текущий бизнес') return -1;
+    if (b.title === 'Текущий бизнес') return 1;
+    return a.title.localeCompare(b.title, 'ru');
+  });
+  groups.forEach(g => g.projects.sort((a, b) => {
+    const aOn = !!includedFn(a), bOn = !!includedFn(b);
+    if (aOn !== bOn) return aOn ? -1 : 1;
+    return (a.planfact_name || '').localeCompare(b.planfact_name || '', 'ru');
+  }));
+  return groups;
+}
+
+
+// Рендер строки группы + её проектов. perProjFn возвращает
+// {rowClass, checked} для тумблера; restColumnsHtml — что положить в
+// правые колонки (для модалки ключа — поля display/sort/dodo_unit).
+// otherCols — сколько колонок занимает заголовок группы (через colspan).
+function _renderGroupRows(g, perProjFn, otherCols, restColumnsHtml = () => '') {
+  const onN = g.projects.filter(p => perProjFn(p).checked).length;
+  const total = g.projects.length;
+  const allOn = onN === total;
+  const noneOn = onN === 0;
+  return `
+    <tr class="up-group-head" data-group="${esc(g.title)}">
+      <td class="cell-center">
+        <label class="switch" title="Включить/выключить всю группу">
+          <input type="checkbox" class="js-up-grp-toggle"
+                 ${allOn ? 'checked' : ''}
+                 ${(!allOn && !noneOn) ? 'data-indeterminate="1"' : ''}>
+          <span class="slider"></span>
+        </label>
+      </td>
+      <td colspan="${otherCols}" style="text-align:left;">
+        <strong>${esc(g.title)}</strong>
+        <span class="muted" style="font-size:11px;margin-left:6px;">${onN}/${total} включено</span>
+      </td>
+    </tr>
+    ${g.projects.map(p => {
+      const cell = perProjFn(p);
+      return `
+        <tr data-pid="${esc(p.id)}" data-group="${esc(g.title)}" class="up-row ${cell.rowClass}">
+          <td class="cell-center">
+            <label class="switch">
+              <input type="checkbox" class="js-up-toggle" ${cell.checked ? 'checked' : ''}>
+              <span class="slider"></span>
+            </label>
+          </td>
+          <td>
+            <strong>${esc(p.planfact_name)}</strong>
+            <div class="muted" style="font-size:10px;">${esc(p.id)}${p.planfact_active ? '' : ' · архив в PF'}</div>
+          </td>
+          ${restColumnsHtml(p)}
+        </tr>
+      `;
+    }).join('')}
+  `;
+}
+
+
+// Развешивает обработчики на чекбоксы группы и проектов. onToggle(pid, target)
+// должна делать PATCH и кидать exception при ошибке (UI откатим).
+function _wireGroupCheckboxes(wrap, onToggle) {
+  function refreshGroupHeader(grpTitle) {
+    const groupRow = wrap.querySelector(`tr.up-group-head[data-group="${CSS.escape(grpTitle)}"]`);
+    if (!groupRow) return;
+    const rows = wrap.querySelectorAll(`tr.up-row[data-group="${CSS.escape(grpTitle)}"]`);
+    const total = rows.length;
+    const onN = [...rows].filter(r => r.querySelector('.js-up-toggle').checked).length;
+    const cb = groupRow.querySelector('.js-up-grp-toggle');
+    cb.checked = onN === total;
+    cb.indeterminate = onN > 0 && onN < total;
+    const lbl = groupRow.querySelector('.muted');
+    if (lbl) lbl.textContent = `${onN}/${total} включено`;
+  }
+  wrap.querySelectorAll('input.js-up-grp-toggle[data-indeterminate="1"]').forEach(cb => {
+    cb.indeterminate = true;
+  });
+  wrap.querySelectorAll('input.js-up-grp-toggle').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const grpTitle = cb.closest('tr').dataset.group;
+      const target = cb.checked;
+      const rows = wrap.querySelectorAll(`tr.up-row[data-group="${CSS.escape(grpTitle)}"]`);
+      const toFlip = [...rows].filter(r => r.querySelector('.js-up-toggle').checked !== target);
+      for (const tr of toFlip) {
+        const pid = tr.dataset.pid;
+        const innerCb = tr.querySelector('.js-up-toggle');
+        try {
+          await onToggle(pid, target);
+          innerCb.checked = target;
+          tr.classList.toggle('row-off', !target);
+        } catch (e) { /* пропускаем — идём дальше */ }
+      }
+      refreshGroupHeader(grpTitle);
+    });
+  });
+  wrap.querySelectorAll('tr.up-row').forEach(tr => {
+    const pid = tr.dataset.pid;
+    const chk = tr.querySelector('.js-up-toggle');
+    chk.addEventListener('change', async () => {
+      try {
+        await onToggle(pid, chk.checked);
+        tr.classList.toggle('row-off', !chk.checked);
+        refreshGroupHeader(tr.dataset.group);
+      } catch (e) {
+        chk.checked = !chk.checked;
+        toast('Ошибка: ' + e.message, 'error');
+      }
+    });
+  });
+}
+
+
+// ====================================================================
+// Модалка «Проекты ключа» — структурные настройки (is_active, display_name,
+// sort_order, dodo_unit_uuid). Применяется ко всем юзерам этого ключа.
+// Открывается из каталога PF-ключей в табе «Интеграции».
+// ====================================================================
+async function openKeyProjectsModal(keyId, keyName) {
+  document.getElementById('upTitle').textContent = `Проекты ключа: ${keyName}`;
+  const wrap = document.getElementById('upTableWrap');
+  wrap.innerHTML = '<p class="muted">Загрузка…</p>';
+  openModal('userProjectsModal');
+
   let projectsResp, unitsResp;
   try {
     [projectsResp, unitsResp] = await Promise.all([
-      api(`/api/admin/users/${userId}/projects`),
-      api(`/api/admin/users/${userId}/dodois-units`).catch(e => ({ units: [], message: e.message })),
+      api(`/api/admin/planfact-keys/${keyId}/projects`),
+      api(`/api/admin/planfact-keys/${keyId}/dodois-units`).catch(e => ({ units: [], message: e.message })),
     ]);
   } catch (e) {
     wrap.innerHTML = `<p class="neg">Ошибка: ${esc(e.message)}</p>`;
     return;
   }
-  if (projectsResp.message) {
+  if (projectsResp.message && (!projectsResp.projects || !projectsResp.projects.length)) {
     wrap.innerHTML = `<p class="muted" style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;color:#92400e;">${esc(projectsResp.message)}</p>`;
     return;
   }
@@ -1288,40 +1492,11 @@ async function openUserProjectsModal(userId, username) {
     wrap.innerHTML = '<p class="muted">Под этим PF-ключом нет ни одного проекта.</p>';
     return;
   }
-  // Группируем по project_group_title — как на главной. Внутри группы
-  // активные сверху, потом по имени. Группа «Текущий бизнес» — наверх,
-  // «Проекты без группы» (isUndistributed) — в самый низ.
-  const groupBuckets = new Map();
-  for (const p of projects) {
-    const key = p.project_group_title || 'Без группы';
-    if (!groupBuckets.has(key)) {
-      groupBuckets.set(key, {
-        title: key,
-        is_undistributed: !!p.project_group_is_undistributed,
-        projects: [],
-      });
-    }
-    groupBuckets.get(key).projects.push(p);
-  }
-  const groups = [...groupBuckets.values()];
-  groups.sort((a, b) => {
-    if (a.is_undistributed !== b.is_undistributed) return a.is_undistributed ? 1 : -1;
-    if (a.title === 'Текущий бизнес') return -1;
-    if (b.title === 'Текущий бизнес') return 1;
-    return a.title.localeCompare(b.title, 'ru');
-  });
-  groups.forEach(g => g.projects.sort((a, b) => {
-    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-    return (a.planfact_name || '').localeCompare(b.planfact_name || '', 'ru');
-  }));
 
-  // datalist для подсказок Dodo IS юнитов (id + name)
-  const unitDatalistId = `dodoUnitsForUser_${userId}`;
+  const unitDatalistId = `dodoUnitsForKey_${keyId}`;
   const dlOpts = units
     .map(u => `<option value="${esc(u.id)}" label="${esc(u.name || '')}">${esc(u.name || '')}</option>`)
     .join('');
-
-  // Helper — найти имя юнита по uuid
   const unitName = (uuid) => {
     if (!uuid) return '';
     const u = units.find(x => (x.id || '').toLowerCase() === uuid.toLowerCase());
@@ -1330,7 +1505,9 @@ async function openUserProjectsModal(userId, username) {
 
   const dodoisHint = unitsResp.message
     ? `<p class="muted" style="font-size:11px;margin-bottom:8px;">Dodo IS юниты недоступны: ${esc(unitsResp.message)}</p>`
-    : `<p class="muted" style="font-size:11px;margin-bottom:8px;">Привязка к Dodo IS — выбери юнит из выпадающего списка (можно начать вводить имя). Чтобы автопривязать все совпадения по имени — кнопка ниже.</p>`;
+    : `<p class="muted" style="font-size:11px;margin-bottom:8px;">Снятый тумблер «Вкл» = проект архивирован для всех юзеров под этим ключом. Привязка к Dodo IS — выберите юнит из списка.</p>`;
+
+  const groups = _groupProjectsForModal(projects, p => p.is_active);
 
   wrap.innerHTML = `
     ${dodoisHint}
@@ -1345,75 +1522,42 @@ async function openUserProjectsModal(userId, username) {
         <th style="width:280px;">Dodo IS юнит</th>
       </tr></thead>
       <tbody>
-        ${groups.map(g => {
-          const onN = g.projects.filter(p => p.is_active).length;
-          const total = g.projects.length;
-          // Состояние «общего» чекбокса:
-          //   все включены → checked, ни одного → unchecked, иначе → indeterminate
-          const allOn = onN === total;
-          const noneOn = onN === 0;
-          return `
-            <tr class="up-group-head" data-group="${esc(g.title)}">
-              <td class="cell-center">
-                <label class="switch" title="Включить/выключить всю группу">
-                  <input type="checkbox" class="js-up-grp-toggle"
-                         ${allOn ? 'checked' : ''}
-                         ${(!allOn && !noneOn) ? 'data-indeterminate="1"' : ''}>
-                  <span class="slider"></span>
-                </label>
-              </td>
-              <td colspan="4">
-                <strong>${esc(g.title)}</strong>
-                <span class="muted" style="font-size:11px;margin-left:6px;">${onN}/${total} включено</span>
-              </td>
-            </tr>
-            ${g.projects.map(p => `
-              <tr data-pid="${esc(p.id)}" data-group="${esc(g.title)}" class="up-row ${p.is_active ? '' : 'row-off'}">
-                <td class="cell-center">
-                  <label class="switch">
-                    <input type="checkbox" class="js-up-toggle" ${p.is_active ? 'checked' : ''}>
-                    <span class="slider"></span>
-                  </label>
-                </td>
-                <td>
-                  <strong>${esc(p.planfact_name)}</strong>
-                  <div class="muted" style="font-size:10px;">${esc(p.id)}${p.planfact_active ? '' : ' · архив в PF'}</div>
-                </td>
-                <td>
-                  <input type="text" class="js-up-display inp-flush"
-                    value="${esc(p.display_name || '')}"
-                    placeholder="${esc(p.planfact_name || '')}">
-                </td>
-                <td>
-                  <input type="number" class="js-up-sort inp-flush inp-center"
-                    value="${p.sort_order ?? ''}" step="1" placeholder="—">
-                </td>
-                <td>
-                  <input type="text" class="js-up-uuid inp-flush"
-                    list="${unitDatalistId}"
-                    value="${esc(p.dodo_unit_uuid || '')}"
-                    placeholder="— не привязан —"
-                    title="${esc(unitName(p.dodo_unit_uuid))}">
-                  <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
-                </td>
-              </tr>
-            `).join('')}
-          `;
-        }).join('')}
+        ${groups.map(g => _renderGroupRows(
+          g,
+          p => ({ rowClass: p.is_active ? '' : 'row-off', checked: p.is_active }),
+          4,
+          p => `
+            <td>
+              <input type="text" class="js-up-display inp-flush"
+                value="${esc(p.display_name || '')}"
+                placeholder="${esc(p.planfact_name || '')}">
+            </td>
+            <td>
+              <input type="number" class="js-up-sort inp-flush inp-center"
+                value="${p.sort_order ?? ''}" step="1" placeholder="—">
+            </td>
+            <td>
+              <input type="text" class="js-up-uuid inp-flush"
+                list="${unitDatalistId}"
+                value="${esc(p.dodo_unit_uuid || '')}"
+                placeholder="— не привязан —"
+                title="${esc(unitName(p.dodo_unit_uuid))}">
+              <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
+            </td>
+          `,
+        )).join('')}
       </tbody>
     </table>
   `;
 
-  // Generic-helper: PATCH одного поля, подсветка ok/err
   async function patchField(pid, body, inputEl) {
     try {
-      await api(`/api/admin/users/${userId}/projects/${pid}/config`, {
+      await api(`/api/admin/planfact-keys/${keyId}/projects/${pid}/config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (inputEl) flashOk(inputEl);
-      else toast('Сохранено');
     } catch (e) {
       if (inputEl) flashErr(inputEl);
       toast('Ошибка: ' + e.message, 'error');
@@ -1421,86 +1565,36 @@ async function openUserProjectsModal(userId, username) {
     }
   }
 
-  // Helper — пересчитать состояние «группового» чекбокса (3 состояния).
-  function refreshGroupHeader(grpTitle) {
-    const groupRow = wrap.querySelector(`tr.up-group-head[data-group="${CSS.escape(grpTitle)}"]`);
-    if (!groupRow) return;
-    const rows = wrap.querySelectorAll(`tr.up-row[data-group="${CSS.escape(grpTitle)}"]`);
-    const total = rows.length;
-    const onN = [...rows].filter(r => r.querySelector('.js-up-toggle').checked).length;
-    const cb = groupRow.querySelector('.js-up-grp-toggle');
-    cb.checked = onN === total;
-    cb.indeterminate = onN > 0 && onN < total;
-    const lbl = groupRow.querySelector('.muted');
-    if (lbl) lbl.textContent = `${onN}/${total} включено`;
-  }
-  // Восстанавливаем initial indeterminate (HTML-атрибутом не выставляется)
-  wrap.querySelectorAll('input.js-up-grp-toggle[data-indeterminate="1"]').forEach(cb => {
-    cb.indeterminate = true;
+  _wireGroupCheckboxes(wrap, async (pid, target) => {
+    await patchField(pid, { is_active: target });
   });
 
-  // Toggle всей группы
-  wrap.querySelectorAll('input.js-up-grp-toggle').forEach(cb => {
-    cb.addEventListener('change', async () => {
-      const grpTitle = cb.closest('tr').dataset.group;
-      const target = cb.checked;
-      const rows = wrap.querySelectorAll(`tr.up-row[data-group="${CSS.escape(grpTitle)}"]`);
-      // Применяем только к тем, у кого состояние отличается — не дёргаем PATCH
-      // на уже совпадающих.
-      const toFlip = [...rows].filter(r => r.querySelector('.js-up-toggle').checked !== target);
-      for (const tr of toFlip) {
-        const pid = tr.dataset.pid;
-        const innerCb = tr.querySelector('.js-up-toggle');
-        try {
-          await patchField(pid, { is_active: target });
-          innerCb.checked = target;
-          tr.classList.toggle('row-off', !target);
-        } catch (e) { /* пропускаем, идём дальше */ }
-      }
-      refreshGroupHeader(grpTitle);
-    });
-  });
-
-  wrap.querySelectorAll('tr[data-pid]').forEach(tr => {
+  wrap.querySelectorAll('tr.up-row').forEach(tr => {
     const pid = tr.dataset.pid;
-    const chk = tr.querySelector('.js-up-toggle');
-    chk.addEventListener('change', async () => {
-      try {
-        await patchField(pid, { is_active: chk.checked });
-        tr.classList.toggle('row-off', !chk.checked);
-        refreshGroupHeader(tr.dataset.group);
-      } catch (e) { chk.checked = !chk.checked; }
-    });
     const dn = tr.querySelector('.js-up-display');
-    dn.addEventListener('change', () => patchField(pid, { display_name: dn.value }, dn));
+    if (dn) dn.addEventListener('change', () => patchField(pid, { display_name: dn.value }, dn));
     const so = tr.querySelector('.js-up-sort');
-    so.addEventListener('change', () => {
+    if (so) so.addEventListener('change', () => {
       const v = parseInt(so.value, 10);
       patchField(pid, { sort_order: isNaN(v) ? null : v }, so);
     });
     const uu = tr.querySelector('.js-up-uuid');
     const un = tr.querySelector('.js-up-uname');
-    uu.addEventListener('change', async () => {
+    if (uu) uu.addEventListener('change', async () => {
       const v = uu.value.trim();
       try {
         await patchField(pid, { dodo_unit_uuid: v }, uu);
         const name = unitName(v);
-        un.textContent = name;
-        uu.title = name;
+        un.textContent = name; uu.title = name;
       } catch (e) {}
     });
   });
 
-  // Кнопка «Автопривязка по имени» — теперь работает по имени для конкретного
-  // юзера. Backend endpoint /api/projects/auto-link-dodois работает для
-  // current admin'а; для cross-user используем тот же набор ключей через
-  // отдельный helper. Простой путь: на фронте пройтись по юнитам + проектам
-  // и подкормить PATCH'ами те, что совпадают по имени и не привязаны.
   const autoBtn = wrap.querySelector('.js-up-autolink');
   if (autoBtn) {
     autoBtn.addEventListener('click', async () => {
       autoBtn.disabled = true;
-      const norm = (s) => (s || '').toLowerCase().replace(/[\s\-_ ]+/g, '');
+      const norm = (s) => (s || '').toLowerCase().replace(/[\s\-_ ]+/g, '');
       const unitsByName = new Map();
       units.forEach(u => unitsByName.set(norm(u.name), u));
       const usedUuids = new Set(projects.filter(p => p.dodo_unit_uuid).map(p => p.dodo_unit_uuid));
@@ -1511,18 +1605,17 @@ async function openUserProjectsModal(userId, username) {
         if (!u) { noMatch++; continue; }
         if (usedUuids.has(u.id)) { skipped++; continue; }
         try {
-          await api(`/api/admin/users/${userId}/projects/${p.id}/config`, {
+          await api(`/api/admin/planfact-keys/${keyId}/projects/${p.id}/config`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ dodo_unit_uuid: u.id }),
           });
           linked++; usedUuids.add(u.id);
-        } catch (e) { /* пропускаем сбойную привязку */ }
+        } catch (e) {}
       }
       autoBtn.disabled = false;
       toast(`Привязано: ${linked}, уже было: ${skipped}, не нашли пару: ${noMatch}`);
-      // Перерисовать модалку с обновлёнными значениями
-      openUserProjectsModal(userId, username);
+      openKeyProjectsModal(keyId, keyName);
     });
   }
 }

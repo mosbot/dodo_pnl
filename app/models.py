@@ -4,6 +4,7 @@
 Когда пользователя удаляют, все его данные уходят вместе.
 
 Состав:
+- UserProjectVisibility — какие проекты видимы конкретному юзеру (per-user)
 - Target               — таргеты UC/LC/DC/TC по проекту
 - DefaultTarget        — глобальные дефолтные таргеты
 - AppSetting           — key-value настройки на пользователя
@@ -125,6 +126,37 @@ class ProjectConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
+    )
+
+
+# ---------- User project visibility (per-user override) ----------
+
+class UserProjectVisibility(Base):
+    """Какие проекты видны конкретному юзеру.
+
+    По умолчанию все проекты видимы — записи создаются только когда админ
+    выключает доступ. Полный фильтр на главной:
+        projects_config.is_active     (общая «архивация» на ключ)
+        AND user_project_visibility.is_visible
+            (per-user скрытие; если записи нет → True)
+    """
+    __tablename__ = "user_project_visibility"
+
+    owner_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    is_visible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()")
+    )
+
+    __table_args__ = (
+        Index("ix_user_visibility_owner", "owner_id"),
     )
 
 
