@@ -1051,7 +1051,8 @@ table.tpl-tree tr.tpl-section td.tpl-title {
 .tpl-stats strong { color: var(--text); font-weight: 600; }
 
 /* ========== Профиль / Интеграции ========== */
-.profile-form { display: flex; flex-direction: column; gap: 12px; max-width: 380px; }
+.profile-form { display: flex; flex-direction: column; gap: 12px; max-width: 480px; width: 100%; }
+.profile-form input { width: 100%; box-sizing: border-box; }
 .profile-form label {
   display: flex; flex-direction: column; gap: 4px;
   font-size: 12px; font-weight: 500; color: var(--muted);

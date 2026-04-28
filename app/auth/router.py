@@ -25,7 +25,9 @@ from .sessions import (
 from .users import get_user_by_username, update_password, update_integrations
 
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+# Без общего префикса — login/logout/me живут под /auth/*, а профиль и
+# интеграции — под /api/me/* (так согласовано с остальным API).
+router = APIRouter(tags=["auth"])
 
 
 # ---------- DTO ----------
@@ -58,7 +60,7 @@ class UserPublic(BaseModel):
 
 # ---------- endpoints ----------
 
-@router.post("/login", response_model=UserPublic)
+@router.post("/auth/login", response_model=UserPublic)
 async def login(
     body: LoginRequest,
     request: Request,
@@ -95,7 +97,7 @@ async def login(
     return UserPublic.from_user(u)
 
 
-@router.post("/logout")
+@router.post("/auth/logout")
 async def logout(
     request: Request,
     response: Response,
@@ -109,7 +111,7 @@ async def logout(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/me", response_model=UserPublic)
+@router.get("/auth/me", response_model=UserPublic)
 async def me(user: User = Depends(require_user)):
     """Текущий пользователь — для топбара и /settings."""
     return UserPublic.from_user(user)
@@ -122,7 +124,7 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=256)
 
 
-@router.post("/me/password")
+@router.post("/api/me/password")
 async def change_password(
     body: PasswordChangeRequest,
     request: Request,
@@ -159,7 +161,7 @@ class SessionPublic(BaseModel):
     is_current: bool
 
 
-@router.get("/me/sessions", response_model=list[SessionPublic])
+@router.get("/api/me/sessions", response_model=list[SessionPublic])
 async def list_my_sessions(
     request: Request,
     user: User = Depends(require_user),
@@ -182,7 +184,7 @@ async def list_my_sessions(
     ]
 
 
-@router.delete("/me/sessions/{token_short}")
+@router.delete("/api/me/sessions/{token_short}")
 async def revoke_my_session(
     token_short: str,
     request: Request,
@@ -221,7 +223,7 @@ class IntegrationsRequest(BaseModel):
     dodois_credentials_name: Optional[str] = None
 
 
-@router.patch("/me/integrations")
+@router.patch("/api/me/integrations")
 async def patch_integrations(
     body: IntegrationsRequest,
     user: User = Depends(require_user),
@@ -243,7 +245,7 @@ class IntegrationStatus(BaseModel):
     dodois_credentials_name: Optional[str]
 
 
-@router.get("/me/integrations", response_model=IntegrationStatus)
+@router.get("/api/me/integrations", response_model=IntegrationStatus)
 async def get_integrations(user: User = Depends(require_user)):
     """Маска для текущих интеграций — UI показывает первые/последние символы."""
     pf = (user.planfact_api_key or "").strip()
