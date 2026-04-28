@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from . import store
+from . import formulas, store
 
 
 PNL_CODES = {
@@ -215,6 +215,77 @@ def classify_category(info: dict) -> str | None:
         return "OTHER_OPEX"
     # Inv/Fin — в операционный P&L не попадают
     return None
+
+
+def _apply_metric_formulas(
+    lines: list[dict],
+    metrics: list[dict],
+    line_amounts_by_pid: dict[str, dict[int, float]],
+    shown_project_ids: list[str],
+    revenues: dict[str, float],
+    delivery_revenues: dict[str, float],
+) -> None:
+    """In-place переопределить projects/total в lines значениями формул.
+
+    Стратегия — гибрид: для кодов, у которых в pnl_metrics есть валидная
+    формула, считаем по ней; остальные коды остаются от старой логики.
+    Это обеспечивает плавный переход — юзер по очереди настраивает формулы.
+
+    Семантика:
+      - format='rub'  → amount = value, pct_of_revenue = value/revenue[pid]
+      - format='pct'  → pct_of_revenue = value, amount = None (по этой
+        метрике не отображаем рубли — это коэффициент)
+      - format='x'    → как 'pct', но без расчёта pct (это уже множитель)
+
+    Total пере-вычисляется по агрегированным line_amounts (sum по проектам),
+    чтобы общие проценты были корректны (не среднее процентов).
+    """
+    if not metrics:
+        return
+    metrics_by_code = {m["code"]: m for m in metrics if m.get("formula")}
+    line_by_code: dict[str, dict] = {ln["code"]: ln for ln in lines}
+
+    # Агрегированные суммы для total: sum по проектам line_amounts
+    total_line_amounts: dict[int, float] = {}
+    for pid in shown_project_ids:
+        for ln, v in line_amounts_by_pid.get(pid, {}).items():
+            total_line_amounts[ln] = total_line_amounts.get(ln, 0.0) + v
+
+    total_rev = sum(revenues.values())
+
+    for code, metric in metrics_by_code.items():
+        line = line_by_code.get(code)
+        if line is None:
+            continue  # такой код фронт не рендерит — пропускаем
+        try:
+            ast = formulas.parse(metric["formula"])
+        except formulas.FormulaError:
+            continue  # сломанная формула — оставляем старое значение
+
+        fmt = metric.get("format", "pct")
+        for pid in shown_project_ids:
+            value = formulas.evaluate(ast, line_amounts_by_pid.get(pid, {}))
+            rev_pid = revenues.get(pid, 0.0)
+            if fmt == "rub":
+                amt = value
+                pct = (value / rev_pid) if (value is not None and rev_pid) else None
+            else:  # 'pct' или 'x'
+                amt = None
+                pct = value
+            line["projects"][pid] = {"amount": amt, "pct_of_revenue": pct}
+
+        # Total
+        total_value = formulas.evaluate(ast, total_line_amounts)
+        if fmt == "rub":
+            line["total"] = {
+                "amount": total_value,
+                "pct_of_revenue": (
+                    (total_value / total_rev)
+                    if (total_value is not None and total_rev) else None
+                ),
+            }
+        else:
+            line["total"] = {"amount": None, "pct_of_revenue": total_value}
 
 
 async def build_pnl(
@@ -531,7 +602,7 @@ async def build_pnl(
     # а не наши 17 агрегатов.
     # computed_lines нужен, чтобы для is_calc-узлов («EBITDA», «Чистая прибыль» и т.п.)
     # отдать реально посчитанные значения, а не «—».
-    template_lines = await build_template_breakdown(
+    template_lines, line_amounts_by_pid = await build_template_breakdown(
         session=session,
         planfact_key_id=planfact_key_id,
         cat_index=cat_index,
@@ -540,7 +611,21 @@ async def build_pnl(
         delivery_revenues=delivery_revenues,
         shown_project_ids=shown_project_ids,
         computed_lines=lines,
+        return_line_amounts=True,
     )
+
+    # --- Применяем формулы pnl_metrics поверх старых lines ---
+    # Для каждого code из стандартных 17 строк lines: если в pnl_metrics есть
+    # метрика с таким code и формула валидна — переопределяем projects/total
+    # значениями формулы. Иначе остаётся старая логика. Это даёт плавный
+    # переход: настроил формулу → код пошёл по новой логике, не настроил →
+    # старая через PNL_CODES.
+    if planfact_key_id is not None:
+        pf_metrics = await store.list_metrics(session, planfact_key_id)
+        _apply_metric_formulas(
+            lines, pf_metrics, line_amounts_by_pid,
+            shown_project_ids, revenues, delivery_revenues,
+        )
 
     # --- projects_config (активность, отображаемое имя, сортировка) ---
     projects_cfg = await store.list_projects_config(session, owner_id)  # {pid: {is_active, display_name, sort_order}}
@@ -682,7 +767,8 @@ async def build_template_breakdown(
     delivery_revenues: dict[str, float],
     shown_project_ids: list[str],
     computed_lines: list[dict] | None = None,
-) -> list[dict]:
+    return_line_amounts: bool = False,
+) -> list[dict] | tuple[list[dict], dict[str, dict[int, float]]]:
     """Собрать P&L по иерархии шаблона ПланФакт.
 
     Маппинг PlanFact-категории на узел шаблона:
@@ -695,10 +781,10 @@ async def build_template_breakdown(
     клиентом по parent_id/depth.
     """
     if planfact_key_id is None:
-        return []
+        return ([], {}) if return_line_amounts else []
     nodes = await store.list_template_nodes(session, planfact_key_id)
     if not nodes:
-        return []
+        return ([], {}) if return_line_amounts else []
 
     by_path_lc: dict[str, dict] = {}
     for n in nodes:
@@ -898,12 +984,43 @@ async def build_template_breakdown(
             "is_calc": is_calc,
             "pnl_code": n["pnl_code"],
             "sort_order": n["sort_order"],
+            "line_no": n.get("line_no"),
             "projects": per_project,
             "total": total_block,
             "display_kind": display_kind,
             "category_ids": node_cat_ids,
         })
-    return out
+
+    if not return_line_amounts:
+        return out
+
+    # Собираем line_amounts {pid: {line_no: rollup-amount}} для вычисления
+    # формул в pnl_metrics.
+    # Для is_calc узлов direct=0 (мы их не считаем сами), но если есть
+    # совпадение с computed_lines по title — подставляем результат старой
+    # логики: иначе формулы вида `EBITDA = [69]` дадут 0.
+    line_amounts: dict[str, dict[int, float]] = {pid: {} for pid in shown_project_ids}
+    for n in nodes:
+        ln = n.get("line_no")
+        if ln is None:
+            continue
+        if n.get("is_calc"):
+            line_code = CALC_TITLE_TO_LINE_CODE.get((n.get("title") or "").strip())
+            line_block = line_by_code.get(line_code) if line_code else None
+            if line_block is not None:
+                for pid in shown_project_ids:
+                    p = line_block["projects"].get(pid, {})
+                    amt = p.get("amount")
+                    if amt is not None:
+                        line_amounts[pid][ln] = float(amt)
+            # иначе amount = 0 — оставляем без записи (formulas.evaluate
+            # для отсутствующего ключа вернёт None и метрика будет null)
+        else:
+            for pid in shown_project_ids:
+                v = rollup.get((pid, n["id"]), 0.0)
+                if v != 0.0:
+                    line_amounts[pid][ln] = v
+    return out, line_amounts
 
 
 def compare_pnl(current: dict, previous: dict, *, mode: str = "lfl") -> dict:
