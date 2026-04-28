@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from . import storage
+from . import store
 
 
 PNL_CODES = {
@@ -68,7 +68,9 @@ def _detect_revenue_channel(path_str: str) -> str:
     return "other"
 
 
-def _build_category_index(categories: list[dict]) -> dict[str, dict]:
+async def _build_category_index(
+    session, owner_id: int, categories: list[dict]
+) -> dict[str, dict]:
     """id категории → {id, title, parent_id, path, op_type, activity_type, outcome_class, pnl_code}."""
     by_id: dict[str, dict] = {}
     raw_by_id: dict[str, dict] = {}
@@ -104,9 +106,9 @@ def _build_category_index(categories: list[dict]) -> dict[str, dict]:
     #   1) user_map по PlanFact-ID (точечный override через UI)
     #   2) шаблон, импортированный из экспорта ПланФакт (match по path)
     #   3) classify_category() — эвристика на словах в path
-    user_map = storage.list_mappings()
-    template_by_path = storage.template_path_to_code()
-    template_by_leaf = storage.template_leaf_title_to_code() if template_by_path else {}
+    user_map = await store.list_mappings(session, owner_id)
+    template_by_path = await store.template_path_to_code(session, owner_id)
+    template_by_leaf = await store.template_leaf_title_to_code(session, owner_id) if template_by_path else {}
     for cid, info in by_id.items():
         path_str_orig = " / ".join(info["path"])
         path_lc = path_str_orig.lower()
@@ -206,8 +208,10 @@ def classify_category(info: dict) -> str | None:
     return None
 
 
-def build_pnl(
+async def build_pnl(
     *,
+    session,                       # AsyncSession (не аннотируем — circular import)
+    owner_id: int,
     categories: list[dict],
     operations: list[dict],
     projects: list[dict],
@@ -240,10 +244,12 @@ def build_pnl(
         proj_set = set(projects_by_id.keys())
 
     # --- категории ---
-    cat_index = _build_category_index(categories)
+    cat_index = await _build_category_index(session, owner_id, categories)
 
     # --- настройки ---
-    include_manager_in_lc = storage.get_bool_setting("include_manager_in_lc", True)
+    include_manager_in_lc = await store.get_bool_setting(
+        session, owner_id, "include_manager_in_lc", True
+    )
 
     # --- агрегируем суммы по (project_id, pnl_code) и по (project_id, category_id) ---
     totals: dict[tuple[str, str], float] = defaultdict(float)
@@ -450,11 +456,11 @@ def build_pnl(
     ]
 
     # --- цели ---
-    raw_targets = storage.list_targets()
+    raw_targets = await store.list_targets(session, owner_id)
     targets_index: dict[tuple[str, str], float] = {
         (t["project_id"], t["metric_code"]): t["target_pct"] for t in raw_targets
     }
-    default_targets = storage.list_default_targets()  # {metric: pct}
+    default_targets = await store.list_default_targets(session, owner_id)  # {metric: pct}
 
     def amount_for_metric(metric: str, pid: str) -> float:
         """Для TC — сумма UC+LC+DC; для прочих — totals по коду."""
@@ -510,7 +516,9 @@ def build_pnl(
     # а не наши 17 агрегатов.
     # computed_lines нужен, чтобы для is_calc-узлов («EBITDA», «Чистая прибыль» и т.п.)
     # отдать реально посчитанные значения, а не «—».
-    template_lines = build_template_breakdown(
+    template_lines = await build_template_breakdown(
+        session=session,
+        owner_id=owner_id,
         cat_index=cat_index,
         cat_totals=cat_totals,
         revenues=revenues,
@@ -520,7 +528,7 @@ def build_pnl(
     )
 
     # --- projects_config (активность, отображаемое имя, сортировка) ---
-    projects_cfg = storage.list_projects_config()  # {pid: {is_active, display_name, sort_order}}
+    projects_cfg = await store.list_projects_config(session, owner_id)  # {pid: {is_active, display_name, sort_order}}
 
     def display_name_for(pid: str) -> str:
         cfg = projects_cfg.get(pid)
@@ -531,15 +539,15 @@ def build_pnl(
     # --- Ops-метрики за указанный месяц ---
     ops_data: dict[str, dict] = {}
     if period_month:
-        ops_data = storage.list_ops_metrics(period_month=period_month)
+        ops_data = await store.list_ops_metrics(session, owner_id, period_month=period_month)
     # Включаем ops в список проектов и добавляем ops-статус в target_report.
-    ops_targets = storage.list_ops_targets()               # global defaults {code: value}
-    ops_overrides = storage.ops_project_targets_map()      # {pid: {code: value}}
+    ops_targets = await store.list_ops_targets(session, owner_id)         # global defaults {code: value}
+    ops_overrides = await store.ops_project_targets_map(session, owner_id)  # {pid: {code: value}}
     ops_target_report: list[dict] = []
     for pid in shown_project_ids:
         values = ops_data.get(pid) or {}
         per_project = ops_overrides.get(pid, {})
-        for m in storage.OPS_METRICS:
+        for m in store.OPS_METRICS:
             code = m["code"]
             field = m["field"]
             direction = m["direction"]
@@ -618,7 +626,7 @@ def build_pnl(
         "default_targets": default_targets,
         "ops_targets": ops_targets,
         "ops_project_targets": ops_overrides,     # {pid: {code: value}} — per-project override
-        "ops_metrics_meta": storage.OPS_METRICS,  # чтобы фронт знал labels/units/direction
+        "ops_metrics_meta": store.OPS_METRICS,  # чтобы фронт знал labels/units/direction
     }
 
 
@@ -649,8 +657,10 @@ CALC_TITLE_TO_PCT_BASE: dict[str, str] = {
 }
 
 
-def build_template_breakdown(
+async def build_template_breakdown(
     *,
+    session,
+    owner_id: int,
     cat_index: dict[str, dict],
     cat_totals: dict[tuple[str, str], float],
     revenues: dict[str, float],
@@ -669,7 +679,7 @@ def build_template_breakdown(
     Возвращает плоский список в порядке sort_order; иерархия восстанавливается
     клиентом по parent_id/depth.
     """
-    nodes = storage.list_template_nodes()
+    nodes = await store.list_template_nodes(session, owner_id)
     if not nodes:
         return []
 

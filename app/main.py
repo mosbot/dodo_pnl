@@ -1,20 +1,26 @@
-"""FastAPI-приложение: дашборд + API."""
+"""FastAPI-приложение: дашборд + API.
+
+Multi-tenant: каждый запрос несёт user (из require_user dependency) и session
+(из get_session). Все обращения к данным идут через app.store.* с
+обязательным owner_id=user.id.
+"""
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import dodois_client
 from . import pnl as pnl_module
-from . import storage
+from . import store
 from .auth.dependencies import optional_user, require_user
 from .auth.router import router as auth_router
 from .auth.models import User
 from .config import settings
+from .db import get_session
 from .dodois_client import DodoISError
 from .planfact import PlanFactError, client
 from .planfact_export import ExportParseError, parse_pnl_export
@@ -32,25 +38,11 @@ from .schemas import (
 )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # SQLite-init для legacy single-tenant store. Будет вырезано в S2.
-    storage.init_db()
-    yield
-
-
-app = FastAPI(title="PnL Dashboard", lifespan=lifespan)
+app = FastAPI(title="PnL Dashboard")
 
 # --- auth ---
 # Подключаем /auth/login, /auth/logout, /auth/me
 app.include_router(auth_router)
-
-
-def _auth_dep():
-    """Совместимость: все существующие @app.get(..., dependencies=[Depends(_auth_dep())])
-    теперь требуют валидную сессию pnl_session. 401 без неё — для /api/* это
-    JSON-ошибка, фронт обрабатывает её редиректом на /login."""
-    return require_user
 
 
 # --- static files ---
@@ -87,15 +79,15 @@ async def health():
     return {"status": "ok", "planfact_key_set": bool(settings.planfact_api_key)}
 
 
-@app.get("/api/projects", dependencies=[Depends(_auth_dep())])
-async def get_projects():
+@app.get("/api/projects")
+async def get_projects(
+    user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
+):
     try:
         projects = await client.list_projects()
     except PlanFactError as e:
         raise HTTPException(502, str(e))
-    cfg = storage.list_projects_config()
-    # Нормализуем форму для фронта. is_active=True по умолчанию — пока нет записи
-    # в projects_config, считаем проект активным.
+    cfg = await store.list_projects_config(session, user.id)
     norm = []
     for p in projects:
         pid = str(p.get("projectId") or p.get("id") or "")
@@ -115,14 +107,15 @@ async def get_projects():
     return {"projects": norm}
 
 
-@app.get("/api/categories", dependencies=[Depends(_auth_dep())])
-async def get_categories():
+@app.get("/api/categories")
+async def get_categories(
+    user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
+):
     try:
         cats = await client.list_operation_categories()
     except PlanFactError as e:
         raise HTTPException(502, str(e))
-    # Дадим фронту список с path + автоклассификацией, чтобы можно было править
-    index = pnl_module._build_category_index(cats)
+    index = await pnl_module._build_category_index(session, user.id, cats)
     out = []
     for cid, info in index.items():
         out.append({
@@ -133,12 +126,10 @@ async def get_categories():
             "activity_type": info["activity_type"],
             "pnl_code": info["pnl_code"],
         })
-    return {"categories": out, "mappings": storage.list_mappings()}
+    return {"categories": out, "mappings": await store.list_mappings(session, user.id)}
 
 
 def _derive_period_month(date_start: str, date_end: str) -> str | None:
-    """Если диапазон лежит ровно в одном календарном месяце — вернуть 'YYYY-MM'.
-    Иначе None (тогда ops-метрики на карточке не показываем)."""
     if not date_start or not date_end or len(date_start) < 7 or len(date_end) < 7:
         return None
     if date_start[:7] == date_end[:7]:
@@ -146,18 +137,18 @@ def _derive_period_month(date_start: str, date_end: str) -> str | None:
     return None
 
 
-def _resolve_project_filter(project_ids: list[str] | None) -> list[str] | None:
-    """Если пользователь не прислал явный список — берём активные из projects_config.
-    Если в projects_config пусто — возвращаем None (= все)."""
+async def _resolve_project_filter(
+    session: AsyncSession, owner_id: int, project_ids: list[str] | None
+) -> list[str] | None:
     if project_ids:
         return project_ids
-    active = storage.get_active_project_ids()
+    active = await store.get_active_project_ids(session, owner_id)
     if active is None:
         return None
     return sorted(active) if active else []
 
 
-@app.get("/api/pnl", dependencies=[Depends(_auth_dep())])
+@app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
     date_end: str = Query(..., description="YYYY-MM-DD"),
@@ -167,30 +158,27 @@ async def get_pnl(
     compare_mode: str = Query("lfl", regex="^(lfl|mom)$"),
     method: str = Query("accrual", regex="^(accrual|cash)$"),
     period_month: str | None = Query(None, description="'YYYY-MM'. Если не задан — выводится из дат."),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
 ):
-    # если фронт не прислал проекты — подставим активные из projects_config
-    effective_projects = _resolve_project_filter(project_ids)
+    effective_projects = await _resolve_project_filter(session, user.id, project_ids)
     if effective_projects is not None and len(effective_projects) == 0:
-        # Есть конфиг, и ни одного активного проекта — отдаём пустой результат
         return {
-            "projects": [],
-            "lines": [],
-            "template_lines": [],
-            "targets": [],
-            "category_breakdown": [],
-            "revenue_by_channel": {},
-            "unclassified": [],
+            "projects": [], "lines": [], "template_lines": [], "targets": [],
+            "category_breakdown": [], "revenue_by_channel": {}, "unclassified": [],
             "pnl_codes": pnl_module.PNL_CODES,
             "targetable_metrics": pnl_module.TARGETABLE_METRICS,
             "computed_targetable_metrics": sorted(pnl_module.COMPUTED_TARGETABLE_METRICS),
             "denominators": pnl_module.DENOMINATOR,
-            "method": method,
-            "period_month": period_month,
-            "stats": {},
-            "settings": {"include_manager_in_lc": storage.get_bool_setting("include_manager_in_lc", True)},
-            "default_targets": storage.list_default_targets(),
-            "ops_targets": storage.list_ops_targets(),
-            "ops_metrics_meta": storage.OPS_METRICS,
+            "method": method, "period_month": period_month, "stats": {},
+            "settings": {
+                "include_manager_in_lc": await store.get_bool_setting(
+                    session, user.id, "include_manager_in_lc", True
+                )
+            },
+            "default_targets": await store.list_default_targets(session, user.id),
+            "ops_targets": await store.list_ops_targets(session, user.id),
+            "ops_metrics_meta": store.OPS_METRICS,
             "period": {"current": {"start": date_start, "end": date_end}},
         }
 
@@ -200,30 +188,23 @@ async def get_pnl(
         projects, categories, operations = await _fetch_period(
             date_start, date_end, effective_projects, method=method,
         )
-        result = pnl_module.build_pnl(
-            categories=categories,
-            operations=operations,
-            projects=projects,
+        result = await pnl_module.build_pnl(
+            session=session, owner_id=user.id,
+            categories=categories, operations=operations, projects=projects,
             project_filter=effective_projects,
-            date_start=date_start,
-            date_end=date_end,
-            method=method,
-            period_month=pm,
+            date_start=date_start, date_end=date_end,
+            method=method, period_month=pm,
         )
         if compare_start and compare_end:
             prev_operations = await client.fetch_all_operations(
-                date_start=compare_start,
-                date_end=compare_end,
-                project_ids=effective_projects,
-                method=method,
+                date_start=compare_start, date_end=compare_end,
+                project_ids=effective_projects, method=method,
             )
-            prev = pnl_module.build_pnl(
-                categories=categories,
-                operations=prev_operations,
-                projects=projects,
+            prev = await pnl_module.build_pnl(
+                session=session, owner_id=user.id,
+                categories=categories, operations=prev_operations, projects=projects,
                 project_filter=effective_projects,
-                date_start=compare_start,
-                date_end=compare_end,
+                date_start=compare_start, date_end=compare_end,
                 method=method,
                 period_month=_derive_period_month(compare_start, compare_end),
             )
@@ -240,16 +221,18 @@ async def get_pnl(
     return result
 
 
-@app.get("/api/revenue-history", dependencies=[Depends(_auth_dep())])
+@app.get("/api/revenue-history")
 async def get_revenue_history(
     anchor: str = Query(..., description="'YYYY-MM' — последний месяц окна"),
     months: int = Query(12, ge=1, le=36),
     project_ids: list[str] | None = Query(None),
     include_ly: bool = Query(False),
     method: str = Query("accrual", regex="^(accrual|cash)$"),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
 ):
     """Выручка по месяцам за окно [anchor-months+1 .. anchor], опционально + LFL (тот же месяц годом ранее)."""
-    effective_projects = _resolve_project_filter(project_ids)
+    effective_projects = await _resolve_project_filter(session, user.id, project_ids)
     if effective_projects is not None and len(effective_projects) == 0:
         return {"months": [], "totals": {}, "projects": {}, "project_names": {}}
 
@@ -311,7 +294,7 @@ async def get_revenue_history(
     return out
 
 
-@app.get("/api/operations", dependencies=[Depends(_auth_dep())])
+@app.get("/api/operations")
 async def get_operations(
     date_start: str,
     date_end: str,
@@ -320,6 +303,7 @@ async def get_operations(
     category_ids: list[str] = Query(default_factory=list),
     offset: int = 0,
     limit: int = 100,
+    user: User = Depends(require_user),
 ):
     # Объединяем legacy single category_id и новый список category_ids.
     cat_id_set: set[str] = set()
@@ -386,75 +370,114 @@ async def get_operations(
     }
 
 
-@app.post("/api/refresh", dependencies=[Depends(_auth_dep())])
-async def refresh_cache():
+@app.post("/api/refresh")
+async def refresh_cache(user: User = Depends(require_user)):
     client.invalidate_cache()
     return {"status": "ok"}
 
 
 # --- Targets CRUD ---
 
-@app.get("/api/targets", dependencies=[Depends(_auth_dep())])
-async def list_targets(project_id: str | None = None):
-    return {"targets": storage.list_targets(project_id)}
+@app.get("/api/targets")
+async def list_targets(
+    project_id: str | None = None,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return {"targets": await store.list_targets(session, user.id, project_id)}
 
 
-@app.post("/api/targets", dependencies=[Depends(_auth_dep())])
-async def upsert_target(payload: TargetIn):
-    storage.upsert_target(payload.project_id, payload.metric_code, payload.target_pct)
+@app.post("/api/targets")
+async def upsert_target(
+    payload: TargetIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.upsert_target(
+        session, user.id, payload.project_id, payload.metric_code, payload.target_pct
+    )
     return {"status": "ok"}
 
 
-@app.delete("/api/targets", dependencies=[Depends(_auth_dep())])
-async def delete_target(project_id: str, metric_code: str):
-    storage.delete_target(project_id, metric_code)
+@app.delete("/api/targets")
+async def delete_target(
+    project_id: str, metric_code: str,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.delete_target(session, user.id, project_id, metric_code)
     return {"status": "ok"}
 
 
 # --- Default targets (fallback для всех проектов) ---
 
-@app.get("/api/targets/defaults", dependencies=[Depends(_auth_dep())])
-async def list_default_targets():
-    return {"defaults": storage.list_default_targets()}
+@app.get("/api/targets/defaults")
+async def list_default_targets(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return {"defaults": await store.list_default_targets(session, user.id)}
 
 
-@app.post("/api/targets/defaults", dependencies=[Depends(_auth_dep())])
-async def upsert_default_target(payload: DefaultTargetIn):
-    storage.upsert_default_target(payload.metric_code, payload.target_pct)
+@app.post("/api/targets/defaults")
+async def upsert_default_target(
+    payload: DefaultTargetIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.upsert_default_target(
+        session, user.id, payload.metric_code, payload.target_pct
+    )
     return {"status": "ok"}
 
 
-@app.delete("/api/targets/defaults", dependencies=[Depends(_auth_dep())])
-async def delete_default_target(metric_code: str):
-    storage.delete_default_target(metric_code)
+@app.delete("/api/targets/defaults")
+async def delete_default_target(
+    metric_code: str,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.delete_default_target(session, user.id, metric_code)
     return {"status": "ok"}
 
 
 # --- App settings ---
 
-@app.get("/api/settings", dependencies=[Depends(_auth_dep())])
-async def get_settings():
-    return {"settings": storage.list_settings()}
+@app.get("/api/settings")
+async def get_settings(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return {"settings": await store.list_settings(session, user.id)}
 
 
-@app.post("/api/settings", dependencies=[Depends(_auth_dep())])
-async def set_settings(payload: SettingIn):
-    storage.set_setting(payload.key, payload.value)
-    client.invalidate_cache()  # расчёт зависит от настроек — сбросим кэш
+@app.post("/api/settings")
+async def set_settings(
+    payload: SettingIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.set_setting(session, user.id, payload.key, payload.value)
+    client.invalidate_cache()
     return {"status": "ok"}
 
 
 # --- Projects config (активность / имя / сортировка) ---
 
-@app.get("/api/projects/config", dependencies=[Depends(_auth_dep())])
-async def get_projects_config():
-    return {"config": storage.list_projects_config()}
+@app.get("/api/projects/config")
+async def get_projects_config(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return {"config": await store.list_projects_config(session, user.id)}
 
 
-@app.post("/api/projects/config", dependencies=[Depends(_auth_dep())])
-async def upsert_projects_config(payload: ProjectConfigIn):
-    # model_fields_set — только те поля, что реально были в JSON-запросе.
-    # Это отличает «не менять» от «очистить».
+@app.post("/api/projects/config")
+async def upsert_projects_config(
+    payload: ProjectConfigIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
     kwargs: dict = {
         "is_active": payload.is_active,
         "display_name": payload.display_name,
@@ -462,30 +485,37 @@ async def upsert_projects_config(payload: ProjectConfigIn):
     }
     if "dodo_unit_uuid" in payload.model_fields_set:
         kwargs["dodo_unit_uuid"] = payload.dodo_unit_uuid
-    storage.upsert_project_config(payload.project_id, **kwargs)
+    await store.upsert_project_config(session, user.id, payload.project_id, **kwargs)
     client.invalidate_cache()
     return {"status": "ok"}
 
 
 # --- Ops metrics (ручной ввод на /settings) ---
 
-@app.get("/api/ops-metrics", dependencies=[Depends(_auth_dep())])
+@app.get("/api/ops-metrics")
 async def get_ops_metrics(
     period_month: str | None = Query(None, description="'YYYY-MM'. Если не задан — все месяцы."),
     project_id: str | None = None,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
 ):
     return {
-        "metrics": storage.list_ops_metrics(period_month=period_month, project_id=project_id),
-        "meta": storage.OPS_METRICS,
-        "targets": storage.list_ops_targets(),
+        "metrics": await store.list_ops_metrics(
+            session, user.id, period_month=period_month, project_id=project_id
+        ),
+        "meta": store.OPS_METRICS,
+        "targets": await store.list_ops_targets(session, user.id),
     }
 
 
-@app.post("/api/ops-metrics", dependencies=[Depends(_auth_dep())])
-async def upsert_ops_metric(payload: OpsMetricIn):
-    storage.upsert_ops_metric(
-        payload.project_id,
-        payload.period_month,
+@app.post("/api/ops-metrics")
+async def upsert_ops_metric(
+    payload: OpsMetricIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.upsert_ops_metric(
+        session, user.id, payload.project_id, payload.period_month,
         orders_per_courier_h=payload.orders_per_courier_h,
         products_per_h=payload.products_per_h,
         revenue_per_person_h=payload.revenue_per_person_h,
@@ -493,76 +523,99 @@ async def upsert_ops_metric(payload: OpsMetricIn):
     return {"status": "ok"}
 
 
-@app.delete("/api/ops-metrics", dependencies=[Depends(_auth_dep())])
-async def delete_ops_metric(project_id: str, period_month: str):
-    storage.delete_ops_metric(project_id, period_month)
+@app.delete("/api/ops-metrics")
+async def delete_ops_metric(
+    project_id: str, period_month: str,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.delete_ops_metric(session, user.id, project_id, period_month)
     return {"status": "ok"}
 
 
 # --- Ops targets (глобальные цели по ops-метрикам) ---
 
-@app.get("/api/ops-targets", dependencies=[Depends(_auth_dep())])
-async def list_ops_targets_ep():
+@app.get("/api/ops-targets")
+async def list_ops_targets_ep(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
     return {
-        "targets": storage.list_ops_targets(),                    # global defaults
-        "project_targets": storage.list_ops_project_targets(),    # per-project overrides
-        "meta": storage.OPS_METRICS,
+        "targets": await store.list_ops_targets(session, user.id),
+        "project_targets": await store.list_ops_project_targets(session, user.id),
+        "meta": store.OPS_METRICS,
     }
 
 
-@app.post("/api/ops-targets", dependencies=[Depends(_auth_dep())])
-async def upsert_ops_target_ep(payload: OpsTargetIn):
-    storage.upsert_ops_target(payload.metric_code, payload.target_value)
+@app.post("/api/ops-targets")
+async def upsert_ops_target_ep(
+    payload: OpsTargetIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.upsert_ops_target(session, user.id, payload.metric_code, payload.target_value)
     return {"status": "ok"}
 
 
-@app.delete("/api/ops-targets", dependencies=[Depends(_auth_dep())])
-async def delete_ops_target_ep(metric_code: str):
-    storage.delete_ops_target(metric_code)
+@app.delete("/api/ops-targets")
+async def delete_ops_target_ep(
+    metric_code: str,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.delete_ops_target(session, user.id, metric_code)
     return {"status": "ok"}
 
 
-@app.post("/api/ops-targets/project", dependencies=[Depends(_auth_dep())])
-async def upsert_ops_project_target_ep(payload: OpsProjectTargetIn):
-    storage.upsert_ops_project_target(
-        payload.project_id, payload.metric_code, payload.target_value
+@app.post("/api/ops-targets/project")
+async def upsert_ops_project_target_ep(
+    payload: OpsProjectTargetIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.upsert_ops_project_target(
+        session, user.id, payload.project_id, payload.metric_code, payload.target_value
     )
     return {"status": "ok"}
 
 
-@app.delete("/api/ops-targets/project", dependencies=[Depends(_auth_dep())])
-async def delete_ops_project_target_ep(project_id: str, metric_code: str):
-    storage.delete_ops_project_target(project_id, metric_code)
+@app.delete("/api/ops-targets/project")
+async def delete_ops_project_target_ep(
+    project_id: str, metric_code: str,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.delete_ops_project_target(session, user.id, project_id, metric_code)
     return {"status": "ok"}
 
 
 # --- Dodo IS ---
 
-@app.get("/api/dodois/units", dependencies=[Depends(_auth_dep())])
-async def dodois_units():
-    """Список юнитов пользователя из Dodo IS. Использует access_token из env."""
+@app.get("/api/dodois/units")
+async def dodois_units(user: User = Depends(require_user)):
+    """Список юнитов пользователя из Dodo IS. Использует access_token из env (S3
+    переведёт на per-user)."""
     try:
         units = await dodois_client.fetch_units()
     except DodoISError as e:
         raise HTTPException(502, str(e))
-    # Фильтруем: unitType=1 — пиццерия/точка, 0 — офис (не нужен).
     pizzerias = [u for u in units if u.get("unitType") == 1]
     return {"units": pizzerias, "all": units}
 
 
-@app.post("/api/ops-metrics/sync", dependencies=[Depends(_auth_dep())])
+@app.post("/api/ops-metrics/sync")
 async def sync_ops_metrics_from_dodois(
     period: str = Query(..., description="'YYYY-MM' — месяц, для которого тянем ops"),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
 ):
-    """Для каждого проекта с dodo_unit_uuid дёргает /production/productivity
-    и UPSERT-ит в ops_metrics. Возвращает отчёт: кто обновлён, кто пропущен."""
+    """Тянет ops-метрики из Dodo IS для всех проектов текущего юзера, у которых
+    задан dodo_unit_uuid. Идемпотентно UPSERT-ит в ops_metrics."""
     from datetime import datetime
 
     try:
         y, m = map(int, period.split("-"))
         from_dt = datetime(y, m, 1, 0, 0, 0)
-        # Dodo IS требует, чтобы границы были выровнены по часу — берём
-        # начало следующего месяца (exclusive верхняя граница).
         if m == 12:
             to_dt = datetime(y + 1, 1, 1, 0, 0, 0)
         else:
@@ -570,7 +623,7 @@ async def sync_ops_metrics_from_dodois(
     except Exception:
         raise HTTPException(400, "period должен быть 'YYYY-MM'")
 
-    cfg = storage.list_projects_config()
+    cfg = await store.list_projects_config(session, user.id)
     targets = [
         (pid, c["dodo_unit_uuid"])
         for pid, c in cfg.items()
@@ -581,9 +634,7 @@ async def sync_ops_metrics_from_dodois(
 
     unit_uuids = [uuid for _, uuid in targets]
     try:
-        stats = await dodois_client.fetch_productivity_many(
-            unit_uuids, from_dt, to_dt
-        )
+        stats = await dodois_client.fetch_productivity_many(unit_uuids, from_dt, to_dt)
         cert_counts = await dodois_client.fetch_late_delivery_vouchers_count(
             unit_uuids, from_dt, to_dt
         )
@@ -594,7 +645,6 @@ async def sync_ops_metrics_from_dodois(
         raise HTTPException(502, str(e))
 
     by_uuid = {s.get("unitId", "").lower(): s for s in stats}
-    # delivery stats ключуем тем же способом, что и productivity — по unitId lower-case
     by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
 
     updated: list[dict] = []
@@ -603,16 +653,14 @@ async def sync_ops_metrics_from_dodois(
         key = (uuid or "").lower().replace("-", "")
         s = by_uuid.get(key) or by_uuid.get(uuid.lower())
         d = by_uuid_dlv.get(key) or by_uuid_dlv.get(uuid.lower()) or {}
-        # cert_counts ключуется нормализованным uuid (lower, без дефисов).
         cert_n = cert_counts.get(key, 0)
         delivery_orders = int(d.get("deliveryOrdersCount") or 0)
         cert_pct = (cert_n / delivery_orders * 100.0) if delivery_orders > 0 else None
         if not s:
             not_found.append(pid)
             continue
-        storage.upsert_ops_metric(
-            pid,
-            period,
+        await store.upsert_ops_metric(
+            session, user.id, pid, period,
             orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
             products_per_h=s.get("productsPerLaborHour"),
             revenue_per_person_h=s.get("salesPerLaborHour"),
@@ -636,24 +684,33 @@ async def sync_ops_metrics_from_dodois(
 
 # --- Category mapping ---
 
-@app.post("/api/mappings", dependencies=[Depends(_auth_dep())])
-async def upsert_mapping(payload: MappingIn):
-    storage.upsert_mapping(payload.planfact_category_id, payload.pnl_code)
+@app.post("/api/mappings")
+async def upsert_mapping(
+    payload: MappingIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.upsert_mapping(
+        session, user.id, payload.planfact_category_id, payload.pnl_code
+    )
     return {"status": "ok"}
 
 
 # --- PnL template (импорт из экспорта ПланФакт) ---
 
-@app.get("/api/template", dependencies=[Depends(_auth_dep())])
-async def get_template():
+@app.get("/api/template")
+async def get_template(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
     """Возвращает текущий шаблон. nodes=[] означает, что шаблон не задан."""
-    return {"nodes": storage.list_template_nodes()}
+    return {"nodes": await store.list_template_nodes(session, user.id)}
 
 
-@app.post("/api/template/preview", dependencies=[Depends(_auth_dep())])
-async def template_preview(file: UploadFile = File(...)):
-    """Парсит загруженный xlsx-экспорт ПланФакт и возвращает дерево с
-    auto-классификацией. На этом шаге в БД ничего не пишем."""
+@app.post("/api/template/preview")
+async def template_preview(
+    file: UploadFile = File(...), user: User = Depends(require_user)
+):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Ожидается .xlsx-файл (экспорт из ПланФакт).")
     content = await file.read()
@@ -664,33 +721,42 @@ async def template_preview(file: UploadFile = File(...)):
     return parsed
 
 
-@app.put("/api/template", dependencies=[Depends(_auth_dep())])
-async def save_template(payload: TemplateSaveIn):
-    """Сохранить шаблон целиком (полная замена). На входе — список узлов из preview."""
+@app.put("/api/template")
+async def save_template(
+    payload: TemplateSaveIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
     nodes = payload.nodes or []
     if not nodes:
         raise HTTPException(400, "Список узлов пуст — нечего сохранять.")
-    # Лёгкая валидация формы
     for n in nodes:
         if "title" not in n or "depth" not in n or "path" not in n:
             raise HTTPException(400, "Узлы должны содержать title/depth/path.")
-    inserted = storage.replace_template_tree(nodes)
+    inserted = await store.replace_template_tree(session, user.id, nodes)
     return {"status": "ok", "inserted": inserted}
 
 
-@app.patch("/api/template/{node_id}", dependencies=[Depends(_auth_dep())])
-async def patch_template_node(node_id: int, payload: TemplateNodeCodeIn):
-    """Поправить pnl_code конкретного узла (без полного пересохранения)."""
-    ok = storage.update_template_node_code(node_id, payload.pnl_code)
+@app.patch("/api/template/{node_id}")
+async def patch_template_node(
+    node_id: int, payload: TemplateNodeCodeIn,
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    ok = await store.update_template_node_code(
+        session, user.id, node_id, payload.pnl_code
+    )
     if not ok:
         raise HTTPException(404, f"Узел {node_id} не найден.")
     return {"status": "ok"}
 
 
-@app.delete("/api/template", dependencies=[Depends(_auth_dep())])
-async def delete_template():
-    """Очистить шаблон (вернуться к классификации по эвристике)."""
-    storage.clear_template()
+@app.delete("/api/template")
+async def delete_template(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await store.clear_template(session, user.id)
     return {"status": "ok"}
 
 
