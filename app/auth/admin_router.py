@@ -249,6 +249,60 @@ async def admin_user_projects_config(
     return {"config": cfg}
 
 
+@admin_router.get("/api/admin/users/{user_id}/projects")
+async def admin_user_projects(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список ВСЕХ PlanFact-проектов целевого юзера + флаг is_active.
+
+    Ключ берётся ТОЛЬКО из users.planfact_api_key (без env-fallback) —
+    иначе админ увидит проекты под общим env-ключом, что путает.
+    """
+    from ..planfact import PlanFactClient, PlanFactError
+    u = await get_user_by_id(session, user_id)
+    if u is None:
+        raise HTTPException(404, "Пользователь не найден")
+
+    pf_key = (u.planfact_api_key or "").strip()
+    if not pf_key:
+        return {
+            "projects": [],
+            "message": (
+                "У пользователя не задан PlanFact API key. Сначала задайте "
+                "через «Изменить» — потом сможете управлять доступом к проектам."
+            ),
+        }
+
+    # Создаём отдельный клиент с ключом target-юзера. НЕ переиспользуем
+    # планфактовский pool из app.planfact._clients (там ключ привязан к
+    # current admin, и мы не хотим случайно загрязнить его кэш).
+    pf = PlanFactClient(api_key=pf_key)
+    try:
+        projects = await pf.list_projects()
+    except PlanFactError as e:
+        raise HTTPException(502, f"PlanFact API: {e}")
+
+    cfg = await store.list_projects_config(session, u.id)
+    out = []
+    for p in projects:
+        pid = str(p.get("projectId") or p.get("id") or "")
+        if not pid:
+            continue
+        c = cfg.get(pid) or {}
+        out.append({
+            "id": pid,
+            "planfact_name": p.get("title") or p.get("name") or "",
+            "is_active": bool(c.get("is_active", True)),
+            "display_name": c.get("display_name"),
+            "sort_order": c.get("sort_order"),
+            "dodo_unit_uuid": c.get("dodo_unit_uuid"),
+            "planfact_active": bool(p.get("active", True)),
+        })
+    return {"projects": out}
+
+
 @admin_router.patch(
     "/api/admin/users/{user_id}/projects/{project_id}/config"
 )

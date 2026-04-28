@@ -1097,13 +1097,21 @@ async function renderUsersTable() {
         <td>${esc(u.dodois_credentials_name || '—')}</td>
         <td>${u.planfact_key_masked ? '<code>' + esc(u.planfact_key_masked) + '</code>' : '<span class="muted">—</span>'}</td>
         <td>${fmtDt(u.created_at)}</td>
-        <td><button class="btn-secondary js-edit-user" data-id="${u.id}">Изменить</button></td>
+        <td style="display:flex;gap:6px;">
+          <button class="btn-secondary js-edit-user" data-id="${u.id}">Изменить</button>
+          <button class="btn-secondary js-user-projects" data-id="${u.id}" data-username="${esc(u.username)}">Проекты</button>
+        </td>
       </tr>
     `).join('');
     tbody.querySelectorAll('.js-edit-user').forEach(btn => {
       btn.addEventListener('click', () => {
         const u = users.find(x => x.id === Number(btn.dataset.id));
         if (u) openEditUserModal(u);
+      });
+    });
+    tbody.querySelectorAll('.js-user-projects').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openUserProjectsModal(Number(btn.dataset.id), btn.dataset.username);
       });
     });
   } catch (e) {
@@ -1138,6 +1146,77 @@ function openEditUserModal(u) {
 function showGeneratedPassword(pwd) {
   document.getElementById('generatedPwd').textContent = pwd;
   openModal('passwordShownModal');
+}
+
+async function openUserProjectsModal(userId, username) {
+  document.getElementById('upTitle').textContent = `Проекты: ${username}`;
+  const wrap = document.getElementById('upTableWrap');
+  wrap.innerHTML = '<p class="muted">Загрузка…</p>';
+  openModal('userProjectsModal');
+  let resp;
+  try {
+    resp = await api(`/api/admin/users/${userId}/projects`);
+  } catch (e) {
+    wrap.innerHTML = `<p class="neg">Ошибка: ${esc(e.message)}</p>`;
+    return;
+  }
+  if (resp.message) {
+    wrap.innerHTML = `<p class="muted" style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;color:#92400e;">${esc(resp.message)}</p>`;
+    return;
+  }
+  const projects = resp.projects || [];
+  if (!projects.length) {
+    wrap.innerHTML = '<p class="muted">Под этим PF-ключом нет ни одного проекта.</p>';
+    return;
+  }
+  // Сортируем — активные сверху, потом по name
+  projects.sort((a, b) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+    return (a.planfact_name || '').localeCompare(b.planfact_name || '', 'ru');
+  });
+  wrap.innerHTML = `
+    <table class="dense-table">
+      <thead><tr>
+        <th style="width:60px;text-align:center;">Вкл</th>
+        <th>PlanFact-имя</th>
+        <th>ID</th>
+        <th>Активность в PF</th>
+      </tr></thead>
+      <tbody>
+        ${projects.map(p => `
+          <tr data-pid="${esc(p.id)}" class="${p.is_active ? '' : 'row-off'}">
+            <td class="cell-center">
+              <label class="switch">
+                <input type="checkbox" class="js-up-toggle" ${p.is_active ? 'checked' : ''}>
+                <span class="slider"></span>
+              </label>
+            </td>
+            <td><strong>${esc(p.planfact_name)}</strong></td>
+            <td><code style="font-size:11px;">${esc(p.id)}</code></td>
+            <td>${p.planfact_active ? 'да' : '<span class="muted">нет</span>'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  wrap.querySelectorAll('tr[data-pid]').forEach(tr => {
+    const pid = tr.dataset.pid;
+    const chk = tr.querySelector('.js-up-toggle');
+    chk.addEventListener('change', async () => {
+      try {
+        await api(`/api/admin/users/${userId}/projects/${pid}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: chk.checked }),
+        });
+        tr.classList.toggle('row-off', !chk.checked);
+        toast('Сохранено');
+      } catch (e) {
+        toast('Ошибка: ' + e.message, 'error');
+        chk.checked = !chk.checked;
+      }
+    });
+  });
 }
 
 function initUsersTab() {

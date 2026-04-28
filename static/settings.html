@@ -293,6 +293,27 @@
   </div>
 </div>
 
+<!-- ============ Модалка: Доступ пользователя к проектам ============ -->
+<div id="userProjectsModal" class="modal hidden">
+  <div class="modal-content wide">
+    <div class="modal-header">
+      <h3 id="upTitle">Доступ к проектам</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <p class="muted" style="font-size:13px;margin-bottom:8px;">
+      Включите проекты, которые пользователь должен видеть на дашборде. Снятый
+      тумблер — проект архивирован: данные по нему не загружаются и в карточках
+      не показывается.
+    </p>
+    <div id="upTableWrap" class="block-scroll-x">
+      <p class="muted">Загрузка…</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-primary" data-close>Готово</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ Модалка: Сгенерированный пароль ============ -->
 <div id="passwordShownModal" class="modal hidden">
   <div class="modal-content">
