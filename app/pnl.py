@@ -233,9 +233,10 @@ def _apply_metric_formulas(
 
     Семантика:
       - format='rub'  → amount = value, pct_of_revenue = value/revenue[pid]
-      - format='pct'  → pct_of_revenue = value, amount = None (по этой
-        метрике не отображаем рубли — это коэффициент)
-      - format='x'    → как 'pct', но без расчёта pct (это уже множитель)
+      - format='pct'  → pct_of_revenue = value. Если формула вида X/Y
+        (корневая операция деления) — amount = value числителя X, чтобы
+        фронт мог показать и рубли, и процент. Иначе amount = None.
+      - format='x'    → как 'pct'
 
     Total пере-вычисляется по агрегированным line_amounts (sum по проектам),
     чтобы общие проценты были корректны (не среднее процентов).
@@ -263,14 +264,25 @@ def _apply_metric_formulas(
             continue  # сломанная формула — оставляем старое значение
 
         fmt = metric.get("format", "pct")
+        # Для format=pct, если формула — деление X/Y, разлагаем на
+        # numerator (рубли) и весь результат (доля). Это даёт фронту
+        # возможность показать и сумму, и процент.
+        numerator_ast = None
+        if fmt != "rub" and isinstance(ast, formulas.BinOp) and ast.op == "/":
+            numerator_ast = ast.left
+
         for pid in shown_project_ids:
-            value = formulas.evaluate(ast, line_amounts_by_pid.get(pid, {}))
+            line_vals = line_amounts_by_pid.get(pid, {})
+            value = formulas.evaluate(ast, line_vals)
             rev_pid = revenues.get(pid, 0.0)
             if fmt == "rub":
                 amt = value
                 pct = (value / rev_pid) if (value is not None and rev_pid) else None
             else:  # 'pct' или 'x'
-                amt = None
+                amt = (
+                    formulas.evaluate(numerator_ast, line_vals)
+                    if numerator_ast is not None else None
+                )
                 pct = value
             line["projects"][pid] = {"amount": amt, "pct_of_revenue": pct}
 
@@ -285,7 +297,11 @@ def _apply_metric_formulas(
                 ),
             }
         else:
-            line["total"] = {"amount": None, "pct_of_revenue": total_value}
+            total_amt = (
+                formulas.evaluate(numerator_ast, total_line_amounts)
+                if numerator_ast is not None else None
+            )
+            line["total"] = {"amount": total_amt, "pct_of_revenue": total_value}
 
 
 async def build_pnl(
