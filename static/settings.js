@@ -994,87 +994,169 @@ function initProfileTab() {
 }
 
 // ======================================================
-// Интеграции: PlanFact key + Dodo IS credentials_name
+// Интеграции (read-only для юзера; CRUD ключей и логинов — в админ-табе)
 // ======================================================
 async function loadIntegrationStatus() {
   try {
     const s = await api('/api/me/integrations');
-    const pfMasked = document.getElementById('pfCurrentMasked');
-    if (pfMasked) pfMasked.textContent = s.planfact_key_masked || '— не задан —';
+    const pfName = document.getElementById('pfKeyName');
+    if (pfName) pfName.textContent = s.planfact_key_name || '— не назначен —';
     const di = document.getElementById('dodoisName');
-    if (di) di.value = s.dodois_credentials_name || '';
+    if (di) di.textContent = s.dodois_credentials_name || '— не назначен —';
   } catch (e) {
     console.warn('integrations status failed', e);
   }
 }
 
 function initIntegrationsTab() {
-  const pfForm = document.getElementById('planfactForm');
-  if (pfForm) {
-    pfForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      setMsg('planfactMsg', '', '');
-      const key = document.getElementById('pfKey').value.trim();
-      if (!key) { setMsg('planfactMsg', 'Пустой ключ', 'err'); return; }
-      try {
-        await api('/api/me/integrations', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planfact_api_key: key }),
-        });
-        setMsg('planfactMsg', 'Сохранено', 'ok');
-        document.getElementById('pfKey').value = '';
-        await loadIntegrationStatus();
-      } catch (err) {
-        setMsg('planfactMsg', err.message, 'err');
-      }
-    });
-    document.getElementById('pfTestBtn').addEventListener('click', async () => {
+  const pfTest = document.getElementById('pfTestBtn');
+  if (pfTest) {
+    pfTest.addEventListener('click', async () => {
       setMsg('planfactMsg', 'Проверяю…', 'ok');
       try {
         const r = await post('/api/me/test-planfact', {});
         setMsg('planfactMsg', r.detail, r.ok ? 'ok' : 'err');
-      } catch (err) {
-        setMsg('planfactMsg', err.message, 'err');
-      }
+      } catch (err) { setMsg('planfactMsg', err.message, 'err'); }
     });
   }
-
-  const diForm = document.getElementById('dodoisForm');
-  if (diForm) {
-    diForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      setMsg('dodoisMsg', '', '');
-      const name = document.getElementById('dodoisName').value.trim();
-      try {
-        await api('/api/me/integrations', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dodois_credentials_name: name }),
-        });
-        setMsg('dodoisMsg', 'Сохранено', 'ok');
-        await loadIntegrationStatus();
-      } catch (err) {
-        setMsg('dodoisMsg', err.message, 'err');
-      }
-    });
-    document.getElementById('dodoisTestBtn').addEventListener('click', async () => {
+  const dTest = document.getElementById('dodoisTestBtn');
+  if (dTest) {
+    dTest.addEventListener('click', async () => {
       setMsg('dodoisMsg', 'Проверяю…', 'ok');
       try {
         const r = await post('/api/me/test-dodois', {});
         setMsg('dodoisMsg', r.detail, r.ok ? 'ok' : 'err');
-      } catch (err) {
-        setMsg('dodoisMsg', err.message, 'err');
-      }
+      } catch (err) { setMsg('dodoisMsg', err.message, 'err'); }
     });
   }
-
   loadIntegrationStatus();
 }
 
 // ======================================================
-// Пользователи (admin only)
+// Пользователи + каталог PlanFact-ключей + Dodo IS логины (admin only)
 // ======================================================
+
+// Загружается на старте админ-таба, кэшируется в state.adminCatalogs
+// и переиспользуется в селектах модалок создания/редактирования.
+async function loadAdminCatalogs() {
+  const [keysR, dodoisR] = await Promise.allSettled([
+    api('/api/admin/planfact-keys'),
+    api('/api/admin/dodois-credentials'),
+  ]);
+  state.adminCatalogs = {
+    pfKeys: keysR.status === 'fulfilled' ? keysR.value : [],
+    dodoisLogins: dodoisR.status === 'fulfilled' ? dodoisR.value : [],
+  };
+}
+
+function fillSelect(selectEl, options, currentValue, valueKey, labelFn, placeholder) {
+  if (!selectEl) return;
+  const opts = [`<option value="">${placeholder}</option>`];
+  for (const o of options) {
+    const v = o[valueKey];
+    const sel = String(v) === String(currentValue ?? '') ? 'selected' : '';
+    opts.push(`<option value="${esc(String(v))}" ${sel}>${esc(labelFn(o))}</option>`);
+  }
+  selectEl.innerHTML = opts.join('');
+}
+
+async function renderPfKeysTable() {
+  const tbody = document.querySelector('#pfKeysTable tbody');
+  if (!tbody) return;
+  let keys;
+  try {
+    keys = await api('/api/admin/planfact-keys');
+    state.adminCatalogs = state.adminCatalogs || {};
+    state.adminCatalogs.pfKeys = keys;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="neg">Ошибка: ${esc(e.message)}</td></tr>`;
+    return;
+  }
+  if (!keys.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">Каталог пуст. Добавьте первый ключ.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = keys.map(k => `
+    <tr data-id="${k.id}">
+      <td><strong>${esc(k.name)}</strong></td>
+      <td><code style="font-size:11px;">${esc(k.api_key_masked)}</code></td>
+      <td class="muted">${esc(k.note || '—')}</td>
+      <td>${k.used_by_count > 0 ? k.used_by_count + ' юзер(ов)' : '<span class="muted">—</span>'}</td>
+      <td><button class="btn-secondary js-edit-pfkey" data-id="${k.id}">Изменить</button></td>
+    </tr>
+  `).join('');
+  tbody.querySelectorAll('.js-edit-pfkey').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = keys.find(x => x.id === Number(btn.dataset.id));
+      if (k) openPfKeyModal(k);
+    });
+  });
+}
+
+function openPfKeyModal(existing) {
+  const isEdit = !!existing;
+  document.getElementById('pkTitle').textContent = isEdit ? 'Изменить PF-ключ' : 'Новый PF-ключ';
+  document.getElementById('pkId').value = existing?.id || '';
+  document.getElementById('pkName').value = existing?.name || '';
+  document.getElementById('pkApiKey').value = '';
+  document.getElementById('pkApiKeyHint').textContent = isEdit
+    ? `Текущий: ${existing.api_key_masked}. Оставьте поле пустым чтобы не менять.`
+    : '';
+  document.getElementById('pkApiKey').required = !isEdit;
+  document.getElementById('pkNote').value = existing?.note || '';
+  document.getElementById('pkDelete').style.display = isEdit ? '' : 'none';
+  setMsg('pkMsg', '', '');
+  openModal('pfKeyModal');
+}
+
+function initPfKeysCatalog() {
+  document.getElementById('btnCreatePfKey')?.addEventListener('click', () => openPfKeyModal(null));
+
+  document.getElementById('pfKeyForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setMsg('pkMsg', '', '');
+    const id = document.getElementById('pkId').value;
+    const name = document.getElementById('pkName').value.trim();
+    const apiKey = document.getElementById('pkApiKey').value.trim();
+    const note = document.getElementById('pkNote').value.trim();
+    try {
+      if (id) {
+        const body = { name, note: note || null };
+        if (apiKey) body.api_key = apiKey;
+        await api(`/api/admin/planfact-keys/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } else {
+        if (!apiKey) { setMsg('pkMsg', 'Укажите api_key', 'err'); return; }
+        await post('/api/admin/planfact-keys', { name, api_key: apiKey, note: note || null });
+      }
+      closeModal('pfKeyModal');
+      toast('Сохранено');
+      await renderPfKeysTable();
+      await renderUsersTable();  // обновим колонку «PF KEY»
+    } catch (err) {
+      setMsg('pkMsg', err.message, 'err');
+    }
+  });
+
+  document.getElementById('pkDelete').addEventListener('click', async () => {
+    const id = document.getElementById('pkId').value;
+    const name = document.getElementById('pkName').value;
+    if (!confirm(`Удалить PF-ключ «${name}»?`)) return;
+    try {
+      await api(`/api/admin/planfact-keys/${id}`, { method: 'DELETE' });
+      closeModal('pfKeyModal');
+      toast('Ключ удалён');
+      await renderPfKeysTable();
+    } catch (err) {
+      setMsg('pkMsg', err.message, 'err');
+    }
+  });
+
+  renderPfKeysTable();
+}
 async function renderUsersTable() {
   const tbody = document.querySelector('#usersTable tbody');
   if (!tbody) return;
@@ -1095,7 +1177,7 @@ async function renderUsersTable() {
         <td>${esc(u.display_name || '—')}</td>
         <td>${u.is_admin ? '★ да' : 'нет'}</td>
         <td>${esc(u.dodois_credentials_name || '—')}</td>
-        <td>${u.planfact_key_masked ? '<code>' + esc(u.planfact_key_masked) + '</code>' : '<span class="muted">—</span>'}</td>
+        <td>${u.planfact_key_name ? esc(u.planfact_key_name) : '<span class="muted">— не назначен —</span>'}</td>
         <td>${fmtDt(u.created_at)}</td>
         <td style="display:flex;gap:6px;">
           <button class="btn-secondary js-edit-user" data-id="${u.id}">Изменить</button>
@@ -1128,6 +1210,18 @@ function closeModal(id) {
 
 function openCreateUserModal() {
   document.getElementById('createUserForm').reset();
+  // Заполняем селекты из каталогов
+  const cats = state.adminCatalogs || { pfKeys: [], dodoisLogins: [] };
+  fillSelect(
+    document.getElementById('cuPfKeyId'), cats.pfKeys, '',
+    'id', k => `${k.name} — ${k.api_key_masked}` + (k.note ? ` (${k.note})` : ''),
+    '— не назначен —',
+  );
+  fillSelect(
+    document.getElementById('cuDodoisName'), cats.dodoisLogins, '',
+    'name', d => d.name + (d.email ? ` (${d.email})` : ''),
+    '— не выбран —',
+  );
   setMsg('cuMsg', '', '');
   openModal('userCreateModal');
 }
@@ -1137,8 +1231,17 @@ function openEditUserModal(u) {
   document.getElementById('ueUsername').value = u.username;
   document.getElementById('ueDisplayName').value = u.display_name || '';
   document.getElementById('ueIsAdmin').checked = !!u.is_admin;
-  document.getElementById('ueDodoisName').value = u.dodois_credentials_name || '';
-  document.getElementById('uePfKey').value = '';
+  const cats = state.adminCatalogs || { pfKeys: [], dodoisLogins: [] };
+  fillSelect(
+    document.getElementById('uePfKeyId'), cats.pfKeys, u.planfact_key_id ?? '',
+    'id', k => `${k.name} — ${k.api_key_masked}` + (k.note ? ` (${k.note})` : ''),
+    '— не назначен —',
+  );
+  fillSelect(
+    document.getElementById('ueDodoisName'), cats.dodoisLogins, u.dodois_credentials_name ?? '',
+    'name', d => d.name + (d.email ? ` (${d.email})` : ''),
+    '— не выбран —',
+  );
   setMsg('ueMsg', '', '');
   openModal('userEditModal');
 }
@@ -1219,13 +1322,17 @@ async function openUserProjectsModal(userId, username) {
   });
 }
 
-function initUsersTab() {
+async function initUsersTab() {
   // Скрываем admin-only элементы для не-админов; показываем для админов.
   const isAdmin = !!(state.me && state.me.is_admin);
   document.querySelectorAll('.admin-only').forEach(e => {
     e.classList.toggle('hidden', !isAdmin);
   });
   if (!isAdmin) return;
+
+  // Подгружаем каталоги (PF-ключи + Dodo IS логины) для селектов
+  await loadAdminCatalogs();
+  initPfKeysCatalog();
 
   // Закрытие модалок по [data-close]
   document.querySelectorAll('[data-close]').forEach(btn => {
@@ -1241,13 +1348,14 @@ function initUsersTab() {
   document.getElementById('createUserForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     setMsg('cuMsg', '', '');
+    const pfKeyId = document.getElementById('cuPfKeyId').value;
     const body = {
       username: document.getElementById('cuUsername').value.trim(),
       password: document.getElementById('cuPassword').value,
       display_name: document.getElementById('cuDisplayName').value.trim() || null,
       is_admin: document.getElementById('cuIsAdmin').checked,
-      dodois_credentials_name: document.getElementById('cuDodoisName').value.trim() || null,
-      planfact_api_key: document.getElementById('cuPfKey').value.trim() || null,
+      dodois_credentials_name: document.getElementById('cuDodoisName').value || null,
+      planfact_key_id: pfKeyId ? Number(pfKeyId) : null,
     };
     try {
       await post('/api/admin/users', body);
@@ -1264,13 +1372,17 @@ function initUsersTab() {
     e.preventDefault();
     setMsg('ueMsg', '', '');
     const id = document.getElementById('ueId').value;
+    const pfKeyId = document.getElementById('uePfKeyId').value;
     const body = {
       display_name: document.getElementById('ueDisplayName').value.trim() || null,
       is_admin: document.getElementById('ueIsAdmin').checked,
-      dodois_credentials_name: document.getElementById('ueDodoisName').value.trim() || null,
+      dodois_credentials_name: document.getElementById('ueDodoisName').value || null,
     };
-    const newPf = document.getElementById('uePfKey').value.trim();
-    if (newPf) body.planfact_api_key = newPf;
+    if (pfKeyId === '') {
+      body.clear_planfact_key = true;
+    } else {
+      body.planfact_key_id = Number(pfKeyId);
+    }
     try {
       await api(`/api/admin/users/${id}`, {
         method: 'PATCH',

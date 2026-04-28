@@ -56,7 +56,7 @@ class UserPublic(BaseModel):
             display_name=u.display_name,
             is_admin=u.is_admin,
             has_dodois_credentials=bool(u.dodois_credentials_name),
-            has_planfact_key=bool(u.planfact_api_key),
+            has_planfact_key=bool(u.planfact_key_id),
         )
 
 
@@ -257,42 +257,15 @@ async def revoke_my_session(
     return {"status": "ok"}
 
 
-# ---------- Интеграции: PlanFact key + Dodo IS credentials_name ----------
-
-class IntegrationsRequest(BaseModel):
-    planfact_api_key: Optional[str] = None
-    dodois_credentials_name: Optional[str] = None
-
-
-@router.patch("/api/me/integrations")
-async def patch_integrations(
-    body: IntegrationsRequest,
-    request: Request,
-    user: User = Depends(require_user),
-    session: AsyncSession = Depends(get_session),
-):
-    """Обновить интеграции текущего пользователя. None = не менять,
-    пустая строка = очистить."""
-    await update_integrations(
-        session, user.id,
-        dodois_credentials_name=body.dodois_credentials_name,
-        planfact_api_key=body.planfact_api_key,
-    )
-    await audit.log_audit(
-        session, audit.ACTION_INTEGRATIONS_UPDATED,
-        user_id=user.id, request=request,
-        details={
-            # Не пишем сами значения — только что меняли
-            "planfact_changed": body.planfact_api_key is not None,
-            "dodois_changed": body.dodois_credentials_name is not None,
-        },
-    )
-    return {"status": "ok"}
-
+# ---------- Интеграции: read-only для пользователя ----------
+# Менять интеграции теперь может только админ через /api/admin/users/{id}.
+# Сам юзер видит только что у него назначено.
 
 class IntegrationStatus(BaseModel):
-    """Маскированное представление текущих интеграций (без полного ключа)."""
-    planfact_key_masked: Optional[str]   # '_pUi...RGXs' или None
+    """Read-only представление текущих интеграций. Сам api_key не отдаём —
+    деталь каталога, доступная только админу."""
+    planfact_key_id: Optional[int]
+    planfact_key_name: Optional[str]
     dodois_credentials_name: Optional[str]
 
 
@@ -334,15 +307,19 @@ async def list_my_audit(
 
 
 @router.get("/api/me/integrations", response_model=IntegrationStatus)
-async def get_integrations(user: User = Depends(require_user)):
-    """Маска для текущих интеграций — UI показывает первые/последние символы."""
-    pf = (user.planfact_api_key or "").strip()
-    masked: Optional[str]
-    if pf:
-        masked = (pf[:4] + "..." + pf[-4:]) if len(pf) > 12 else "***"
-    else:
-        masked = None
+async def get_integrations(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Текущие интеграции пользователя. Только метаданные (имя ключа)."""
+    from .models import PlanfactKey
+    key_name: Optional[str] = None
+    if user.planfact_key_id:
+        pk = await session.get(PlanfactKey, user.planfact_key_id)
+        if pk:
+            key_name = pk.name
     return IntegrationStatus(
-        planfact_key_masked=masked,
+        planfact_key_id=user.planfact_key_id,
+        planfact_key_name=key_name,
         dodois_credentials_name=user.dodois_credentials_name,
     )

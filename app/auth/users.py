@@ -43,7 +43,7 @@ async def create_user(
     display_name: Optional[str] = None,
     is_admin: bool = False,
     dodois_credentials_name: Optional[str] = None,
-    planfact_api_key: Optional[str] = None,
+    planfact_key_id: Optional[int] = None,
 ) -> User:
     """Создать пользователя. Username нормализуется к нижнему регистру.
 
@@ -55,10 +55,10 @@ async def create_user(
         display_name=display_name,
         is_admin=is_admin,
         dodois_credentials_name=dodois_credentials_name,
-        planfact_api_key=planfact_api_key,
+        planfact_key_id=planfact_key_id,
     )
     session.add(user)
-    await session.flush()  # получаем id, не коммитим
+    await session.flush()
     return user
 
 
@@ -82,18 +82,22 @@ async def update_integrations(
     user_id: int,
     *,
     dodois_credentials_name: Optional[str] = None,
-    planfact_api_key: Optional[str] = None,
+    planfact_key_id: Optional[int] = None,
+    clear_planfact_key: bool = False,
 ) -> None:
-    """Обновить интеграционные настройки. None = не трогать.
+    """Обновить интеграционные настройки. None = не трогать. Для очистки
+    привязки к PF-ключу передать clear_planfact_key=True (planfact_key_id
+    не может различить «не передан» и «снять привязку», т.к. оба None).
 
-    Чтобы очистить значение — передать пустую строку: тогда в БД ляжет ''
-    (валидация на пустоту делается на уровне UI/API-ручки).
+    dodois_credentials_name: пустая строка/None обрабатывается на уровне UI.
     """
     values: dict = {"updated_at": datetime.now(timezone.utc)}
     if dodois_credentials_name is not None:
         values["dodois_credentials_name"] = dodois_credentials_name or None
-    if planfact_api_key is not None:
-        values["planfact_api_key"] = planfact_api_key or None
+    if clear_planfact_key:
+        values["planfact_key_id"] = None
+    elif planfact_key_id is not None:
+        values["planfact_key_id"] = planfact_key_id
     if len(values) == 1:
         return  # нечего обновлять
     stmt = update(User).where(User.id == user_id).values(**values)

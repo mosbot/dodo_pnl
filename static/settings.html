@@ -71,45 +71,32 @@
     </div>
   </section>
 
-  <!-- ============ TAB: ИНТЕГРАЦИИ ============ -->
+  <!-- ============ TAB: ИНТЕГРАЦИИ (read-only) ============ -->
   <section class="tab-pane" data-pane="integrations" role="tabpanel">
     <div class="dense-block" style="max-width:720px;">
-      <div class="block-head"><h2>PlanFact API</h2></div>
+      <div class="block-head"><h2>Текущие интеграции</h2>
+        <span class="block-sub muted">Управляются администратором.</span>
+      </div>
       <div class="block-body" style="padding:14px;">
         <div class="profile-row">
-          <span class="muted" style="font-size:12px;">Текущий ключ:</span>
-          <code id="pfCurrentMasked" class="muted">—</code>
+          <span class="muted" style="font-size:12px;width:160px;">PlanFact ключ:</span>
+          <strong id="pfKeyName">—</strong>
+          <button type="button" id="pfTestBtn" class="btn-secondary" style="margin-left:auto;">Проверить</button>
         </div>
-        <form id="planfactForm" class="profile-form" style="margin-top:10px;">
-          <label>Новый PlanFact API key
-            <input type="password" id="pfKey" placeholder="вставь ключ из app.planfact.io → Настройки → Безопасность">
-          </label>
-          <div id="planfactMsg" class="profile-msg"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button type="submit" class="btn-primary">Сохранить</button>
-            <button type="button" id="pfTestBtn" class="btn-secondary">Проверить соединение</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div id="planfactMsg" class="profile-msg" style="margin-top:6px;"></div>
 
-    <div class="dense-block" style="max-width:720px;">
-      <div class="block-head"><h2>Dodo IS</h2></div>
-      <div class="block-body" style="padding:14px;">
-        <p class="muted" style="font-size:12px;margin-bottom:10px;">
-          Имя пользователя Dodo IS, под которым соседский сервис обновляет
-          access-токен. Указывается администратором.
+        <div class="profile-row" style="margin-top:14px;">
+          <span class="muted" style="font-size:12px;width:160px;">Dodo IS логин:</span>
+          <strong id="dodoisName">—</strong>
+          <button type="button" id="dodoisTestBtn" class="btn-secondary" style="margin-left:auto;">Проверить</button>
+        </div>
+        <div id="dodoisMsg" class="profile-msg" style="margin-top:6px;"></div>
+
+        <p class="muted" style="font-size:11px;margin-top:18px;">
+          Если интеграции не назначены или работают неправильно — обратитесь
+          к администратору. В админ-табе «Пользователи» можно назначить ключ
+          из общего каталога.
         </p>
-        <form id="dodoisForm" class="profile-form">
-          <label>Имя в dodois_credentials
-            <input type="text" id="dodoisName" placeholder="напр. andrey">
-          </label>
-          <div id="dodoisMsg" class="profile-msg"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button type="submit" class="btn-primary">Сохранить</button>
-            <button type="button" id="dodoisTestBtn" class="btn-secondary">Проверить соединение</button>
-          </div>
-        </form>
       </div>
     </div>
   </section>
@@ -200,6 +187,24 @@
   <section class="tab-pane admin-only hidden" data-pane="users" role="tabpanel">
     <div class="dense-block">
       <div class="block-head">
+        <h2>Каталог PlanFact-ключей</h2>
+        <span class="block-sub muted">Именованные ключи для назначения пользователям.</span>
+        <div class="block-inline-ctl">
+          <button type="button" id="btnCreatePfKey" class="btn-secondary">+ Добавить ключ</button>
+        </div>
+      </div>
+      <div class="block-body block-scroll-x">
+        <table class="dense-table" id="pfKeysTable">
+          <thead><tr>
+            <th>Имя</th><th>Ключ (маска)</th><th>Заметка</th><th>Используется</th><th></th>
+          </tr></thead>
+          <tbody><tr><td colspan="5" class="muted">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dense-block">
+      <div class="block-head">
         <h2>Пользователи</h2>
         <span class="block-sub muted">CRUD — видно только администратору</span>
         <div class="block-inline-ctl">
@@ -243,11 +248,15 @@
         <input type="checkbox" id="cuIsAdmin">
         <span>Сделать администратором</span>
       </label>
-      <label>Имя в dodois_credentials (опционально)
-        <input type="text" id="cuDodoisName" maxlength="128">
+      <label>Dodo IS логин (опционально)
+        <select id="cuDodoisName">
+          <option value="">— не выбран —</option>
+        </select>
       </label>
-      <label>PlanFact API key (опционально)
-        <input type="password" id="cuPfKey">
+      <label>PlanFact ключ (опционально)
+        <select id="cuPfKeyId">
+          <option value="">— не назначен —</option>
+        </select>
       </label>
       <div id="cuMsg" class="profile-msg"></div>
       <div class="modal-footer">
@@ -275,17 +284,52 @@
         <input type="checkbox" id="ueIsAdmin">
         <span>Администратор</span>
       </label>
-      <label>Имя в dodois_credentials
-        <input type="text" id="ueDodoisName" maxlength="128">
+      <label>Dodo IS логин
+        <select id="ueDodoisName">
+          <option value="">— не выбран —</option>
+        </select>
       </label>
-      <label>PlanFact API key (оставить пустым = не менять)
-        <input type="password" id="uePfKey" placeholder="новый ключ или пусто чтобы сохранить">
+      <label>PlanFact ключ
+        <select id="uePfKeyId">
+          <option value="">— не назначен —</option>
+        </select>
       </label>
       <div id="ueMsg" class="profile-msg"></div>
       <div class="modal-footer" style="justify-content:space-between;">
         <button type="button" class="btn-secondary" id="ueResetPwd" style="background:#fef3c7;border-color:#fde68a;color:#92400e;">Сбросить пароль</button>
         <div style="display:flex;gap:8px;">
           <button type="button" class="btn-secondary" id="ueDelete" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;">Удалить</button>
+          <button type="submit" class="btn-primary">Сохранить</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Модалка: Создать/Изменить PlanFact ключ ============ -->
+<div id="pfKeyModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="pkTitle">PlanFact ключ</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <form id="pfKeyForm" class="profile-form" style="max-width:none;">
+      <input type="hidden" id="pkId">
+      <label>Понятное имя (например, «Основной аккаунт»)
+        <input type="text" id="pkName" required maxlength="128">
+      </label>
+      <label>API key
+        <input type="password" id="pkApiKey" placeholder="вставьте ключ из app.planfact.io → Настройки → Безопасность">
+        <span class="muted" style="font-size:11px;" id="pkApiKeyHint"></span>
+      </label>
+      <label>Заметка (опционально)
+        <input type="text" id="pkNote" maxlength="500" placeholder="например, для какого юзера / какой компании">
+      </label>
+      <div id="pkMsg" class="profile-msg"></div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button type="button" class="btn-secondary" id="pkDelete" style="display:none;background:#fef2f2;border-color:#fecaca;color:#b91c1c;">Удалить</button>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="btn-secondary" data-close>Отмена</button>
           <button type="submit" class="btn-primary">Сохранить</button>
         </div>
       </div>

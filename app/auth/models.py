@@ -30,6 +30,27 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db import Base
 
 
+class PlanfactKey(Base):
+    """Каталог именованных PlanFact API ключей. Пользователи ссылаются на
+    него через users.planfact_key_id. Один ключ может использоваться
+    несколькими юзерами (например, общий аккаунт компании)."""
+    __tablename__ = "planfact_keys"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+
+    def __repr__(self) -> str:
+        return f"<PlanfactKey id={self.id} name={self.name!r}>"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -44,9 +65,15 @@ class User(Base):
         String(128), nullable=True
     )
 
-    # PlanFact API key — храним у себя per-user (см. обсуждение архитектуры).
-    # NULL = ключ ещё не настроен через UI «Интеграции».
-    planfact_api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # FK на запись в каталоге planfact_keys. NULL = ключ не назначен.
+    # Сам api_key больше не хранится в users — лежит в planfact_keys.api_key
+    # и доступен через JOIN. Меняется админом централизованно (одно место —
+    # сразу всем юзерам, кому привязано).
+    planfact_key_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

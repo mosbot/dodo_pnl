@@ -20,7 +20,7 @@ from .. import store
 from ..db import get_session
 from . import audit
 from .dependencies import require_admin
-from .models import User
+from .models import PlanfactKey, User
 from .users import (
     create_user,
     get_user_by_id,
@@ -43,21 +43,21 @@ class AdminUserPublic(BaseModel):
     display_name: Optional[str]
     is_admin: bool
     dodois_credentials_name: Optional[str]
-    planfact_key_masked: Optional[str]
+    planfact_key_id: Optional[int]
+    planfact_key_name: Optional[str]   # для отображения вместо id
     created_at: str
     updated_at: str
 
     @classmethod
-    def from_user(cls, u: User) -> "AdminUserPublic":
-        pf = (u.planfact_api_key or "").strip()
-        masked = (pf[:4] + "..." + pf[-4:]) if len(pf) > 12 else ("***" if pf else None)
+    def from_user(cls, u: User, key_name: Optional[str] = None) -> "AdminUserPublic":
         return cls(
             id=u.id,
             username=u.username,
             display_name=u.display_name,
             is_admin=u.is_admin,
             dodois_credentials_name=u.dodois_credentials_name,
-            planfact_key_masked=masked,
+            planfact_key_id=u.planfact_key_id,
+            planfact_key_name=key_name,
             created_at=u.created_at.isoformat(),
             updated_at=u.updated_at.isoformat(),
         )
@@ -69,14 +69,17 @@ class AdminUserCreate(BaseModel):
     display_name: Optional[str] = None
     is_admin: bool = False
     dodois_credentials_name: Optional[str] = None
-    planfact_api_key: Optional[str] = None
+    planfact_key_id: Optional[int] = None
 
 
 class AdminUserUpdate(BaseModel):
     display_name: Optional[str] = None
     is_admin: Optional[bool] = None
     dodois_credentials_name: Optional[str] = None
-    planfact_api_key: Optional[str] = None
+    planfact_key_id: Optional[int] = None
+    # Явный флаг «сбросить привязку к PF-ключу» — нужен потому что None
+    # в planfact_key_id означает «не менять» (как и в других полях).
+    clear_planfact_key: bool = False
 
 
 class ResetPasswordResponse(BaseModel):
@@ -92,13 +95,25 @@ def _gen_password(n: int = 16) -> str:
 
 # ---------- CRUD users ----------
 
+async def _key_names_map(session: AsyncSession) -> dict[int, str]:
+    """id → name для всех записей planfact_keys. Один SELECT, чтобы не делать
+    N+1 запросов при отрисовке списка юзеров."""
+    from sqlalchemy import select
+    res = await session.execute(select(PlanfactKey.id, PlanfactKey.name))
+    return {row[0]: row[1] for row in res.all()}
+
+
 @admin_router.get("/api/admin/users", response_model=list[AdminUserPublic])
 async def admin_list_users(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     users = await list_users(session)
-    return [AdminUserPublic.from_user(u) for u in users]
+    keys = await _key_names_map(session)
+    return [
+        AdminUserPublic.from_user(u, key_name=keys.get(u.planfact_key_id))
+        for u in users
+    ]
 
 
 @admin_router.post("/api/admin/users", response_model=AdminUserPublic)
@@ -116,7 +131,7 @@ async def admin_create_user(
             display_name=body.display_name,
             is_admin=body.is_admin,
             dodois_credentials_name=body.dodois_credentials_name,
-            planfact_api_key=body.planfact_api_key,
+            planfact_key_id=body.planfact_key_id,
         )
         await audit.log_audit(
             session, audit.ACTION_ADMIN_USER_CREATED,
@@ -124,7 +139,8 @@ async def admin_create_user(
             details={"target_user_id": u.id, "target_username": u.username, "is_admin": u.is_admin},
         )
         await session.commit()
-        return AdminUserPublic.from_user(u)
+        keys = await _key_names_map(session)
+        return AdminUserPublic.from_user(u, key_name=keys.get(u.planfact_key_id))
     except IntegrityError:
         await session.rollback()
         raise HTTPException(
@@ -155,16 +171,22 @@ async def admin_update_user(
     if body.is_admin is not None:
         u.is_admin = bool(body.is_admin)
         fields_changed.append("is_admin")
-    if body.dodois_credentials_name is not None or body.planfact_api_key is not None:
+    integrations_changed = (
+        body.dodois_credentials_name is not None
+        or body.planfact_key_id is not None
+        or body.clear_planfact_key
+    )
+    if integrations_changed:
         await update_integrations(
             session, u.id,
             dodois_credentials_name=body.dodois_credentials_name,
-            planfact_api_key=body.planfact_api_key,
+            planfact_key_id=body.planfact_key_id,
+            clear_planfact_key=body.clear_planfact_key,
         )
         if body.dodois_credentials_name is not None:
             fields_changed.append("dodois_credentials_name")
-        if body.planfact_api_key is not None:
-            fields_changed.append("planfact_api_key")
+        if body.planfact_key_id is not None or body.clear_planfact_key:
+            fields_changed.append("planfact_key_id")
 
     await audit.log_audit(
         session, audit.ACTION_ADMIN_USER_UPDATED,
@@ -175,7 +197,8 @@ async def admin_update_user(
     await session.flush()
     await session.commit()
     fresh = await get_user_by_id(session, user_id)
-    return AdminUserPublic.from_user(fresh)
+    keys = await _key_names_map(session)
+    return AdminUserPublic.from_user(fresh, key_name=keys.get(fresh.planfact_key_id))
 
 
 @admin_router.post(
@@ -265,13 +288,18 @@ async def admin_user_projects(
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
 
-    pf_key = (u.planfact_api_key or "").strip()
+    pf_key = ""
+    if u.planfact_key_id:
+        pk = await session.get(PlanfactKey, u.planfact_key_id)
+        if pk:
+            pf_key = (pk.api_key or "").strip()
     if not pf_key:
         return {
             "projects": [],
             "message": (
-                "У пользователя не задан PlanFact API key. Сначала задайте "
-                "через «Изменить» — потом сможете управлять доступом к проектам."
+                "У пользователя не назначен PlanFact-ключ. Сначала привяжите "
+                "ключ из каталога через «Изменить» — потом сможете управлять "
+                "доступом к проектам."
             ),
         }
 
@@ -332,6 +360,165 @@ async def admin_patch_project_for_user(
     await store.upsert_project_config(session, u.id, project_id, **kwargs)
     await session.commit()
     return {"status": "ok"}
+
+
+# ---------- Каталог PlanFact-ключей ----------
+
+class PlanfactKeyPublic(BaseModel):
+    id: int
+    name: str
+    api_key_masked: str
+    note: Optional[str]
+    used_by_count: int   # сколько юзеров привязано
+    created_at: str
+    updated_at: str
+
+
+class PlanfactKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    api_key: str = Field(min_length=1)
+    note: Optional[str] = None
+
+
+class PlanfactKeyUpdate(BaseModel):
+    name: Optional[str] = None
+    api_key: Optional[str] = None     # None = не менять; пустая = ошибка
+    note: Optional[str] = None
+
+
+def _mask_key(s: str) -> str:
+    s = (s or "").strip()
+    return (s[:4] + "..." + s[-4:]) if len(s) > 12 else "***"
+
+
+async def _key_usage_count(session: AsyncSession, key_id: int) -> int:
+    from sqlalchemy import func, select
+    res = await session.execute(
+        select(func.count(User.id)).where(User.planfact_key_id == key_id)
+    )
+    return int(res.scalar_one() or 0)
+
+
+@admin_router.get("/api/admin/planfact-keys", response_model=list[PlanfactKeyPublic])
+async def admin_list_planfact_keys(
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Все ключи в каталоге."""
+    from sqlalchemy import select
+    res = await session.execute(
+        select(PlanfactKey).order_by(PlanfactKey.name)
+    )
+    items = list(res.scalars())
+    out: list[PlanfactKeyPublic] = []
+    for k in items:
+        cnt = await _key_usage_count(session, k.id)
+        out.append(PlanfactKeyPublic(
+            id=k.id, name=k.name, api_key_masked=_mask_key(k.api_key),
+            note=k.note, used_by_count=cnt,
+            created_at=k.created_at.isoformat(),
+            updated_at=k.updated_at.isoformat(),
+        ))
+    return out
+
+
+@admin_router.post("/api/admin/planfact-keys", response_model=PlanfactKeyPublic)
+async def admin_create_planfact_key(
+    body: PlanfactKeyCreate,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    pk = PlanfactKey(
+        name=body.name.strip(),
+        api_key=body.api_key.strip(),
+        note=(body.note or "").strip() or None,
+    )
+    session.add(pk)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, f"Ключ с именем {body.name!r} уже существует")
+    return PlanfactKeyPublic(
+        id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
+        note=pk.note, used_by_count=0,
+        created_at=pk.created_at.isoformat(),
+        updated_at=pk.updated_at.isoformat(),
+    )
+
+
+@admin_router.patch("/api/admin/planfact-keys/{key_id}", response_model=PlanfactKeyPublic)
+async def admin_update_planfact_key(
+    key_id: int,
+    body: PlanfactKeyUpdate,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+    if body.name is not None:
+        pk.name = body.name.strip()
+    if body.api_key is not None:
+        if not body.api_key.strip():
+            raise HTTPException(400, "api_key не может быть пустым")
+        pk.api_key = body.api_key.strip()
+    if body.note is not None:
+        pk.note = body.note.strip() or None
+    pk.updated_at = datetime.now()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "Ключ с таким именем уже существует")
+    cnt = await _key_usage_count(session, pk.id)
+    return PlanfactKeyPublic(
+        id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
+        note=pk.note, used_by_count=cnt,
+        created_at=pk.created_at.isoformat(),
+        updated_at=pk.updated_at.isoformat(),
+    )
+
+
+@admin_router.delete("/api/admin/planfact-keys/{key_id}")
+async def admin_delete_planfact_key(
+    key_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+    cnt = await _key_usage_count(session, pk.id)
+    if cnt > 0:
+        raise HTTPException(
+            409,
+            f"Этот ключ используется {cnt} пользователем(ями). Сначала отвяжите.",
+        )
+    await session.delete(pk)
+    await session.commit()
+    return {"status": "ok"}
+
+
+# ---------- Список Dodo IS логинов из соседской БД ----------
+
+class DodoisCredential(BaseModel):
+    name: str
+    email: Optional[str]
+
+
+@admin_router.get("/api/admin/dodois-credentials", response_model=list[DodoisCredential])
+async def admin_list_dodois_credentials(
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список доступных Dodo IS логинов из public.dodois_credentials.
+    Только колонки name + email — токены не отдаём наружу."""
+    from sqlalchemy import text
+    res = await session.execute(
+        text("SELECT name, email FROM public.dodois_credentials ORDER BY name")
+    )
+    return [DodoisCredential(name=row[0], email=row[1]) for row in res.all()]
 
 
 # ---------- Audit log: глобальный для админа ----------

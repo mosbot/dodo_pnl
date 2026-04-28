@@ -31,16 +31,20 @@ class NoTokenError(Exception):
 
 
 async def get_planfact_key(session: AsyncSession, user: User) -> str:
-    """PlanFact api key пользователя или env-fallback. Бросает NoTokenError."""
-    key = (user.planfact_api_key or "").strip()
-    if key:
-        return key
+    """PlanFact api key пользователя через каталог planfact_keys. Если у юзера
+    не привязан ключ — env-fallback (для transition period). Бросает
+    NoTokenError если совсем ничего нет."""
+    if user.planfact_key_id:
+        from .models import PlanfactKey
+        pk = await session.get(PlanfactKey, user.planfact_key_id)
+        if pk and pk.api_key:
+            return pk.api_key
     fallback = (settings.planfact_api_key or "").strip()
     if fallback:
         return fallback
     raise NoTokenError(
-        "Не настроен PlanFact API key. Зайди в /settings → Интеграции и "
-        "пропиши свой ключ (или попроси администратора)."
+        "Не настроен PlanFact API key. Попросите администратора назначить "
+        "ключ через /settings → Пользователи."
     )
 
 
