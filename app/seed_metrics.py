@@ -39,7 +39,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth.models import PlanfactKey
-from .db import async_session
+from .db import get_session_factory
 from .models import PnLMetric, PnLTemplateNode
 
 
@@ -248,7 +248,8 @@ async def main(
     *, only_key: Optional[int], reseed: bool, dry_run: bool
 ) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    async with async_session() as session:
+    Session = get_session_factory()
+    async with Session() as session:
         if only_key is not None:
             keys = (
                 await session.execute(
