@@ -19,10 +19,11 @@ from . import store
 from .auth.dependencies import optional_user, require_admin, require_user
 from .auth.router import router as auth_router
 from .auth.models import User
+from .auth.tokens import NoTokenError, get_dodois_token, get_planfact_key
 from .config import settings
 from .db import get_session
 from .dodois_client import DodoISError
-from .planfact import PlanFactError, client
+from .planfact import PlanFactClient, PlanFactError, get_planfact_client, invalidate_planfact_for
 from .planfact_export import ExportParseError, parse_pnl_export
 from .schemas import (
     DefaultTargetIn,
@@ -43,6 +44,26 @@ app = FastAPI(title="PnL Dashboard")
 # --- auth ---
 # Подключаем /auth/login, /auth/logout, /auth/me
 app.include_router(auth_router)
+
+
+# --- token resolver helpers ---
+
+async def planfact_for(
+    session: AsyncSession, user: User
+) -> PlanFactClient:
+    """Достать актуальный PlanFact-клиент для текущего пользователя.
+
+    Per-user instance кэшируется в planfact._clients — переиспользуем
+    локальный TTL-cache между запросами одного юзера.
+    """
+    api_key = await get_planfact_key(session, user)
+    return get_planfact_client(user.id, api_key)
+
+
+@app.exception_handler(NoTokenError)
+async def _no_token_handler(request: Request, exc: NoTokenError):
+    """NoTokenError → 400 с детальным сообщением для UI."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 # --- static files ---
@@ -83,8 +104,9 @@ async def health():
 async def get_projects(
     user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
 ):
+    pf = await planfact_for(session, user)
     try:
-        projects = await client.list_projects()
+        projects = await pf.list_projects()
     except PlanFactError as e:
         raise HTTPException(502, str(e))
     cfg = await store.list_projects_config(session, user.id)
@@ -111,8 +133,9 @@ async def get_projects(
 async def get_categories(
     user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
 ):
+    pf = await planfact_for(session, user)
     try:
-        cats = await client.list_operation_categories()
+        cats = await pf.list_operation_categories()
     except PlanFactError as e:
         raise HTTPException(502, str(e))
     index = await pnl_module._build_category_index(session, user.id, cats)
@@ -184,9 +207,10 @@ async def get_pnl(
 
     pm = period_month or _derive_period_month(date_start, date_end)
 
+    pf = await planfact_for(session, user)
     try:
         projects, categories, operations = await _fetch_period(
-            date_start, date_end, effective_projects, method=method,
+            pf, date_start, date_end, effective_projects, method=method,
         )
         result = await pnl_module.build_pnl(
             session=session, owner_id=user.id,
@@ -196,7 +220,7 @@ async def get_pnl(
             method=method, period_month=pm,
         )
         if compare_start and compare_end:
-            prev_operations = await client.fetch_all_operations(
+            prev_operations = await pf.fetch_all_operations(
                 date_start=compare_start, date_end=compare_end,
                 project_ids=effective_projects, method=method,
             )
@@ -243,9 +267,10 @@ async def get_revenue_history(
     last_day = monthrange(last_y, last_m)[1]
     date_end = f"{period_months[-1]}-{last_day:02d}"
 
+    pf = await planfact_for(session, user)
     try:
         _, categories, operations = await _fetch_period(
-            date_start, date_end, effective_projects, method=method,
+            pf, date_start, date_end, effective_projects, method=method,
         )
         cur = pnl_module.build_revenue_history(
             categories=categories,
@@ -271,7 +296,7 @@ async def get_revenue_history(
             ly_y, ly_m = (int(x) for x in ly_months[-1].split("-"))
             ly_last_day = monthrange(ly_y, ly_m)[1]
             ly_end = f"{ly_months[-1]}-{ly_last_day:02d}"
-            ly_operations = await client.fetch_all_operations(
+            ly_operations = await pf.fetch_all_operations(
                 date_start=ly_start,
                 date_end=ly_end,
                 project_ids=effective_projects,
@@ -304,7 +329,9 @@ async def get_operations(
     offset: int = 0,
     limit: int = 100,
     user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
 ):
+    pf = await planfact_for(session, user)
     # Объединяем legacy single category_id и новый список category_ids.
     cat_id_set: set[str] = set()
     if category_id:
@@ -315,7 +342,7 @@ async def get_operations(
     cat_ids_list: list[str] | None = sorted(cat_id_set) if cat_id_set else None
 
     try:
-        data = await client.list_operations(
+        data = await pf.list_operations(
             date_start=date_start,
             date_end=date_end,
             project_ids=[project_id] if project_id else None,
@@ -372,7 +399,7 @@ async def get_operations(
 
 @app.post("/api/refresh")
 async def refresh_cache(user: User = Depends(require_user)):
-    client.invalidate_cache()
+    invalidate_planfact_for(user.id)
     return {"status": "ok"}
 
 
@@ -458,7 +485,7 @@ async def set_settings(
     session: AsyncSession = Depends(get_session),
 ):
     await store.set_setting(session, user.id, payload.key, payload.value)
-    client.invalidate_cache()
+    invalidate_planfact_for(user.id)
     return {"status": "ok"}
 
 
@@ -489,7 +516,7 @@ async def upsert_projects_config(
     if "dodo_unit_uuid" in payload.model_fields_set:
         kwargs["dodo_unit_uuid"] = payload.dodo_unit_uuid
     await store.upsert_project_config(session, user.id, payload.project_id, **kwargs)
-    client.invalidate_cache()
+    invalidate_planfact_for(user.id)
     return {"status": "ok"}
 
 
@@ -595,11 +622,15 @@ async def delete_ops_project_target_ep(
 # --- Dodo IS ---
 
 @app.get("/api/dodois/units")
-async def dodois_units(user: User = Depends(require_user)):
-    """Список юнитов пользователя из Dodo IS. Использует access_token из env (S3
-    переведёт на per-user)."""
+async def dodois_units(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список юнитов пользователя из Dodo IS. Токен резолвится из
+    public.dodois_credentials по user.dodois_credentials_name."""
+    token = await get_dodois_token(session, user)
     try:
-        units = await dodois_client.fetch_units()
+        units = await dodois_client.fetch_units(token)
     except DodoISError as e:
         raise HTTPException(502, str(e))
     pizzerias = [u for u in units if u.get("unitType") == 1]
@@ -636,13 +667,14 @@ async def sync_ops_metrics_from_dodois(
         return {"status": "ok", "updated": [], "skipped_no_uuid": list(cfg)}
 
     unit_uuids = [uuid for _, uuid in targets]
+    token = await get_dodois_token(session, user)
     try:
-        stats = await dodois_client.fetch_productivity_many(unit_uuids, from_dt, to_dt)
+        stats = await dodois_client.fetch_productivity_many(token, unit_uuids, from_dt, to_dt)
         cert_counts = await dodois_client.fetch_late_delivery_vouchers_count(
-            unit_uuids, from_dt, to_dt
+            token, unit_uuids, from_dt, to_dt
         )
         delivery_stats = await dodois_client.fetch_delivery_statistics(
-            unit_uuids, from_dt, to_dt
+            token, unit_uuids, from_dt, to_dt
         )
     except DodoISError as e:
         raise HTTPException(502, str(e))
@@ -766,18 +798,20 @@ async def delete_template(
 # --- helpers ---
 
 async def _fetch_period(
+    pf: PlanFactClient,
     date_start: str,
     date_end: str,
     project_ids: list[str] | None,
     *,
     method: str = "accrual",
 ):
-    """Параллельно тянем проекты, категории и операции за период."""
+    """Параллельно тянем проекты, категории и операции за период через
+    инстанс клиента, привязанный к ключу текущего пользователя."""
     import asyncio
     projects, categories, operations = await asyncio.gather(
-        client.list_projects(),
-        client.list_operation_categories(),
-        client.fetch_all_operations(
+        pf.list_projects(),
+        pf.list_operation_categories(),
+        pf.fetch_all_operations(
             date_start=date_start,
             date_end=date_end,
             project_ids=project_ids,

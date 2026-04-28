@@ -79,18 +79,14 @@ async def _with_retries(
     ) from last_exc
 
 
-def _ensure_token() -> str:
-    token = settings.dodo_is_access_token
+def _headers(token: str) -> dict[str, str]:
+    """Bearer-заголовок. Token приходит из app.auth.tokens.get_dodois_token()
+    в вызывающей точке (main.py), не из settings. Это даёт per-user
+    разделение токенов и позволяет соседскому сервису обновлять access_token
+    в БД без перезапуска нашего сервиса."""
     if not token:
-        raise DodoISError(
-            "DODO_IS_ACCESS_TOKEN не задан. Положите токен в .env или "
-            "передайте через переменную окружения."
-        )
-    return token
-
-
-def _headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {_ensure_token()}"}
+        raise DodoISError("Empty Dodo IS token passed to client")
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _raise(response: httpx.Response) -> None:
@@ -110,32 +106,24 @@ def _fmt(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-async def fetch_units() -> list[dict[str, Any]]:
+async def fetch_units(token: str) -> list[dict[str, Any]]:
     """GET /auth/roles/units — список всех юнитов пользователя."""
     url = f"{settings.dodo_is_auth_url}/roles/units"
     async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
-        r = await http.get(url, headers=_headers())
+        r = await http.get(url, headers=_headers(token))
         _raise(r)
         data = r.json()
-    # API отдаёт массив
     return data if isinstance(data, list) else []
 
 
 async def fetch_productivity(
-    unit_uuid: str, from_date: datetime, to_date: datetime
+    token: str, unit_uuid: str, from_date: datetime, to_date: datetime
 ) -> dict[str, Any] | None:
-    """GET /production/productivity — productivityStatistics по одному юниту.
-
-    Возвращает первый (единственный) элемент productivityStatistics или None.
-    """
+    """GET /production/productivity — по одному юниту."""
     url = f"{settings.dodo_is_base_url}/production/productivity"
-    params = {
-        "from": _fmt(from_date),
-        "to": _fmt(to_date),
-        "units": unit_uuid,
-    }
+    params = {"from": _fmt(from_date), "to": _fmt(to_date), "units": unit_uuid}
     async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
-        r = await http.get(url, headers=_headers(), params=params)
+        r = await http.get(url, headers=_headers(token), params=params)
         _raise(r)
         data = r.json()
     items = data.get("productivityStatistics") or []
@@ -143,19 +131,15 @@ async def fetch_productivity(
 
 
 async def _fetch_productivity_one(
-    http: httpx.AsyncClient, sem: asyncio.Semaphore, unit_uuid: str,
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, token: str, unit_uuid: str,
     from_date: datetime, to_date: datetime,
 ) -> list[dict[str, Any]]:
     url = f"{settings.dodo_is_base_url}/production/productivity"
-    params = {
-        "from": _fmt(from_date),
-        "to": _fmt(to_date),
-        "units": unit_uuid,
-    }
+    params = {"from": _fmt(from_date), "to": _fmt(to_date), "units": unit_uuid}
 
     async def _do() -> list[dict[str, Any]]:
         async with sem:
-            r = await http.get(url, headers=_headers(), params=params)
+            r = await http.get(url, headers=_headers(token), params=params)
         _raise(r)
         return r.json().get("productivityStatistics") or []
 
@@ -163,21 +147,15 @@ async def _fetch_productivity_one(
 
 
 async def fetch_productivity_many(
-    unit_uuids: list[str], from_date: datetime, to_date: datetime
+    token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime
 ) -> list[dict[str, Any]]:
-    """Параллельные per-unit запросы с retry и concurrency-limit.
-
-    Multi-unit запросом Dodo IS на больших окнах (полный месяц × 6 юнитов)
-    часто отваливается по таймауту, а юниты независимы — поэтому асинхронно
-    собираем по одному, но не более _MAX_PARALLEL одновременно: при 6+
-    параллельных запросах сервер срывает коннекты с ReadError.
-    """
+    """Параллельно по юнитам с retry и concurrency-limit."""
     if not unit_uuids:
         return []
     sem = asyncio.Semaphore(_MAX_PARALLEL)
     async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
         results = await asyncio.gather(
-            *[_fetch_productivity_one(http, sem, u, from_date, to_date) for u in unit_uuids]
+            *[_fetch_productivity_one(http, sem, token, u, from_date, to_date) for u in unit_uuids]
         )
     out: list[dict[str, Any]] = []
     for r in results:
@@ -186,19 +164,15 @@ async def fetch_productivity_many(
 
 
 async def _fetch_delivery_stats_one(
-    http: httpx.AsyncClient, sem: asyncio.Semaphore, unit_uuid: str,
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, token: str, unit_uuid: str,
     from_date: datetime, to_date: datetime,
 ) -> list[dict[str, Any]]:
     url = f"{settings.dodo_is_base_url}/delivery/statistics"
-    params = {
-        "from": _fmt(from_date),
-        "to": _fmt(to_date),
-        "units": unit_uuid,
-    }
+    params = {"from": _fmt(from_date), "to": _fmt(to_date), "units": unit_uuid}
 
     async def _do() -> list[dict[str, Any]]:
         async with sem:
-            r = await http.get(url, headers=_headers(), params=params)
+            r = await http.get(url, headers=_headers(token), params=params)
         _raise(r)
         return r.json().get("unitsStatistics") or []
 
@@ -206,19 +180,14 @@ async def _fetch_delivery_stats_one(
 
 
 async def fetch_delivery_statistics(
-    unit_uuids: list[str], from_date: datetime, to_date: datetime
+    token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime
 ) -> list[dict[str, Any]]:
-    """GET /delivery/statistics — агрегированная стата доставки по юнитам.
-
-    Параллельные per-unit запросы (см. fetch_productivity_many).
-    Полезные поля: deliveryOrdersCount, lateOrdersCount, deliverySales.
-    """
     if not unit_uuids:
         return []
     sem = asyncio.Semaphore(_MAX_PARALLEL)
     async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
         results = await asyncio.gather(
-            *[_fetch_delivery_stats_one(http, sem, u, from_date, to_date) for u in unit_uuids]
+            *[_fetch_delivery_stats_one(http, sem, token, u, from_date, to_date) for u in unit_uuids]
         )
     out: list[dict[str, Any]] = []
     for r in results:
@@ -227,36 +196,26 @@ async def fetch_delivery_statistics(
 
 
 async def _fetch_vouchers_one(
-    http: httpx.AsyncClient, sem: asyncio.Semaphore, unit_uuid: str,
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, token: str, unit_uuid: str,
     from_date: datetime, to_date: datetime,
 ) -> list[dict[str, Any]]:
-    """Постранично выкачать vouchers по одному юниту.
-
-    Каждая страница оборачивается в _with_retries отдельно — чтобы один
-    flaky-запрос на N-й странице не валил всю выкачку.
-    """
     url = f"{settings.dodo_is_base_url}/delivery/vouchers"
     take = 1000
     skip = 0
     out: list[dict[str, Any]] = []
     while True:
         params = {
-            "from": _fmt(from_date),
-            "to": _fmt(to_date),
-            "units": unit_uuid,
-            "take": take,
-            "skip": skip,
+            "from": _fmt(from_date), "to": _fmt(to_date),
+            "units": unit_uuid, "take": take, "skip": skip,
         }
 
         async def _do() -> dict[str, Any]:
             async with sem:
-                r = await http.get(url, headers=_headers(), params=params)
+                r = await http.get(url, headers=_headers(token), params=params)
             _raise(r)
             return r.json()
 
-        data = await _with_retries(
-            f"vouchers[{unit_uuid[:8]}@{skip}]", _do
-        )
+        data = await _with_retries(f"vouchers[{unit_uuid[:8]}@{skip}]", _do)
         page = data.get("vouchers") or []
         out.extend(page)
         if data.get("isEndOfListReached") or len(page) < take:
@@ -266,18 +225,14 @@ async def _fetch_vouchers_one(
 
 
 async def fetch_late_delivery_vouchers(
-    unit_uuids: list[str], from_date: datetime, to_date: datetime
+    token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime
 ) -> list[dict[str, Any]]:
-    """GET /delivery/vouchers — сертификаты за опоздание.
-
-    Параллельно по юнитам (с лимитом concurrency), с пагинацией внутри юнита.
-    """
     if not unit_uuids:
         return []
     sem = asyncio.Semaphore(_MAX_PARALLEL)
     async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
         results = await asyncio.gather(
-            *[_fetch_vouchers_one(http, sem, u, from_date, to_date) for u in unit_uuids]
+            *[_fetch_vouchers_one(http, sem, token, u, from_date, to_date) for u in unit_uuids]
         )
     out: list[dict[str, Any]] = []
     for r in results:
@@ -286,14 +241,9 @@ async def fetch_late_delivery_vouchers(
 
 
 async def fetch_late_delivery_vouchers_count(
-    unit_uuids: list[str], from_date: datetime, to_date: datetime
+    token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime
 ) -> dict[str, int]:
-    """Считает количество сертификатов за опоздание по каждому юниту в периоде.
-
-    Возвращает {unit_uuid_lower: count}. UUID нормализуется к lower-case без дефисов
-    для устойчивого матчинга (Dodo IS отдаёт в разных форматах).
-    """
-    items = await fetch_late_delivery_vouchers(unit_uuids, from_date, to_date)
+    items = await fetch_late_delivery_vouchers(token, unit_uuids, from_date, to_date)
     counts: dict[str, int] = {}
     for it in items:
         uid = (it.get("unitId") or "").lower().replace("-", "")

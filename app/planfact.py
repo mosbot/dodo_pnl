@@ -204,5 +204,34 @@ class PlanFactClient:
         return results
 
 
-# Singleton
+# Per-user instance pool. Сохраняем кэш PlanFact-ответов между запросами
+# одного пользователя (внутри инстанса есть TTL-cache по cache_key).
+# При смене API-ключа у юзера старый инстанс протухает — пересоздаём.
+_clients: dict[int, PlanFactClient] = {}
+
+
+def get_planfact_client(user_id: int, api_key: str) -> PlanFactClient:
+    """Получить (или создать) PlanFact-клиент для конкретного пользователя.
+
+    Реюзаем инстанс, чтобы между запросами не терялся локальный TTL-cache.
+    Если api_key поменялся — выбрасываем старый инстанс целиком (включая
+    кэш — он построен под другой ключ и может содержать чужие проекты).
+    """
+    existing = _clients.get(user_id)
+    if existing is not None and existing.api_key == api_key:
+        return existing
+    new_client = PlanFactClient(api_key=api_key)
+    _clients[user_id] = new_client
+    return new_client
+
+
+def invalidate_planfact_for(user_id: int) -> None:
+    """Сбросить инстанс/кэш для юзера. Использовать при logout / смене ключа."""
+    c = _clients.pop(user_id, None)
+    if c is not None:
+        c.invalidate_cache()
+
+
+# Глобальный singleton — оставлен только для совместимости со старым кодом,
+# который ещё не перешёл на per-user. Удалить, когда все вызовы переедут.
 client = PlanFactClient()
