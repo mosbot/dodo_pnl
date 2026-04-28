@@ -103,11 +103,17 @@ class AppSetting(Base):
 # ---------- Projects config ----------
 
 class ProjectConfig(Base):
-    """Конфиг проекта: активность, имя, сортировка, привязка к Dodo IS unit."""
+    """Конфиг проекта: активность, имя, сортировка, привязка к Dodo IS unit.
+
+    Привязан к planfact_key, а не к юзеру: проект — сущность аккаунта PlanFact.
+    Все юзеры с одним ключом видят одинаковую настройку.
+    """
     __tablename__ = "projects_config"
 
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     is_active: Mapped[bool] = mapped_column(

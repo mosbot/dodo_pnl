@@ -143,7 +143,8 @@ async def auto_link_dodois(
         raise HTTPException(502, f"Dodo IS: {e}")
 
     pizzerias = [u for u in units if u.get("unitType") == 1]
-    cfg = await store.list_projects_config(session, user.id)
+    pf_key_id = _require_user_pf_key(user)
+    cfg = await store.list_projects_config(session, pf_key_id)
 
     units_by_norm: dict[str, dict] = {}
     for u in pizzerias:
@@ -182,7 +183,7 @@ async def auto_link_dodois(
             })
             continue
         await store.upsert_project_config(
-            session, user.id, pid, dodo_unit_uuid=uuid
+            session, pf_key_id, pid, dodo_unit_uuid=uuid
         )
         used_uuids.add(uuid)
         linked.append({
@@ -316,7 +317,10 @@ async def get_projects(
         projects = await pf.list_projects()
     except PlanFactError as e:
         raise HTTPException(502, str(e))
-    cfg = await store.list_projects_config(session, user.id)
+    cfg = (
+        await store.list_projects_config(session, user.planfact_key_id)
+        if user.planfact_key_id else {}
+    )
     norm = []
     for p in projects:
         pid = str(p.get("projectId") or p.get("id") or "")
@@ -352,11 +356,14 @@ def _derive_period_month(date_start: str, date_end: str) -> str | None:
 
 
 async def _resolve_project_filter(
-    session: AsyncSession, owner_id: int, project_ids: list[str] | None
+    session: AsyncSession, planfact_key_id: int | None,
+    project_ids: list[str] | None,
 ) -> list[str] | None:
     if project_ids:
         return project_ids
-    active = await store.get_active_project_ids(session, owner_id)
+    if planfact_key_id is None:
+        return None
+    active = await store.get_active_project_ids(session, planfact_key_id)
     if active is None:
         return None
     return sorted(active) if active else []
@@ -375,7 +382,7 @@ async def get_pnl(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    effective_projects = await _resolve_project_filter(session, user.id, project_ids)
+    effective_projects = await _resolve_project_filter(session, user.planfact_key_id, project_ids)
     if effective_projects is not None and len(effective_projects) == 0:
         return {
             "projects": [], "lines": [], "template_lines": [], "targets": [],
@@ -452,7 +459,7 @@ async def get_revenue_history(
     session: AsyncSession = Depends(get_session),
 ):
     """Выручка по месяцам за окно [anchor-months+1 .. anchor], опционально + LFL (тот же месяц годом ранее)."""
-    effective_projects = await _resolve_project_filter(session, user.id, project_ids)
+    effective_projects = await _resolve_project_filter(session, user.planfact_key_id, project_ids)
     if effective_projects is not None and len(effective_projects) == 0:
         return {"months": [], "totals": {}, "projects": {}, "project_names": {}}
 
@@ -707,7 +714,9 @@ async def get_projects_config(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    return {"config": await store.list_projects_config(session, user.id)}
+    if not user.planfact_key_id:
+        return {"config": {}}
+    return {"config": await store.list_projects_config(session, user.planfact_key_id)}
 
 
 @app.post("/api/projects/config")
@@ -719,6 +728,7 @@ async def upsert_projects_config(
     user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    pf_key_id = _require_user_pf_key(user)
     kwargs: dict = {
         "is_active": payload.is_active,
         "display_name": payload.display_name,
@@ -726,7 +736,7 @@ async def upsert_projects_config(
     }
     if "dodo_unit_uuid" in payload.model_fields_set:
         kwargs["dodo_unit_uuid"] = payload.dodo_unit_uuid
-    await store.upsert_project_config(session, user.id, payload.project_id, **kwargs)
+    await store.upsert_project_config(session, pf_key_id, payload.project_id, **kwargs)
     invalidate_planfact_for(user.id)
     return {"status": "ok"}
 
@@ -868,7 +878,9 @@ async def sync_ops_metrics_from_dodois(
     except Exception:
         raise HTTPException(400, "period должен быть 'YYYY-MM'")
 
-    cfg = await store.list_projects_config(session, user.id)
+    if not user.planfact_key_id:
+        return {"status": "ok", "updated": [], "skipped_no_uuid": []}
+    cfg = await store.list_projects_config(session, user.planfact_key_id)
     targets = [
         (pid, c["dodo_unit_uuid"])
         for pid, c in cfg.items()

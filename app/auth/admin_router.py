@@ -265,11 +265,14 @@ async def admin_user_projects_config(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Текущие projects_config-переопределения для конкретного юзера."""
+    """Текущая конфигурация проектов под ключом этого юзера.
+    Конфиг — общий на planfact_key, не per-user."""
     u = await get_user_by_id(session, user_id)
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
-    cfg = await store.list_projects_config(session, u.id)
+    if not u.planfact_key_id:
+        return {"config": {}}
+    cfg = await store.list_projects_config(session, u.planfact_key_id)
     return {"config": cfg}
 
 
@@ -313,7 +316,7 @@ async def admin_user_projects(
     except PlanFactError as e:
         raise HTTPException(502, f"PlanFact API: {e}")
 
-    cfg = await store.list_projects_config(session, u.id)
+    cfg = await store.list_projects_config(session, u.planfact_key_id)
     out = []
     for p in projects:
         pid = str(p.get("projectId") or p.get("id") or "")
@@ -352,6 +355,10 @@ async def admin_patch_project_for_user(
     u = await get_user_by_id(session, user_id)
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
+    if not u.planfact_key_id:
+        raise HTTPException(
+            400, "У пользователя не задан ключ PlanFact — нечего настраивать."
+        )
 
     kwargs: dict = {}
     if body.is_active is not None:
@@ -363,7 +370,9 @@ async def admin_patch_project_for_user(
     if body.dodo_unit_uuid is not None:
         kwargs["dodo_unit_uuid"] = body.dodo_unit_uuid
 
-    await store.upsert_project_config(session, u.id, project_id, **kwargs)
+    await store.upsert_project_config(
+        session, u.planfact_key_id, project_id, **kwargs,
+    )
     await session.commit()
     return {"status": "ok"}
 

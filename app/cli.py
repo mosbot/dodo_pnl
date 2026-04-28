@@ -171,12 +171,16 @@ async def cmd_set_project_active(args: argparse.Namespace) -> int:
         if not u:
             print(f"Пользователь {args.username!r} не найден", file=sys.stderr)
             return False
+        if not u.planfact_key_id:
+            print(f"У {u.username} не задан planfact_key — нечего настраивать",
+                  file=sys.stderr)
+            return False
         await store.upsert_project_config(
-            s, u.id, args.project_id, is_active=args.is_active
+            s, u.planfact_key_id, args.project_id, is_active=args.is_active
         )
         await s.commit()
         state = "активен" if args.is_active else "архивирован"
-        print(f"OK: проект {args.project_id} для {u.username} → {state}")
+        print(f"OK: проект {args.project_id} для ключа {u.planfact_key_id} → {state}")
         return True
 
     return 0 if await _with_session(_do) else 1
@@ -189,7 +193,10 @@ async def cmd_list_user_projects(args: argparse.Namespace) -> int:
         if not u:
             print(f"Пользователь {args.username!r} не найден", file=sys.stderr)
             return False
-        cfg = await store.list_projects_config(s, u.id)
+        if not u.planfact_key_id:
+            print(f"У {u.username} не задан planfact_key.")
+            return True
+        cfg = await store.list_projects_config(s, u.planfact_key_id)
         if not cfg:
             print(f"У {u.username} нет переопределений projects_config "
                   f"(все проекты PlanFact активны по умолчанию).")

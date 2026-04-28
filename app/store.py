@@ -200,12 +200,15 @@ async def get_bool_setting(
     return val.strip().lower() in ("1", "true", "yes", "on", "y", "t")
 
 
-# ---------- Projects config ----------
+# ---------- Projects config (per planfact_key) ----------
+# Конфигурация проектов общая для всех пользователей с одним PF-ключом.
 
 async def list_projects_config(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> dict[str, dict]:
-    stmt = select(ProjectConfig).where(ProjectConfig.owner_id == owner_id)
+    stmt = select(ProjectConfig).where(
+        ProjectConfig.planfact_key_id == planfact_key_id
+    )
     result = await session.execute(stmt)
     return {
         p.project_id: {
@@ -223,7 +226,7 @@ _UNSET = object()
 
 async def upsert_project_config(
     session: AsyncSession,
-    owner_id: int,
+    planfact_key_id: int,
     project_id: str,
     *,
     is_active: Optional[bool] = None,
@@ -234,7 +237,7 @@ async def upsert_project_config(
     """None у is_active/sort_order — не менять. Для display_name/dodo_unit_uuid:
     None или '' = очистить, отсутствие = не менять (через _UNSET)."""
     stmt = select(ProjectConfig).where(
-        ProjectConfig.owner_id == owner_id,
+        ProjectConfig.planfact_key_id == planfact_key_id,
         ProjectConfig.project_id == project_id,
     )
     existing = (await session.execute(stmt)).scalar_one_or_none()
@@ -246,7 +249,7 @@ async def upsert_project_config(
         new_order = sort_order
         new_uuid = (dodo_unit_uuid or None) if dodo_unit_uuid is not _UNSET else None
         session.add(ProjectConfig(
-            owner_id=owner_id, project_id=project_id,
+            planfact_key_id=planfact_key_id, project_id=project_id,
             is_active=new_active, display_name=new_name,
             sort_order=new_order, dodo_unit_uuid=new_uuid,
         ))
@@ -263,9 +266,9 @@ async def upsert_project_config(
 
 
 async def get_active_project_ids(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> Optional[set[str]]:
-    cfg = await list_projects_config(session, owner_id)
+    cfg = await list_projects_config(session, planfact_key_id)
     if not cfg:
         return None
     return {pid for pid, c in cfg.items() if c["is_active"]}

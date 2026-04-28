@@ -644,7 +644,11 @@ async def build_pnl(
         )
 
     # --- projects_config (активность, отображаемое имя, сортировка) ---
-    projects_cfg = await store.list_projects_config(session, owner_id)  # {pid: {is_active, display_name, sort_order}}
+    # Конфиг проектов (имена/сортировка/dodo_unit) — общий на ключ.
+    projects_cfg = (
+        await store.list_projects_config(session, planfact_key_id)
+        if planfact_key_id is not None else {}
+    )
 
     def display_name_for(pid: str) -> str:
         cfg = projects_cfg.get(pid)
