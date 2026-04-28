@@ -24,6 +24,10 @@
     </label>
     <button id="refreshBtn" class="btn-primary" title="Сбросить кэш PlanFact + подтянуть ops из Dodo IS за выбранный месяц">Обновить данные</button>
     <a href="/settings" class="btn-secondary" style="text-decoration:none;" title="Настройки">⚙ Настройки</a>
+    <div id="userMenu" class="user-menu hidden">
+      <span class="user-menu-name" id="userMenuName">…</span>
+      <button id="logoutBtn" class="user-menu-logout" title="Выйти">Выйти</button>
+    </div>
   </div>
 </header>
 
@@ -92,6 +96,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
+<script src="/static/topbar.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

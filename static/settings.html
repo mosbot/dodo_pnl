@@ -19,6 +19,10 @@
   </nav>
   <div class="controls">
     <a href="/" class="btn-secondary" style="text-decoration:none;">← К дашборду</a>
+    <div id="userMenu" class="user-menu hidden">
+      <span class="user-menu-name" id="userMenuName">…</span>
+      <button id="logoutBtn" class="user-menu-logout" title="Выйти">Выйти</button>
+    </div>
   </div>
 </header>
 
@@ -109,6 +113,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
+<script src="/static/topbar.js"></script>
 <script src="/static/settings.js"></script>
 </body>
 </html>

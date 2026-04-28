@@ -51,6 +51,37 @@ body {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   font-size: 13px;
 }
+
+/* Топбар: блок текущего пользователя справа.
+   Показывается только после успешной загрузки /auth/me — до этого .hidden. */
+.user-menu {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 4px 4px 10px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.user-menu.hidden { display: none; }
+.user-menu-name {
+  color: var(--text); font-weight: 500;
+  max-width: 160px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.user-menu-logout {
+  padding: 4px 10px;
+  font-size: 12px; font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.user-menu-logout:hover {
+  color: var(--danger);
+  border-color: var(--border);
+  background: #fef2f2;
+}
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
 .controls label.inline { font-weight: 400; }
 
