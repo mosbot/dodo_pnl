@@ -60,6 +60,36 @@ async def planfact_for(
     return get_planfact_client(user.id, api_key)
 
 
+async def with_dodois_retry(session: AsyncSession, user: User, fn, *args, **kwargs):
+    """Вызвать dodois-функцию с обработкой 401: один retry с force-reload токена.
+
+    Сценарий: соседский cron только что обновил access_token в
+    public.dodois_credentials. Наш свежий запрос пошёл со старым токеном
+    из памяти — получили 401. Перечитываем токен из БД и повторяем — должно
+    пройти. Если повторно 401 — это уже настоящий auth-сбой, поднимаем
+    наверх как 502.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    token = await get_dodois_token(session, user)
+    try:
+        return await fn(token, *args, **kwargs)
+    except DodoISError as e:
+        msg = str(e)
+        # _raise() в dodois_client формирует строку с HTTP-статусом —
+        # ищем " 401 " в детали (со пробелами, чтобы не зацепить случайное "401").
+        if " 401 " not in msg and "401 " not in msg.split(":", 1)[0]:
+            raise
+        log.warning("Dodo IS 401 — pulling fresh token from DB and retrying")
+        fresh_token = await get_dodois_token(session, user)
+        # Если токен в БД совпал с прежним (cron ещё не сработал) — повтор
+        # бесполезен, сразу поднимаем оригинальную ошибку, чтобы юзер увидел
+        # реальную причину.
+        if fresh_token == token:
+            raise
+        return await fn(fresh_token, *args, **kwargs)
+
+
 @app.exception_handler(NoTokenError)
 async def _no_token_handler(request: Request, exc: NoTokenError):
     """NoTokenError → 400 с детальным сообщением для UI."""
@@ -627,10 +657,10 @@ async def dodois_units(
     session: AsyncSession = Depends(get_session),
 ):
     """Список юнитов пользователя из Dodo IS. Токен резолвится из
-    public.dodois_credentials по user.dodois_credentials_name."""
-    token = await get_dodois_token(session, user)
+    public.dodois_credentials по user.dodois_credentials_name. На 401
+    делаем один retry с force-refresh токена."""
     try:
-        units = await dodois_client.fetch_units(token)
+        units = await with_dodois_retry(session, user, dodois_client.fetch_units)
     except DodoISError as e:
         raise HTTPException(502, str(e))
     pizzerias = [u for u in units if u.get("unitType") == 1]
@@ -667,14 +697,18 @@ async def sync_ops_metrics_from_dodois(
         return {"status": "ok", "updated": [], "skipped_no_uuid": list(cfg)}
 
     unit_uuids = [uuid for _, uuid in targets]
-    token = await get_dodois_token(session, user)
     try:
-        stats = await dodois_client.fetch_productivity_many(token, unit_uuids, from_dt, to_dt)
-        cert_counts = await dodois_client.fetch_late_delivery_vouchers_count(
-            token, unit_uuids, from_dt, to_dt
+        stats = await with_dodois_retry(
+            session, user,
+            dodois_client.fetch_productivity_many, unit_uuids, from_dt, to_dt,
         )
-        delivery_stats = await dodois_client.fetch_delivery_statistics(
-            token, unit_uuids, from_dt, to_dt
+        cert_counts = await with_dodois_retry(
+            session, user,
+            dodois_client.fetch_late_delivery_vouchers_count, unit_uuids, from_dt, to_dt,
+        )
+        delivery_stats = await with_dodois_retry(
+            session, user,
+            dodois_client.fetch_delivery_statistics, unit_uuids, from_dt, to_dt,
         )
     except DodoISError as e:
         raise HTTPException(502, str(e))
