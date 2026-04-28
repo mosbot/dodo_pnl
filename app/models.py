@@ -6,7 +6,6 @@
 Состав:
 - Target               — таргеты UC/LC/DC/TC по проекту
 - DefaultTarget        — глобальные дефолтные таргеты
-- CategoryMapping      — маппинг PlanFact category_id → pnl_code
 - AppSetting           — key-value настройки на пользователя
 - ProjectConfig        — активность/имя/сортировка проектов
 - OpsMetric            — операционные метрики по месяцам
@@ -76,34 +75,6 @@ class DefaultTarget(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
-    )
-
-
-# ---------- Category mapping ----------
-
-class CategoryMapping(Base):
-    """planfact_category_id → pnl_code.
-
-    Привязка к ключу PlanFact, а не к юзеру: один аккаунт PlanFact = один
-    набор категорий = один маппинг. Юзеры с одним planfact_key делят одну
-    запись. PK на (planfact_key_id, planfact_category_id).
-    """
-    __tablename__ = "category_mapping"
-
-    planfact_key_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    planfact_category_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    pnl_code: Mapped[str] = mapped_column(String(32), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False, server_default=text("NOW()")
-    )
-
-    __table_args__ = (
-        Index("ix_mapping_pfkey_code", "planfact_key_id", "pnl_code"),
     )
 
 

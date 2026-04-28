@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
     AppSetting,
-    CategoryMapping,
     DefaultTarget,
     OpsMetric,
     OpsProjectTarget,
@@ -145,39 +144,6 @@ async def delete_default_target(
     stmt = delete(DefaultTarget).where(
         DefaultTarget.owner_id == owner_id,
         DefaultTarget.metric_code == metric_code,
-    )
-    await session.execute(stmt)
-
-
-# ---------- Category mapping ----------
-# Привязан к planfact_key_id (см. модель). list_/upsert_ принимают
-# planfact_key_id юзера; если у юзера нет ключа — возвращаем пусто/no-op
-# в вызывающем коде до обращения сюда.
-
-async def list_mappings(
-    session: AsyncSession, planfact_key_id: int
-) -> dict[str, str]:
-    stmt = select(CategoryMapping).where(
-        CategoryMapping.planfact_key_id == planfact_key_id
-    )
-    result = await session.execute(stmt)
-    return {m.planfact_category_id: m.pnl_code for m in result.scalars()}
-
-
-async def upsert_mapping(
-    session: AsyncSession, planfact_key_id: int, planfact_id: str, pnl_code: str
-) -> None:
-    stmt = (
-        pg_insert(CategoryMapping)
-        .values(
-            planfact_key_id=planfact_key_id,
-            planfact_category_id=planfact_id,
-            pnl_code=pnl_code,
-        )
-        .on_conflict_do_update(
-            index_elements=["planfact_key_id", "planfact_category_id"],
-            set_={"pnl_code": pnl_code, "updated_at": datetime.now(timezone.utc)},
-        )
     )
     await session.execute(stmt)
 

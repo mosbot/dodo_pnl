@@ -28,7 +28,6 @@ from .planfact import PlanFactClient, PlanFactError, get_planfact_client, invali
 from .planfact_export import ExportParseError, parse_pnl_export
 from .schemas import (
     DefaultTargetIn,
-    MappingIn,
     OpsMetricIn,
     OpsProjectTargetIn,
     OpsTargetIn,
@@ -326,35 +325,6 @@ async def get_projects(
             "project_group_is_undistributed": bool(pg.get("isUndistributed", False)),
         })
     return {"projects": norm}
-
-
-@app.get("/api/categories")
-async def get_categories(
-    user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
-):
-    pf = await planfact_for(session, user)
-    try:
-        cats = await pf.list_operation_categories()
-    except PlanFactError as e:
-        raise HTTPException(502, str(e))
-    index = await pnl_module._build_category_index(
-        session, user.id, user.planfact_key_id, cats
-    )
-    out = []
-    for cid, info in index.items():
-        out.append({
-            "id": cid,
-            "title": info["title"],
-            "path": info["path"],
-            "op_type": info["op_type"],
-            "activity_type": info["activity_type"],
-            "pnl_code": info["pnl_code"],
-        })
-    mappings = (
-        await store.list_mappings(session, user.planfact_key_id)
-        if user.planfact_key_id else {}
-    )
-    return {"categories": out, "mappings": mappings}
 
 
 def _derive_period_month(date_start: str, date_end: str) -> str | None:
@@ -956,9 +926,10 @@ async def sync_ops_metrics_from_dodois(
             "not_found_in_response": not_found}
 
 
-# --- Category mapping ---
-# Маппинг и шаблон привязаны к planfact_key (см. модель CategoryMapping/
-# PnLTemplateNode). Read — любой юзер с привязанным ключом, write — admin only.
+# --- PnL template (импорт из экспорта ПланФакт) ---
+# Шаблон привязан к planfact_key (см. модель PnLTemplateNode). Read —
+# любой юзер с привязанным ключом, write — admin only. Точечный override
+# (раньше был в category_mapping) теперь живёт через PATCH /api/template/{id}.
 
 def _require_user_pf_key(user: User) -> int:
     """Достать planfact_key_id юзера или вернуть 400 если не настроен."""
@@ -969,24 +940,6 @@ def _require_user_pf_key(user: User) -> int:
             "Настройте его в /settings → Интеграции."
         )
     return user.planfact_key_id
-
-
-@app.post("/api/mappings")
-async def upsert_mapping(
-    payload: MappingIn,
-    user: User = Depends(require_admin),
-    session: AsyncSession = Depends(get_session),
-):
-    """Override маппинга PlanFact-категории на код P&L. Только админ —
-    маппинг общий для всех юзеров с этим ключом."""
-    pf_key_id = _require_user_pf_key(user)
-    await store.upsert_mapping(
-        session, pf_key_id, payload.planfact_category_id, payload.pnl_code
-    )
-    return {"status": "ok"}
-
-
-# --- PnL template (импорт из экспорта ПланФакт) ---
 
 @app.get("/api/template")
 async def get_template(

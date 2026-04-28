@@ -104,20 +104,19 @@ async def _build_category_index(
         info["path_str"] = " / ".join(info["path"]).lower()
 
     # Источники классификации, в порядке приоритета:
-    #   1) user_map по PlanFact-ID (точечный override через UI)
-    #   2) шаблон, импортированный из экспорта ПланФакт (match по path)
+    #   1) шаблон, импортированный из экспорта ПланФакт (match по path)
+    #   2) шаблон по последнему сегменту пути (leaf title)
     #   3) classify_category() — эвристика на словах в path
-    # Шаблон и user_map — per planfact_key. Если у юзера нет ключа,
-    # пропускаем оба источника и матчим только эвристикой.
+    # Шаблон — per planfact_key. Если у юзера нет ключа — только эвристика.
+    # Точечный override живёт через PATCH /api/template/{id} (поле pnl_code
+    # узла шаблона), отдельной таблицы маппинга больше нет.
     if planfact_key_id is not None:
-        user_map = await store.list_mappings(session, planfact_key_id)
         template_by_path = await store.template_path_to_code(session, planfact_key_id)
         template_by_leaf = (
             await store.template_leaf_title_to_code(session, planfact_key_id)
             if template_by_path else {}
         )
     else:
-        user_map = {}
         template_by_path = {}
         template_by_leaf = {}
     for cid, info in by_id.items():
@@ -125,8 +124,7 @@ async def _build_category_index(
         path_lc = path_str_orig.lower()
         leaf_lc = (info["path"] or [""])[-1].lower().strip()
         code = (
-            user_map.get(cid)
-            or template_by_path.get(path_lc)
+            template_by_path.get(path_lc)
             or (template_by_leaf.get(leaf_lc) if template_by_leaf else None)
             or classify_category(info)
         )

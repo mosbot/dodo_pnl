@@ -19,11 +19,6 @@ class DefaultTargetIn(BaseModel):
     target_pct: float
 
 
-class MappingIn(BaseModel):
-    planfact_category_id: str
-    pnl_code: str
-
-
 class SettingIn(BaseModel):
     key: str = Field(..., description="Имя настройки, напр. include_manager_in_lc")
     value: str = Field(..., description="Строковое значение; для bool — 'true'/'false'")
