@@ -1314,6 +1314,32 @@ table.tpl-tree tr.tpl-section td.tpl-title {
 .up-row td { text-align: left; }
 .up-row td:nth-child(2) { padding-left: 24px; }
 
+/* Модалка «Проекты юзера/ключа»: фиксированный layout колонок,
+   text-align явно слева. Без этого ВКЛ-колонка раздувалась до 1/3
+   ширины модалки. */
+#upTableWrap .dense-table {
+  width: 100%;
+  table-layout: fixed;
+}
+#upTableWrap .dense-table th:first-child,
+#upTableWrap .dense-table td:first-child {
+  width: 56px;
+}
+#upTableWrap .dense-table th,
+#upTableWrap .dense-table tbody td {
+  text-align: left;
+}
+#upTableWrap .dense-table th.cell-center,
+#upTableWrap .dense-table tbody td.cell-center {
+  text-align: center;
+}
+/* Перебиваем общий .up-row td:nth-child(2) padding-left — для второй
+   колонки именно padding 24px (отступ tree-view) + не растягиваем */
+#upTableWrap .dense-table tbody td:nth-child(2) {
+  white-space: normal;
+  word-break: break-word;
+}
+
 /* Sticky-bar «Применить» в сайдбаре главной */
 .proj-apply-bar {
   position: sticky;
