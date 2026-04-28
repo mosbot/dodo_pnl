@@ -96,6 +96,51 @@ async def _no_token_handler(request: Request, exc: NoTokenError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+# --- Test-connection эндпоинты для UI «Интеграции» ---
+
+@app.post("/api/me/test-planfact")
+async def test_planfact_connection(
+    user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
+):
+    """Проверить, что текущий PlanFact key работает. Делает GET /companies
+    (минимальный валидный запрос). Возвращает {ok: bool, detail: str, ...}."""
+    try:
+        pf = await planfact_for(session, user)
+    except NoTokenError as e:
+        return {"ok": False, "detail": str(e)}
+    try:
+        # Самый дешёвый запрос — список проектов
+        projects = await pf.list_projects()
+        return {
+            "ok": True,
+            "detail": f"OK — найдено {len(projects)} проект(ов)",
+            "projects_count": len(projects),
+        }
+    except PlanFactError as e:
+        return {"ok": False, "detail": f"PlanFact API: {e}"}
+
+
+@app.post("/api/me/test-dodois")
+async def test_dodois_connection(
+    user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
+):
+    """Проверить Dodo IS access_token: GET /auth/roles/units."""
+    try:
+        token = await get_dodois_token(session, user)
+    except NoTokenError as e:
+        return {"ok": False, "detail": str(e)}
+    try:
+        units = await dodois_client.fetch_units(token)
+        pizzerias = [u for u in units if u.get("unitType") == 1]
+        return {
+            "ok": True,
+            "detail": f"OK — доступ к {len(pizzerias)} пиццериям",
+            "units_count": len(pizzerias),
+        }
+    except DodoISError as e:
+        return {"ok": False, "detail": f"Dodo IS: {e}"}
+
+
 # --- static files ---
 static_dir = Path(__file__).resolve().parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

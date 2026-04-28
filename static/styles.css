@@ -1050,6 +1050,51 @@ table.tpl-tree tr.tpl-section td.tpl-title {
 }
 .tpl-stats strong { color: var(--text); font-weight: 600; }
 
+/* ========== Профиль / Интеграции ========== */
+.profile-form { display: flex; flex-direction: column; gap: 12px; max-width: 380px; }
+.profile-form label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px; font-weight: 500; color: var(--muted);
+}
+.profile-form input[type="password"],
+.profile-form input[type="text"] {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+}
+.profile-form input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(59,130,246,.15);
+}
+.profile-msg {
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  display: none;
+}
+.profile-msg.ok {
+  display: block;
+  background: #ecfdf5; color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.profile-msg.err {
+  display: block;
+  background: #fef2f2; color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.profile-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px;
+  padding: 6px 0;
+}
+.profile-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
 /* Mobile */
 @media (max-width: 800px) {
   .settings-dense { padding: 10px; gap: 10px; }

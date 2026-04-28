@@ -95,8 +95,8 @@ function flashErr(inputEl) {
   setTimeout(() => inputEl.classList.remove('cell-flash-err'), 1500);
 }
 
-// ---------- Tabs (Структура / Таргеты) ----------
-const TABS = ['structure', 'targets'];
+// ---------- Tabs (Профиль / Интеграции / Структура / Таргеты) ----------
+const TABS = ['profile', 'integrations', 'structure', 'targets'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
 function showTab(name) {
@@ -867,10 +867,175 @@ function renderTemplate() {
   });
 }
 
+// ======================================================
+// Профиль: смена пароля + список активных сессий
+// ======================================================
+function setMsg(id, text, kind) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ok', 'err');
+  if (!text) { el.textContent = ''; return; }
+  el.textContent = text;
+  el.classList.add(kind === 'ok' ? 'ok' : 'err');
+}
+
+async function renderSessions() {
+  const tbody = document.querySelector('#sessionsTable tbody');
+  if (!tbody) return;
+  try {
+    const rows = await api('/api/me/sessions');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">Сессий нет.</td></tr>';
+      return;
+    }
+    const fmtDt = (s) => {
+      try { return new Date(s).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }); }
+      catch { return s; }
+    };
+    tbody.innerHTML = rows.map(s => `
+      <tr data-token="${esc(s.token_short)}" class="${s.is_current ? 'row-current' : ''}">
+        <td><code>${esc(s.token_short)}…${s.is_current ? ' <span class="muted">(текущая)</span>' : ''}</code></td>
+        <td>${fmtDt(s.created_at)}</td>
+        <td>${fmtDt(s.last_seen_at)}</td>
+        <td>${fmtDt(s.expires_at)}</td>
+        <td>${esc(s.ip || '—')}</td>
+        <td title="${esc(s.user_agent || '')}" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.user_agent || '—')}</td>
+        <td>${s.is_current ? '' : `<button class="btn-secondary js-revoke" data-token="${esc(s.token_short)}">Завершить</button>`}</td>
+      </tr>
+    `).join('');
+    tbody.querySelectorAll('.js-revoke').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Завершить эту сессию?')) return;
+        try {
+          await api(`/api/me/sessions/${btn.dataset.token}`, { method: 'DELETE' });
+          await renderSessions();
+          toast('Сессия завершена');
+        } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+      });
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="neg">Ошибка: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function initProfileTab() {
+  const form = document.getElementById('passwordForm');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setMsg('passwordMsg', '', '');
+    const cur = document.getElementById('pwdCurrent').value;
+    const n1 = document.getElementById('pwdNew').value;
+    const n2 = document.getElementById('pwdNew2').value;
+    if (n1 !== n2) {
+      setMsg('passwordMsg', 'Новые пароли не совпадают', 'err');
+      return;
+    }
+    if (n1.length < 8) {
+      setMsg('passwordMsg', 'Новый пароль должен быть минимум 8 символов', 'err');
+      return;
+    }
+    const btn = document.getElementById('passwordSubmit');
+    btn.disabled = true;
+    try {
+      await post('/api/me/password', { current_password: cur, new_password: n1 });
+      setMsg('passwordMsg', 'Пароль обновлён. Все остальные сессии отозваны.', 'ok');
+      form.reset();
+      await renderSessions();  // обновим список — других сессий не должно остаться
+    } catch (err) {
+      setMsg('passwordMsg', err.message.replace(/^\d+:\s*/, ''), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  renderSessions();
+}
+
+// ======================================================
+// Интеграции: PlanFact key + Dodo IS credentials_name
+// ======================================================
+async function loadIntegrationStatus() {
+  try {
+    const s = await api('/api/me/integrations');
+    const pfMasked = document.getElementById('pfCurrentMasked');
+    if (pfMasked) pfMasked.textContent = s.planfact_key_masked || '— не задан —';
+    const di = document.getElementById('dodoisName');
+    if (di) di.value = s.dodois_credentials_name || '';
+  } catch (e) {
+    console.warn('integrations status failed', e);
+  }
+}
+
+function initIntegrationsTab() {
+  const pfForm = document.getElementById('planfactForm');
+  if (pfForm) {
+    pfForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setMsg('planfactMsg', '', '');
+      const key = document.getElementById('pfKey').value.trim();
+      if (!key) { setMsg('planfactMsg', 'Пустой ключ', 'err'); return; }
+      try {
+        await api('/api/me/integrations', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planfact_api_key: key }),
+        });
+        setMsg('planfactMsg', 'Сохранено', 'ok');
+        document.getElementById('pfKey').value = '';
+        await loadIntegrationStatus();
+      } catch (err) {
+        setMsg('planfactMsg', err.message, 'err');
+      }
+    });
+    document.getElementById('pfTestBtn').addEventListener('click', async () => {
+      setMsg('planfactMsg', 'Проверяю…', 'ok');
+      try {
+        const r = await post('/api/me/test-planfact', {});
+        setMsg('planfactMsg', r.detail, r.ok ? 'ok' : 'err');
+      } catch (err) {
+        setMsg('planfactMsg', err.message, 'err');
+      }
+    });
+  }
+
+  const diForm = document.getElementById('dodoisForm');
+  if (diForm) {
+    diForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setMsg('dodoisMsg', '', '');
+      const name = document.getElementById('dodoisName').value.trim();
+      try {
+        await api('/api/me/integrations', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dodois_credentials_name: name }),
+        });
+        setMsg('dodoisMsg', 'Сохранено', 'ok');
+        await loadIntegrationStatus();
+      } catch (err) {
+        setMsg('dodoisMsg', err.message, 'err');
+      }
+    });
+    document.getElementById('dodoisTestBtn').addEventListener('click', async () => {
+      setMsg('dodoisMsg', 'Проверяю…', 'ok');
+      try {
+        const r = await post('/api/me/test-dodois', {});
+        setMsg('dodoisMsg', r.detail, r.ok ? 'ok' : 'err');
+      } catch (err) {
+        setMsg('dodoisMsg', err.message, 'err');
+      }
+    });
+  }
+
+  loadIntegrationStatus();
+}
+
 // ---------- Bootstrap ----------
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await loadAll();
+    initProfileTab();
+    initIntegrationsTab();
   } catch (e) {
     console.error(e);
     toast('Ошибка загрузки: ' + e.message, 'error');

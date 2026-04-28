@@ -14,6 +14,8 @@
     <span class="muted">· Настройки</span>
   </div>
   <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
+    <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
+    <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
     <button type="button" class="tab-btn" data-tab="structure" role="tab" aria-selected="false">Структура</button>
     <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Таргеты</button>
   </nav>
@@ -27,6 +29,89 @@
 </header>
 
 <main class="settings-page">
+
+  <!-- ============ TAB: ПРОФИЛЬ ============ -->
+  <section class="tab-pane" data-pane="profile" role="tabpanel">
+    <div class="dense-block" style="max-width:640px;">
+      <div class="block-head"><h2>Смена пароля</h2></div>
+      <div class="block-body" style="padding:14px;">
+        <form id="passwordForm" class="profile-form">
+          <label>Текущий пароль
+            <input type="password" id="pwdCurrent" autocomplete="current-password" required>
+          </label>
+          <label>Новый пароль (мин. 8 символов)
+            <input type="password" id="pwdNew" autocomplete="new-password" minlength="8" required>
+          </label>
+          <label>Повторите новый пароль
+            <input type="password" id="pwdNew2" autocomplete="new-password" minlength="8" required>
+          </label>
+          <div id="passwordMsg" class="profile-msg"></div>
+          <button type="submit" class="btn-primary" id="passwordSubmit">Сменить пароль</button>
+          <p class="muted" style="font-size:11px;margin-top:6px;">
+            После смены все остальные сессии будут отозваны. Текущая останется живой.
+          </p>
+        </form>
+      </div>
+    </div>
+
+    <div class="dense-block" style="max-width:980px;">
+      <div class="block-head"><h2>Активные сессии</h2></div>
+      <div class="block-body block-scroll-x">
+        <table class="dense-table" id="sessionsTable">
+          <thead>
+            <tr>
+              <th>Token</th><th>Создана</th><th>Активность</th>
+              <th>До</th><th>IP</th><th style="min-width:240px;">User-Agent</th><th></th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="7" class="muted">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: ИНТЕГРАЦИИ ============ -->
+  <section class="tab-pane" data-pane="integrations" role="tabpanel">
+    <div class="dense-block" style="max-width:720px;">
+      <div class="block-head"><h2>PlanFact API</h2></div>
+      <div class="block-body" style="padding:14px;">
+        <div class="profile-row">
+          <span class="muted" style="font-size:12px;">Текущий ключ:</span>
+          <code id="pfCurrentMasked" class="muted">—</code>
+        </div>
+        <form id="planfactForm" class="profile-form" style="margin-top:10px;">
+          <label>Новый PlanFact API key
+            <input type="password" id="pfKey" placeholder="вставь ключ из app.planfact.io → Настройки → Безопасность">
+          </label>
+          <div id="planfactMsg" class="profile-msg"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="submit" class="btn-primary">Сохранить</button>
+            <button type="button" id="pfTestBtn" class="btn-secondary">Проверить соединение</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="dense-block" style="max-width:720px;">
+      <div class="block-head"><h2>Dodo IS</h2></div>
+      <div class="block-body" style="padding:14px;">
+        <p class="muted" style="font-size:12px;margin-bottom:10px;">
+          Имя пользователя Dodo IS, под которым соседский сервис обновляет
+          access-токен. Указывается администратором.
+        </p>
+        <form id="dodoisForm" class="profile-form">
+          <label>Имя в dodois_credentials
+            <input type="text" id="dodoisName" placeholder="напр. andrey">
+          </label>
+          <div id="dodoisMsg" class="profile-msg"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="submit" class="btn-primary">Сохранить</button>
+            <button type="button" id="dodoisTestBtn" class="btn-secondary">Проверить соединение</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
 
   <!-- ============ TAB: СТРУКТУРА ============ -->
   <section class="tab-pane" data-pane="structure" role="tabpanel">
