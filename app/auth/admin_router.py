@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import secrets
 import string
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -465,7 +466,7 @@ async def admin_update_planfact_key(
         pk.api_key = body.api_key.strip()
     if body.note is not None:
         pk.note = body.note.strip() or None
-    pk.updated_at = datetime.now()
+    pk.updated_at = datetime.now(timezone.utc)
     try:
         await session.commit()
     except IntegrityError:
