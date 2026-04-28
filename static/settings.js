@@ -1609,7 +1609,6 @@ function renderMetrics() {
       </td>
       <td><input type="number" data-f="sort_order" value="${m.sort_order || 0}" style="width:60px"></td>
       <td>
-        <button type="button" class="btn-secondary metric-check" title="Проверить формулу">✓</button>
         <button type="button" class="btn-danger metric-delete" title="Удалить">×</button>
       </td>
     </tr>
@@ -1617,12 +1616,12 @@ function renderMetrics() {
   // Хендлеры
   tbody.querySelectorAll('tr[data-code]').forEach(tr => {
     const code = tr.dataset.code;
-    // Сохранение по blur любого поля
+    // Сохранение по change любого поля. На бэке формула валидируется при
+    // сохранении (PUT /api/metrics/{code}); ошибка → красный статус под
+    // полем «Формула», ОК → зелёный flash.
     tr.querySelectorAll('input, select').forEach(input => {
       input.addEventListener('change', () => saveMetricRow(tr));
     });
-    // Кнопка «Проверить»
-    tr.querySelector('.metric-check').addEventListener('click', () => previewMetricFormula(tr));
     // Кнопка «Удалить»
     tr.querySelector('.metric-delete').addEventListener('click', async () => {
       if (!confirm(`Удалить метрику ${code}?`)) return;
@@ -1655,21 +1654,6 @@ async function saveMetricRow(tr) {
     showFormulaStatus(tr, { ok: true, msg: 'Сохранено' });
   } catch (e) {
     flashErr(tr.querySelector('[data-f=formula]'));
-    showFormulaStatus(tr, { ok: false, msg: e.message });
-  }
-}
-
-async function previewMetricFormula(tr) {
-  const formula = tr.querySelector('[data-f=formula]').value.trim();
-  try {
-    const r = await post('/api/metrics/preview', { formula });
-    if (r.ok) {
-      const refs = (r.line_refs || []).map(x => `[${x.line_no}] ${esc(x.title || '?')}`).join(', ');
-      showFormulaStatus(tr, { ok: true, msg: `OK · ссылки: ${refs || '—'}` });
-    } else {
-      showFormulaStatus(tr, { ok: false, msg: r.error || 'Ошибка формулы' });
-    }
-  } catch (e) {
     showFormulaStatus(tr, { ok: false, msg: e.message });
   }
 }
