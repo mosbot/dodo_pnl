@@ -1300,6 +1300,7 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted, #6b7280);
+  text-align: left;
 }
 .up-group-head td strong {
   color: var(--fg, #111827);
@@ -1308,6 +1309,10 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   letter-spacing: 0;
 }
 .up-row { background: white; }
+/* Иерархия: заголовок группы — без отступа (левее), проекты группы —
+   с отступом (правее), как стандартное tree-view. */
+.up-row td { text-align: left; }
+.up-row td:nth-child(2) { padding-left: 24px; }
 
 /* Sticky-bar «Применить» в сайдбаре главной */
 .proj-apply-bar {

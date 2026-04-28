@@ -1276,6 +1276,8 @@ function showGeneratedPassword(pwd) {
 // ====================================================================
 async function openUserProjectsModal(userId, username) {
   document.getElementById('upTitle').textContent = `Проекты: ${username}`;
+  // Упрощённая модалка — без `.wide`, ширина по дефолту (~560px)
+  document.getElementById('upModalContent')?.classList.remove('wide');
   const wrap = document.getElementById('upTableWrap');
   wrap.innerHTML = '<p class="muted">Загрузка…</p>';
   openModal('userProjectsModal');
@@ -1381,7 +1383,7 @@ function _renderGroupRows(g, perProjFn, otherCols, restColumnsHtml = () => '') {
           <span class="slider"></span>
         </label>
       </td>
-      <td colspan="${otherCols}" style="text-align:left;">
+      <td colspan="${otherCols}">
         <strong>${esc(g.title)}</strong>
         <span class="muted" style="font-size:11px;margin-left:6px;">${onN}/${total} включено</span>
       </td>
@@ -1468,6 +1470,8 @@ function _wireGroupCheckboxes(wrap, onToggle) {
 // ====================================================================
 async function openKeyProjectsModal(keyId, keyName) {
   document.getElementById('upTitle').textContent = `Проекты ключа: ${keyName}`;
+  // Полная модалка с 5 колонками — нужен широкий вариант
+  document.getElementById('upModalContent')?.classList.add('wide');
   const wrap = document.getElementById('upTableWrap');
   wrap.innerHTML = '<p class="muted">Загрузка…</p>';
   openModal('userProjectsModal');
