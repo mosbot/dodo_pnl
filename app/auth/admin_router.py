@@ -363,6 +363,35 @@ async def admin_patch_project_for_user(
     return {"status": "ok"}
 
 
+# ---------- Cross-user Dodo IS units (для модалки «Проекты» в админке) ----------
+
+@admin_router.get("/api/admin/users/{user_id}/dodois-units")
+async def admin_user_dodois_units(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список юнитов Dodo IS под токеном целевого юзера. Нужно админу для
+    выбора dodo_unit_uuid в модалке «Проекты»: токены у разных юзеров разные,
+    подмножество юнитов тоже разное."""
+    from .. import dodois_client
+    from ..dodois_client import DodoISError
+    from .tokens import NoTokenError, get_dodois_token
+    u = await get_user_by_id(session, user_id)
+    if u is None:
+        raise HTTPException(404, "Пользователь не найден")
+    try:
+        token = await get_dodois_token(session, u)
+    except NoTokenError as e:
+        return {"units": [], "message": str(e)}
+    try:
+        units = await dodois_client.fetch_units(token)
+    except DodoISError as e:
+        raise HTTPException(502, f"Dodo IS: {e}")
+    pizzerias = [u for u in units if u.get("unitType") == 1]
+    return {"units": pizzerias}
+
+
 # ---------- Каталог PlanFact-ключей ----------
 
 class PlanfactKeyPublic(BaseModel):

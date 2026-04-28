@@ -1259,34 +1259,61 @@ async function openUserProjectsModal(userId, username) {
   const wrap = document.getElementById('upTableWrap');
   wrap.innerHTML = '<p class="muted">Загрузка…</p>';
   openModal('userProjectsModal');
-  let resp;
+
+  // Параллельно тянем проекты и список юнитов Dodo IS этого юзера
+  let projectsResp, unitsResp;
   try {
-    resp = await api(`/api/admin/users/${userId}/projects`);
+    [projectsResp, unitsResp] = await Promise.all([
+      api(`/api/admin/users/${userId}/projects`),
+      api(`/api/admin/users/${userId}/dodois-units`).catch(e => ({ units: [], message: e.message })),
+    ]);
   } catch (e) {
     wrap.innerHTML = `<p class="neg">Ошибка: ${esc(e.message)}</p>`;
     return;
   }
-  if (resp.message) {
-    wrap.innerHTML = `<p class="muted" style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;color:#92400e;">${esc(resp.message)}</p>`;
+  if (projectsResp.message) {
+    wrap.innerHTML = `<p class="muted" style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;color:#92400e;">${esc(projectsResp.message)}</p>`;
     return;
   }
-  const projects = resp.projects || [];
+  const projects = projectsResp.projects || [];
+  const units = unitsResp.units || [];
   if (!projects.length) {
     wrap.innerHTML = '<p class="muted">Под этим PF-ключом нет ни одного проекта.</p>';
     return;
   }
-  // Сортируем — активные сверху, потом по name
   projects.sort((a, b) => {
     if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
     return (a.planfact_name || '').localeCompare(b.planfact_name || '', 'ru');
   });
+
+  // datalist для подсказок Dodo IS юнитов (id + name)
+  const unitDatalistId = `dodoUnitsForUser_${userId}`;
+  const dlOpts = units
+    .map(u => `<option value="${esc(u.id)}" label="${esc(u.name || '')}">${esc(u.name || '')}</option>`)
+    .join('');
+
+  // Helper — найти имя юнита по uuid
+  const unitName = (uuid) => {
+    if (!uuid) return '';
+    const u = units.find(x => (x.id || '').toLowerCase() === uuid.toLowerCase());
+    return u ? u.name : '';
+  };
+
+  const dodoisHint = unitsResp.message
+    ? `<p class="muted" style="font-size:11px;margin-bottom:8px;">Dodo IS юниты недоступны: ${esc(unitsResp.message)}</p>`
+    : `<p class="muted" style="font-size:11px;margin-bottom:8px;">Привязка к Dodo IS — выбери юнит из выпадающего списка (можно начать вводить имя). Чтобы автопривязать все совпадения по имени — кнопка ниже.</p>`;
+
   wrap.innerHTML = `
+    ${dodoisHint}
+    ${units.length ? `<div style="margin-bottom:8px;"><button type="button" class="btn-secondary js-up-autolink">Автопривязка по имени</button></div>` : ''}
+    <datalist id="${unitDatalistId}">${dlOpts}</datalist>
     <table class="dense-table">
       <thead><tr>
         <th style="width:60px;text-align:center;">Вкл</th>
         <th>PlanFact-имя</th>
-        <th>ID</th>
-        <th>Активность в PF</th>
+        <th style="width:200px;">Отображаемое имя</th>
+        <th style="width:90px;text-align:center;">Порядок</th>
+        <th style="width:280px;">Dodo IS юнит</th>
       </tr></thead>
       <tbody>
         ${projects.map(p => `
@@ -1297,32 +1324,113 @@ async function openUserProjectsModal(userId, username) {
                 <span class="slider"></span>
               </label>
             </td>
-            <td><strong>${esc(p.planfact_name)}</strong></td>
-            <td><code style="font-size:11px;">${esc(p.id)}</code></td>
-            <td>${p.planfact_active ? 'да' : '<span class="muted">нет</span>'}</td>
+            <td>
+              <strong>${esc(p.planfact_name)}</strong>
+              <div class="muted" style="font-size:10px;">${esc(p.id)}${p.planfact_active ? '' : ' · архив в PF'}</div>
+            </td>
+            <td>
+              <input type="text" class="js-up-display inp-flush"
+                value="${esc(p.display_name || '')}"
+                placeholder="${esc(p.planfact_name || '')}">
+            </td>
+            <td>
+              <input type="number" class="js-up-sort inp-flush inp-center"
+                value="${p.sort_order ?? ''}" step="1" placeholder="—">
+            </td>
+            <td>
+              <input type="text" class="js-up-uuid inp-flush"
+                list="${unitDatalistId}"
+                value="${esc(p.dodo_unit_uuid || '')}"
+                placeholder="— не привязан —"
+                title="${esc(unitName(p.dodo_unit_uuid))}">
+              <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
+            </td>
           </tr>
         `).join('')}
       </tbody>
     </table>
   `;
+
+  // Generic-helper: PATCH одного поля, подсветка ok/err
+  async function patchField(pid, body, inputEl) {
+    try {
+      await api(`/api/admin/users/${userId}/projects/${pid}/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (inputEl) flashOk(inputEl);
+      else toast('Сохранено');
+    } catch (e) {
+      if (inputEl) flashErr(inputEl);
+      toast('Ошибка: ' + e.message, 'error');
+      throw e;
+    }
+  }
+
   wrap.querySelectorAll('tr[data-pid]').forEach(tr => {
     const pid = tr.dataset.pid;
     const chk = tr.querySelector('.js-up-toggle');
     chk.addEventListener('change', async () => {
       try {
-        await api(`/api/admin/users/${userId}/projects/${pid}/config`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_active: chk.checked }),
-        });
+        await patchField(pid, { is_active: chk.checked });
         tr.classList.toggle('row-off', !chk.checked);
-        toast('Сохранено');
-      } catch (e) {
-        toast('Ошибка: ' + e.message, 'error');
-        chk.checked = !chk.checked;
-      }
+      } catch (e) { chk.checked = !chk.checked; }
+    });
+    const dn = tr.querySelector('.js-up-display');
+    dn.addEventListener('change', () => patchField(pid, { display_name: dn.value }, dn));
+    const so = tr.querySelector('.js-up-sort');
+    so.addEventListener('change', () => {
+      const v = parseInt(so.value, 10);
+      patchField(pid, { sort_order: isNaN(v) ? null : v }, so);
+    });
+    const uu = tr.querySelector('.js-up-uuid');
+    const un = tr.querySelector('.js-up-uname');
+    uu.addEventListener('change', async () => {
+      const v = uu.value.trim();
+      try {
+        await patchField(pid, { dodo_unit_uuid: v }, uu);
+        const name = unitName(v);
+        un.textContent = name;
+        uu.title = name;
+      } catch (e) {}
     });
   });
+
+  // Кнопка «Автопривязка по имени» — теперь работает по имени для конкретного
+  // юзера. Backend endpoint /api/projects/auto-link-dodois работает для
+  // current admin'а; для cross-user используем тот же набор ключей через
+  // отдельный helper. Простой путь: на фронте пройтись по юнитам + проектам
+  // и подкормить PATCH'ами те, что совпадают по имени и не привязаны.
+  const autoBtn = wrap.querySelector('.js-up-autolink');
+  if (autoBtn) {
+    autoBtn.addEventListener('click', async () => {
+      autoBtn.disabled = true;
+      const norm = (s) => (s || '').toLowerCase().replace(/[\s\-_ ]+/g, '');
+      const unitsByName = new Map();
+      units.forEach(u => unitsByName.set(norm(u.name), u));
+      const usedUuids = new Set(projects.filter(p => p.dodo_unit_uuid).map(p => p.dodo_unit_uuid));
+      let linked = 0, skipped = 0, noMatch = 0;
+      for (const p of projects) {
+        if (p.dodo_unit_uuid) { skipped++; continue; }
+        const u = unitsByName.get(norm(p.planfact_name));
+        if (!u) { noMatch++; continue; }
+        if (usedUuids.has(u.id)) { skipped++; continue; }
+        try {
+          await api(`/api/admin/users/${userId}/projects/${p.id}/config`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dodo_unit_uuid: u.id }),
+          });
+          linked++; usedUuids.add(u.id);
+        } catch (e) { /* пропускаем сбойную привязку */ }
+      }
+      autoBtn.disabled = false;
+      toast(`Привязано: ${linked}, уже было: ${skipped}, не нашли пару: ${noMatch}`);
+      // Перерисовать модалку с обновлёнными значениями
+      openUserProjectsModal(userId, username);
+    });
+  }
 }
 
 async function initUsersTab() {
