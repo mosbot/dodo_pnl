@@ -69,12 +69,14 @@ OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
 OPS_METRIC_FIELD_BY_CODE: dict[str, str] = {m["code"]: m["field"] for m in OPS_METRICS}
 
 
-# ---------- Targets (per-project) ----------
+# ---------- Targets (per-project, per planfact_key) ----------
+# Метрики (UC/LC/DC/...) теперь общие на ключ — таргеты тоже.
 
 async def list_targets(
-    session: AsyncSession, owner_id: int, project_id: Optional[str] = None
+    session: AsyncSession, planfact_key_id: int,
+    project_id: Optional[str] = None,
 ) -> list[dict]:
-    stmt = select(Target).where(Target.owner_id == owner_id)
+    stmt = select(Target).where(Target.planfact_key_id == planfact_key_id)
     if project_id:
         stmt = stmt.where(Target.project_id == project_id)
     result = await session.execute(stmt)
@@ -86,17 +88,17 @@ async def list_targets(
 
 
 async def upsert_target(
-    session: AsyncSession, owner_id: int, project_id: str,
+    session: AsyncSession, planfact_key_id: int, project_id: str,
     metric_code: str, target_pct: float,
 ) -> None:
     stmt = (
         pg_insert(Target)
         .values(
-            owner_id=owner_id, project_id=project_id,
+            planfact_key_id=planfact_key_id, project_id=project_id,
             metric_code=metric_code, target_pct=target_pct,
         )
         .on_conflict_do_update(
-            constraint="uq_targets_owner_project_metric",
+            index_elements=["planfact_key_id", "project_id", "metric_code"],
             set_={"target_pct": target_pct, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -104,34 +106,41 @@ async def upsert_target(
 
 
 async def delete_target(
-    session: AsyncSession, owner_id: int, project_id: str, metric_code: str
+    session: AsyncSession, planfact_key_id: int,
+    project_id: str, metric_code: str,
 ) -> None:
     stmt = delete(Target).where(
-        Target.owner_id == owner_id,
+        Target.planfact_key_id == planfact_key_id,
         Target.project_id == project_id,
         Target.metric_code == metric_code,
     )
     await session.execute(stmt)
 
 
-# ---------- Default targets ----------
+# ---------- Default targets (per planfact_key) ----------
 
 async def list_default_targets(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> dict[str, float]:
-    stmt = select(DefaultTarget).where(DefaultTarget.owner_id == owner_id)
+    stmt = select(DefaultTarget).where(
+        DefaultTarget.planfact_key_id == planfact_key_id
+    )
     result = await session.execute(stmt)
     return {dt.metric_code: dt.target_pct for dt in result.scalars()}
 
 
 async def upsert_default_target(
-    session: AsyncSession, owner_id: int, metric_code: str, target_pct: float
+    session: AsyncSession, planfact_key_id: int,
+    metric_code: str, target_pct: float,
 ) -> None:
     stmt = (
         pg_insert(DefaultTarget)
-        .values(owner_id=owner_id, metric_code=metric_code, target_pct=target_pct)
+        .values(
+            planfact_key_id=planfact_key_id,
+            metric_code=metric_code, target_pct=target_pct,
+        )
         .on_conflict_do_update(
-            index_elements=["owner_id", "metric_code"],
+            index_elements=["planfact_key_id", "metric_code"],
             set_={"target_pct": target_pct, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -139,10 +148,10 @@ async def upsert_default_target(
 
 
 async def delete_default_target(
-    session: AsyncSession, owner_id: int, metric_code: str
+    session: AsyncSession, planfact_key_id: int, metric_code: str
 ) -> None:
     stmt = delete(DefaultTarget).where(
-        DefaultTarget.owner_id == owner_id,
+        DefaultTarget.planfact_key_id == planfact_key_id,
         DefaultTarget.metric_code == metric_code,
     )
     await session.execute(stmt)
@@ -493,6 +502,7 @@ async def list_template_nodes(
             "is_leaf": bool(n.is_leaf),
             "pnl_code": n.pnl_code,
             "sort_order": n.sort_order,
+            "line_no": n.line_no,
         }
         for n in result.scalars()
     ]
@@ -536,8 +546,24 @@ async def template_leaf_title_to_code(
 async def replace_template_tree(
     session: AsyncSession, planfact_key_id: int, nodes: list[dict]
 ) -> int:
-    """Полная замена шаблона для ключа PlanFact. Не трогает чужих ключей."""
-    # Удаляем всё текущее
+    """Полная замена шаблона для ключа PlanFact. Не трогает чужих ключей.
+
+    line_no стабилен между импортами: для строк с совпавшим path сохраняем
+    номер из старого шаблона. Новым строкам — следующий свободный.
+    Это важно, чтобы формулы в pnl_metrics не «съехали» при reimport'е.
+    """
+    # 1. Запоминаем старые line_no по path
+    old_rows = (
+        await session.execute(
+            select(PnLTemplateNode.path_lc, PnLTemplateNode.line_no).where(
+                PnLTemplateNode.planfact_key_id == planfact_key_id
+            )
+        )
+    ).all()
+    old_line_no_by_path: dict[str, int] = {p: ln for p, ln in old_rows}
+    next_line_no = max(old_line_no_by_path.values(), default=0) + 1
+
+    # 2. Удаляем всё текущее
     await session.execute(
         delete(PnLTemplateNode).where(
             PnLTemplateNode.planfact_key_id == planfact_key_id
@@ -545,7 +571,9 @@ async def replace_template_tree(
     )
     await session.flush()  # чтобы DELETE применился перед INSERT
 
+    # 3. Вставляем заново, проставляя line_no с сохранением для совпавших path
     idx_to_id: dict[int, int] = {}
+    used_line_nos: set[int] = set()
     for i, n in enumerate(nodes):
         parent_id = (
             idx_to_id.get(n["parent_idx"])
@@ -553,17 +581,26 @@ async def replace_template_tree(
             else None
         )
         path_str = " / ".join(n["path"])
+        path_lc = path_str.lower()
+        # line_no: старый по path, иначе новый из счётчика. Конфликт
+        # (в старом шаблоне был дубль path с одним номером) — даём новый.
+        line_no = old_line_no_by_path.get(path_lc)
+        if line_no is None or line_no in used_line_nos:
+            line_no = next_line_no
+            next_line_no += 1
+        used_line_nos.add(line_no)
         node = PnLTemplateNode(
             planfact_key_id=planfact_key_id,
             parent_id=parent_id,
             depth=int(n["depth"]),
             title=n["title"],
             path=path_str,
-            path_lc=path_str.lower(),
+            path_lc=path_lc,
             is_calc=bool(n.get("is_calc")),
             is_leaf=bool(n.get("is_leaf")),
             pnl_code=(n.get("pnl_code") or None),
             sort_order=int(n.get("sort_order") or (i + 1)),
+            line_no=line_no,
         )
         session.add(node)
         await session.flush()  # получаем node.id для следующих parent_id

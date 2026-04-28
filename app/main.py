@@ -97,6 +97,21 @@ async def _no_token_handler(request: Request, exc: NoTokenError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+def _require_user_pf_key(user: User) -> int:
+    """Достать planfact_key_id юзера или вернуть 400 если не настроен.
+
+    Используется во всех админских ручках, которые пишут в таблицы,
+    привязанные к ключу (template, metrics, targets и пр.).
+    """
+    if not user.planfact_key_id:
+        raise HTTPException(
+            400,
+            "У пользователя не задан ключ PlanFact. "
+            "Настройте его в /settings → Интеграции."
+        )
+    return user.planfact_key_id
+
+
 # --- Авто-привязка PlanFact projects ↔ Dodo IS units по имени ---
 
 def _normalize_name(s: str) -> str:
@@ -374,7 +389,10 @@ async def get_pnl(
                     session, user.id, "include_manager_in_lc", True
                 )
             },
-            "default_targets": await store.list_default_targets(session, user.id),
+            "default_targets": (
+                await store.list_default_targets(session, user.planfact_key_id)
+                if user.planfact_key_id else {}
+            ),
             "ops_targets": await store.list_ops_targets(session, user.id),
             "ops_metrics_meta": store.OPS_METRICS,
             "period": {"current": {"start": date_start, "end": date_end}},
@@ -581,6 +599,8 @@ async def refresh_cache(user: User = Depends(require_user)):
 
 
 # --- Targets CRUD ---
+# Таргеты привязаны к planfact_key (метрики UC/LC/DC общие на ключ).
+# Read разрешаем любому юзеру (читают все, кому нужно), write — admin only.
 
 @app.get("/api/targets")
 async def list_targets(
@@ -588,17 +608,23 @@ async def list_targets(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    return {"targets": await store.list_targets(session, user.id, project_id)}
+    if not user.planfact_key_id:
+        return {"targets": []}
+    return {"targets": await store.list_targets(
+        session, user.planfact_key_id, project_id,
+    )}
 
 
 @app.post("/api/targets")
 async def upsert_target(
     payload: TargetIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    pf_key_id = _require_user_pf_key(user)
     await store.upsert_target(
-        session, user.id, payload.project_id, payload.metric_code, payload.target_pct
+        session, pf_key_id, payload.project_id,
+        payload.metric_code, payload.target_pct,
     )
     return {"status": "ok"}
 
@@ -606,10 +632,11 @@ async def upsert_target(
 @app.delete("/api/targets")
 async def delete_target(
     project_id: str, metric_code: str,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.delete_target(session, user.id, project_id, metric_code)
+    pf_key_id = _require_user_pf_key(user)
+    await store.delete_target(session, pf_key_id, project_id, metric_code)
     return {"status": "ok"}
 
 
@@ -620,17 +647,22 @@ async def list_default_targets(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    return {"defaults": await store.list_default_targets(session, user.id)}
+    if not user.planfact_key_id:
+        return {"defaults": {}}
+    return {"defaults": await store.list_default_targets(
+        session, user.planfact_key_id,
+    )}
 
 
 @app.post("/api/targets/defaults")
 async def upsert_default_target(
     payload: DefaultTargetIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    pf_key_id = _require_user_pf_key(user)
     await store.upsert_default_target(
-        session, user.id, payload.metric_code, payload.target_pct
+        session, pf_key_id, payload.metric_code, payload.target_pct,
     )
     return {"status": "ok"}
 
@@ -638,10 +670,11 @@ async def upsert_default_target(
 @app.delete("/api/targets/defaults")
 async def delete_default_target(
     metric_code: str,
-    user: User = Depends(require_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.delete_default_target(session, user.id, metric_code)
+    pf_key_id = _require_user_pf_key(user)
+    await store.delete_default_target(session, pf_key_id, metric_code)
     return {"status": "ok"}
 
 
@@ -930,16 +963,6 @@ async def sync_ops_metrics_from_dodois(
 # Шаблон привязан к planfact_key (см. модель PnLTemplateNode). Read —
 # любой юзер с привязанным ключом, write — admin only. Точечный override
 # (раньше был в category_mapping) теперь живёт через PATCH /api/template/{id}.
-
-def _require_user_pf_key(user: User) -> int:
-    """Достать planfact_key_id юзера или вернуть 400 если не настроен."""
-    if not user.planfact_key_id:
-        raise HTTPException(
-            400,
-            "У пользователя не задан ключ PlanFact. "
-            "Настройте его в /settings → Интеграции."
-        )
-    return user.planfact_key_id
 
 @app.get("/api/template")
 async def get_template(

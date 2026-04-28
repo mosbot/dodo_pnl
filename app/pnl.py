@@ -466,11 +466,16 @@ async def build_pnl(
     ]
 
     # --- цели ---
-    raw_targets = await store.list_targets(session, owner_id)
+    # Таргеты — per planfact_key. Если у юзера нет ключа — пусто.
+    if planfact_key_id is not None:
+        raw_targets = await store.list_targets(session, planfact_key_id)
+        default_targets = await store.list_default_targets(session, planfact_key_id)
+    else:
+        raw_targets = []
+        default_targets = {}
     targets_index: dict[tuple[str, str], float] = {
         (t["project_id"], t["metric_code"]): t["target_pct"] for t in raw_targets
     }
-    default_targets = await store.list_default_targets(session, owner_id)  # {metric: pct}
 
     def amount_for_metric(metric: str, pid: str) -> float:
         """Для TC — сумма UC+LC+DC; для прочих — totals по коду."""

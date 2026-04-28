@@ -41,15 +41,20 @@ from .db import Base
 # ---------- Targets ----------
 
 class Target(Base):
-    """Per-project per-metric таргет в долях (0.05 = 5%)."""
+    """Per-project per-metric таргет в долях (0.05 = 5%).
+
+    Привязан к planfact_key, а не к юзеру: метрики (UC/LC/DC/...) теперь
+    общие на ключ, таргеты по ним — тоже.
+    """
     __tablename__ = "targets"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
-    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    metric_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
     target_pct: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -57,9 +62,7 @@ class Target(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("owner_id", "project_id", "metric_code",
-                         name="uq_targets_owner_project_metric"),
-        Index("ix_targets_owner_project", "owner_id", "project_id"),
+        Index("ix_targets_pfkey_project", "planfact_key_id", "project_id"),
     )
 
 
@@ -67,8 +70,10 @@ class DefaultTarget(Base):
     """Дефолтный таргет по метрике (если нет per-project override)."""
     __tablename__ = "default_targets"
 
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
     target_pct: Mapped[float] = mapped_column(Float, nullable=False)
@@ -210,6 +215,10 @@ class PnLTemplateNode(Base):
     )
     pnl_code: Mapped[Optional[str]] = mapped_column(String(32))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    # line_no — порядковый номер в иерархии (1..N в DFS-порядке шаблона
+    # этого ключа). Используется в формулах метрик: `[14] / [7]`. При
+    # повторном импорте шаблона стабильность сохраняем через path-match.
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
@@ -219,4 +228,46 @@ class PnLTemplateNode(Base):
         Index("ix_template_pfkey_path", "planfact_key_id", "path_lc"),
         Index("ix_template_pfkey_parent", "planfact_key_id", "parent_id"),
         Index("ix_template_pfkey_sort", "planfact_key_id", "sort_order"),
+    )
+
+
+# ---------- P&L metrics (KPI с формулами) ----------
+
+class PnLMetric(Base):
+    """KPI шаблона P&L. Привязан к planfact_key, формула ссылается на
+    line_no узлов pnl_template через `[N]`.
+
+    Примеры формул:
+      UC = `[13] / [7]`
+      DC = `[20] / [9]`           — DC от выручки доставки, не общей
+      TC = `([13]+[19]+[20]) / [7]`
+      EBITDA = `[75]`
+    """
+    __tablename__ = "pnl_metrics"
+
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    formula: Mapped[str] = mapped_column(Text, nullable=False)
+    is_target: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    # pct | rub | x  — для форматирования в UI и при сравнении с таргетом
+    format: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'pct'"),
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()")
+    )
+
+    __table_args__ = (
+        Index("ix_pnl_metrics_pfkey_sort", "planfact_key_id", "sort_order"),
     )
