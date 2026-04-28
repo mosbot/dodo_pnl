@@ -1052,10 +1052,17 @@ table.tpl-tree tr.tpl-section td.tpl-title {
 
 /* ========== Профиль / Интеграции ========== */
 .profile-form { display: flex; flex-direction: column; gap: 12px; max-width: 480px; width: 100%; }
-.profile-form input { width: 100%; box-sizing: border-box; }
-.profile-form label {
-  display: flex; flex-direction: column; gap: 4px;
+.profile-form > label {
+  /* > label чтобы перебить общее .controls label из топбар-секции.
+     Внутренний input помещаем под текст лейбла, не сбоку. */
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px;
   font-size: 12px; font-weight: 500; color: var(--muted);
+  width: 100%;
+}
+.profile-form input {
+  width: 100%; box-sizing: border-box;
 }
 .profile-form input[type="password"],
 .profile-form input[type="text"] {
