@@ -1288,3 +1288,69 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   .metrics-aside { order: -1; }
   .metrics-line-list { max-height: 240px; }
 }
+
+/* Заголовок группы в админ-модалке «Проекты юзера» */
+.up-group-head {
+  background: var(--bg-soft, #f9fafb);
+  border-top: 2px solid var(--border, #e5e7eb);
+}
+.up-group-head td {
+  padding: 8px 10px !important;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b7280);
+}
+.up-group-head td strong {
+  color: var(--fg, #111827);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.up-row { background: white; }
+
+/* Sticky-bar «Применить» в сайдбаре главной */
+.proj-apply-bar {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to top, white 60%, rgba(255,255,255,0.85));
+  padding: 10px 6px 4px;
+  margin: 8px -6px -4px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 10;
+}
+.proj-apply-bar.visible { display: flex; }
+.proj-apply-bar .bar-text {
+  font-size: 11.5px;
+  color: #b45309;
+  text-align: center;
+  font-weight: 500;
+}
+.proj-apply-bar .bar-actions {
+  display: flex;
+  gap: 6px;
+}
+.proj-apply-bar button {
+  flex: 1;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.proj-apply-bar .btn-apply {
+  background: #2563eb;
+  color: white;
+  border: 1px solid #1d4ed8;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.proj-apply-bar .btn-apply:hover { background: #1d4ed8; }
+.proj-apply-bar .btn-cancel {
+  background: white;
+  color: var(--muted, #6b7280);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 4px;
+  cursor: pointer;
+}

@@ -1288,10 +1288,32 @@ async function openUserProjectsModal(userId, username) {
     wrap.innerHTML = '<p class="muted">Под этим PF-ключом нет ни одного проекта.</p>';
     return;
   }
-  projects.sort((a, b) => {
+  // Группируем по project_group_title — как на главной. Внутри группы
+  // активные сверху, потом по имени. Группа «Текущий бизнес» — наверх,
+  // «Проекты без группы» (isUndistributed) — в самый низ.
+  const groupBuckets = new Map();
+  for (const p of projects) {
+    const key = p.project_group_title || 'Без группы';
+    if (!groupBuckets.has(key)) {
+      groupBuckets.set(key, {
+        title: key,
+        is_undistributed: !!p.project_group_is_undistributed,
+        projects: [],
+      });
+    }
+    groupBuckets.get(key).projects.push(p);
+  }
+  const groups = [...groupBuckets.values()];
+  groups.sort((a, b) => {
+    if (a.is_undistributed !== b.is_undistributed) return a.is_undistributed ? 1 : -1;
+    if (a.title === 'Текущий бизнес') return -1;
+    if (b.title === 'Текущий бизнес') return 1;
+    return a.title.localeCompare(b.title, 'ru');
+  });
+  groups.forEach(g => g.projects.sort((a, b) => {
     if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
     return (a.planfact_name || '').localeCompare(b.planfact_name || '', 'ru');
-  });
+  }));
 
   // datalist для подсказок Dodo IS юнитов (id + name)
   const unitDatalistId = `dodoUnitsForUser_${userId}`;
@@ -1323,37 +1345,61 @@ async function openUserProjectsModal(userId, username) {
         <th style="width:280px;">Dodo IS юнит</th>
       </tr></thead>
       <tbody>
-        ${projects.map(p => `
-          <tr data-pid="${esc(p.id)}" class="${p.is_active ? '' : 'row-off'}">
-            <td class="cell-center">
-              <label class="switch">
-                <input type="checkbox" class="js-up-toggle" ${p.is_active ? 'checked' : ''}>
-                <span class="slider"></span>
-              </label>
-            </td>
-            <td>
-              <strong>${esc(p.planfact_name)}</strong>
-              <div class="muted" style="font-size:10px;">${esc(p.id)}${p.planfact_active ? '' : ' · архив в PF'}</div>
-            </td>
-            <td>
-              <input type="text" class="js-up-display inp-flush"
-                value="${esc(p.display_name || '')}"
-                placeholder="${esc(p.planfact_name || '')}">
-            </td>
-            <td>
-              <input type="number" class="js-up-sort inp-flush inp-center"
-                value="${p.sort_order ?? ''}" step="1" placeholder="—">
-            </td>
-            <td>
-              <input type="text" class="js-up-uuid inp-flush"
-                list="${unitDatalistId}"
-                value="${esc(p.dodo_unit_uuid || '')}"
-                placeholder="— не привязан —"
-                title="${esc(unitName(p.dodo_unit_uuid))}">
-              <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
-            </td>
-          </tr>
-        `).join('')}
+        ${groups.map(g => {
+          const onN = g.projects.filter(p => p.is_active).length;
+          const total = g.projects.length;
+          // Состояние «общего» чекбокса:
+          //   все включены → checked, ни одного → unchecked, иначе → indeterminate
+          const allOn = onN === total;
+          const noneOn = onN === 0;
+          return `
+            <tr class="up-group-head" data-group="${esc(g.title)}">
+              <td class="cell-center">
+                <label class="switch" title="Включить/выключить всю группу">
+                  <input type="checkbox" class="js-up-grp-toggle"
+                         ${allOn ? 'checked' : ''}
+                         ${(!allOn && !noneOn) ? 'data-indeterminate="1"' : ''}>
+                  <span class="slider"></span>
+                </label>
+              </td>
+              <td colspan="4">
+                <strong>${esc(g.title)}</strong>
+                <span class="muted" style="font-size:11px;margin-left:6px;">${onN}/${total} включено</span>
+              </td>
+            </tr>
+            ${g.projects.map(p => `
+              <tr data-pid="${esc(p.id)}" data-group="${esc(g.title)}" class="up-row ${p.is_active ? '' : 'row-off'}">
+                <td class="cell-center">
+                  <label class="switch">
+                    <input type="checkbox" class="js-up-toggle" ${p.is_active ? 'checked' : ''}>
+                    <span class="slider"></span>
+                  </label>
+                </td>
+                <td>
+                  <strong>${esc(p.planfact_name)}</strong>
+                  <div class="muted" style="font-size:10px;">${esc(p.id)}${p.planfact_active ? '' : ' · архив в PF'}</div>
+                </td>
+                <td>
+                  <input type="text" class="js-up-display inp-flush"
+                    value="${esc(p.display_name || '')}"
+                    placeholder="${esc(p.planfact_name || '')}">
+                </td>
+                <td>
+                  <input type="number" class="js-up-sort inp-flush inp-center"
+                    value="${p.sort_order ?? ''}" step="1" placeholder="—">
+                </td>
+                <td>
+                  <input type="text" class="js-up-uuid inp-flush"
+                    list="${unitDatalistId}"
+                    value="${esc(p.dodo_unit_uuid || '')}"
+                    placeholder="— не привязан —"
+                    title="${esc(unitName(p.dodo_unit_uuid))}">
+                  <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
+                </td>
+              </tr>
+            `).join('')}
+          `;
+        }).join('')}
       </tbody>
     </table>
   `;
@@ -1375,6 +1421,46 @@ async function openUserProjectsModal(userId, username) {
     }
   }
 
+  // Helper — пересчитать состояние «группового» чекбокса (3 состояния).
+  function refreshGroupHeader(grpTitle) {
+    const groupRow = wrap.querySelector(`tr.up-group-head[data-group="${CSS.escape(grpTitle)}"]`);
+    if (!groupRow) return;
+    const rows = wrap.querySelectorAll(`tr.up-row[data-group="${CSS.escape(grpTitle)}"]`);
+    const total = rows.length;
+    const onN = [...rows].filter(r => r.querySelector('.js-up-toggle').checked).length;
+    const cb = groupRow.querySelector('.js-up-grp-toggle');
+    cb.checked = onN === total;
+    cb.indeterminate = onN > 0 && onN < total;
+    const lbl = groupRow.querySelector('.muted');
+    if (lbl) lbl.textContent = `${onN}/${total} включено`;
+  }
+  // Восстанавливаем initial indeterminate (HTML-атрибутом не выставляется)
+  wrap.querySelectorAll('input.js-up-grp-toggle[data-indeterminate="1"]').forEach(cb => {
+    cb.indeterminate = true;
+  });
+
+  // Toggle всей группы
+  wrap.querySelectorAll('input.js-up-grp-toggle').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const grpTitle = cb.closest('tr').dataset.group;
+      const target = cb.checked;
+      const rows = wrap.querySelectorAll(`tr.up-row[data-group="${CSS.escape(grpTitle)}"]`);
+      // Применяем только к тем, у кого состояние отличается — не дёргаем PATCH
+      // на уже совпадающих.
+      const toFlip = [...rows].filter(r => r.querySelector('.js-up-toggle').checked !== target);
+      for (const tr of toFlip) {
+        const pid = tr.dataset.pid;
+        const innerCb = tr.querySelector('.js-up-toggle');
+        try {
+          await patchField(pid, { is_active: target });
+          innerCb.checked = target;
+          tr.classList.toggle('row-off', !target);
+        } catch (e) { /* пропускаем, идём дальше */ }
+      }
+      refreshGroupHeader(grpTitle);
+    });
+  });
+
   wrap.querySelectorAll('tr[data-pid]').forEach(tr => {
     const pid = tr.dataset.pid;
     const chk = tr.querySelector('.js-up-toggle');
@@ -1382,6 +1468,7 @@ async function openUserProjectsModal(userId, username) {
       try {
         await patchField(pid, { is_active: chk.checked });
         tr.classList.toggle('row-off', !chk.checked);
+        refreshGroupHeader(tr.dataset.group);
       } catch (e) { chk.checked = !chk.checked; }
     });
     const dn = tr.querySelector('.js-up-display');

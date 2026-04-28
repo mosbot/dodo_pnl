@@ -320,6 +320,8 @@ async def admin_user_projects(
         if not pid:
             continue
         c = cfg.get(pid) or {}
+        # group инфо из PlanFact (как и в /api/projects на главной)
+        pg = p.get("projectGroup") or {}
         out.append({
             "id": pid,
             "planfact_name": p.get("title") or p.get("name") or "",
@@ -328,6 +330,9 @@ async def admin_user_projects(
             "sort_order": c.get("sort_order"),
             "dodo_unit_uuid": c.get("dodo_unit_uuid"),
             "planfact_active": bool(p.get("active", True)),
+            "project_group_id": pg.get("projectGroupId"),
+            "project_group_title": pg.get("title"),
+            "project_group_is_undistributed": bool(pg.get("isUndistributed", False)),
         })
     return {"projects": out}
 
