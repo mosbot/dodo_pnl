@@ -352,9 +352,89 @@ async function loadPnl() {
 
 // --- Rendering ---
 function render() {
+  renderOpsFreshness();
   renderCards();
   renderCharts();
   renderTable();
+}
+
+// S3.6: бейдж + кнопка «⟳ Метрики» рядом с пикером периода.
+// Логика:
+//   - Кнопка скрыта если месяц «заморожен» (полный синк + > N дней с конца).
+//   - Бейдж окрашен по возрасту синка:
+//       зелёный — < 6ч || (текущий месяц без синка ⟶ красный отдельно),
+//       жёлтый  — 6–24ч,
+//       красный — > 24ч || never || partial sync.
+//   - Заморожен / no_dodois → серый (или скрыт совсем).
+function renderOpsFreshness() {
+  const btn = el('opsRefreshBtn');
+  const badge = el('opsFreshness');
+  if (!btn || !badge) return;
+
+  const f = state.pnl?.ops_freshness;
+  if (!f || !f.period_end) {
+    btn.classList.add('hidden');
+    badge.classList.add('hidden');
+    return;
+  }
+
+  const last = f.last_synced_at ? new Date(f.last_synced_at) : null;
+  const now = new Date();
+  const ageMs = last ? (now - last) : null;
+  const ageH = ageMs != null ? ageMs / 3600000 : null;
+
+  let cls = 'f-gray';
+  let text = '';
+  let showBtn = !f.is_frozen;
+
+  if (last == null) {
+    cls = 'f-red';
+    text = 'не синхронизировано';
+  } else if (f.is_partial_sync) {
+    // Синк был до конца месяца — данные неполные. Показываем дату синка.
+    cls = 'f-red';
+    text = 'снято ' + last.toLocaleDateString('ru-RU');
+  } else if (f.is_frozen) {
+    // Полный + >N дней — серый, без кнопки.
+    cls = 'f-gray';
+    text = 'снято ' + last.toLocaleDateString('ru-RU');
+  } else if (f.is_current_month) {
+    // Текущий месяц — окрашиваем по возрасту синка.
+    if (ageH < 6) {
+      cls = 'f-green';
+      text = 'обновлено ' + relTimeRu(ageMs);
+    } else if (ageH < 24) {
+      cls = 'f-amber';
+      text = 'обновлено ' + relTimeRu(ageMs);
+    } else {
+      cls = 'f-red';
+      text = 'обновлено ' + relTimeRu(ageMs);
+    }
+  } else {
+    // Прошлый месяц, полный синк, в live-окне (< N дней с конца).
+    cls = 'f-green';
+    text = 'снято ' + last.toLocaleDateString('ru-RU');
+  }
+
+  badge.className = 'ops-freshness ' + cls;
+  badge.textContent = text;
+  badge.classList.remove('hidden');
+  // Кнопка имеет смысл только если есть Dodo IS токен; индикатор «не
+  // синхронизировано» при null может означать как «не настроено», так и
+  // «не нажимали». Backend этого не различает — показываем кнопку всегда
+  // когда не frozen; если у юзера нет Dodo IS, sync-эндпоинт ответит
+  // 400 NoTokenError, юзер увидит понятный toast.
+  btn.classList.toggle('hidden', !showBtn);
+}
+
+// «5 минут назад», «3 ч назад», «2 дня назад»
+function relTimeRu(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 60) return `${Math.max(1, min)} мин назад`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} ч назад`;
+  const d = Math.round(h / 24);
+  return `${d} ${d === 1 ? 'день' : (d < 5 ? 'дня' : 'дней')} назад`;
 }
 
 function findLine(code) {
@@ -1148,52 +1228,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   el('compareToggle').addEventListener('change', loadPnl);
 
-  el('refreshBtn').addEventListener('click', async () => {
-    const btn = el('refreshBtn');
-    const origText = btn.textContent;
+  // S3.6: одна кнопка «⟳ Метрики» — синхронизирует ops из Dodo IS.
+  // PlanFact-кэш TTL=5 мин истекает сам; закрытые месяцы лежат в
+  // cache_history (инвалидация — через админку «Переоткрыть»).
+  el('opsRefreshBtn')?.addEventListener('click', async () => {
+    const btn = el('opsRefreshBtn');
+    if (!state.currentMonth) return;
     btn.disabled = true;
-    btn.textContent = '⏳ Обновляю…';
+    btn.classList.add('spinning');
     try {
-      // PlanFact-кэш и Dodo IS ops — параллельно, они независимы.
-      // Dodo IS может отсутствовать (нет токена / нет привязанных юнитов) —
-      // не валим весь refresh из-за него, только показываем предупреждение.
-      const pfP = fetch('/api/refresh', { method: 'POST' });
-      const dodoP = state.currentMonth
-        ? fetch(`/api/ops-metrics/sync?period=${state.currentMonth}`, { method: 'POST' })
-        : Promise.resolve(null);
-      const [pfR, dodoR] = await Promise.allSettled([pfP, dodoP]);
-
-      if (pfR.status === 'rejected' || (pfR.value && !pfR.value.ok)) {
-        const msg = pfR.status === 'rejected'
-          ? pfR.reason.message
-          : `${pfR.value.status}: ${await pfR.value.text()}`;
-        throw new Error('PlanFact: ' + msg);
+      const r = await fetch(
+        `/api/ops-metrics/sync?period=${state.currentMonth}`,
+        { method: 'POST' },
+      );
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`${r.status}: ${t}`);
       }
-
-      let opsMsg = '';
-      if (dodoR.status === 'fulfilled' && dodoR.value) {
-        if (dodoR.value.ok) {
-          const res = await dodoR.value.json();
-          const n = (res.updated || []).length;
-          const nf = (res.not_found_in_response || []).length;
-          opsMsg = nf
-            ? `, ops: ${n} обновлено / ${nf} без ответа`
-            : (n ? `, ops: ${n} обновлено` : '');
-        } else {
-          const t = await dodoR.value.text();
-          opsMsg = `, ops: ошибка Dodo IS (${dodoR.value.status})`;
-          console.warn('Dodo IS sync failed:', t);
-        }
-      } else if (dodoR.status === 'rejected') {
-        opsMsg = ', ops: ошибка сети';
-      }
-      toast('Кэш сброшен' + opsMsg + ', перезагружаю…');
+      const res = await r.json();
+      const n = (res.updated || []).length;
+      const nf = (res.not_found_in_response || []).length;
+      const msg = nf
+        ? `Метрики обновлены: ${n}, без ответа: ${nf}`
+        : (n ? `Метрики обновлены: ${n}` : 'Нет привязанных юнитов');
+      toast(msg);
       await loadPnl();
     } catch (e) {
-      toast('Ошибка: ' + e.message, 'error');
+      toast('Ошибка синка: ' + e.message, 'error');
     } finally {
       btn.disabled = false;
-      btn.textContent = origText;
+      btn.classList.remove('spinning');
     }
   });
 

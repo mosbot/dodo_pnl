@@ -733,10 +733,9 @@ async def get_operations(
     }
 
 
-@app.post("/api/refresh")
-async def refresh_cache(user: User = Depends(require_user)):
-    invalidate_planfact_for(user.id)
-    return {"status": "ok"}
+# /api/refresh удалён в S3.6: in-memory PlanFact-кэш истекает по TTL=5 мин,
+# а закрытые месяцы лежат в cache_history (инвалидируются админом через
+# «Переоткрыть»). Кнопка «Обновить P&L» убрана — TTL покрывает кейсы.
 
 
 # --- Targets CRUD ---

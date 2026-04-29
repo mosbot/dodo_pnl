@@ -419,6 +419,28 @@ async def delete_ops_metric(
     await session.execute(stmt)
 
 
+async def ops_last_synced_at(
+    session: AsyncSession, owner_id: int, period_month: str,
+) -> Optional[datetime]:
+    """max(updated_at) по ops_metrics за период. None если синков не было.
+
+    Используется для индикатора свежести в /api/pnl: показываем, когда
+    последний раз тянули из Dodo IS этот месяц. Все строки месяца обычно
+    апдейтятся одновременно (один sync run обходит все юниты), поэтому
+    max'а достаточно — точное распределение per-project не нужно для UI.
+    """
+    from sqlalchemy import func
+    stmt = (
+        select(func.max(OpsMetric.updated_at))
+        .where(
+            OpsMetric.owner_id == owner_id,
+            OpsMetric.period_month == period_month,
+        )
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def list_ops_metrics_months(
     session: AsyncSession, owner_id: int, project_id: Optional[str] = None
 ) -> list[str]:

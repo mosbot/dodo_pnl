@@ -270,6 +270,77 @@ LINE_CODE_DEFAULT_MIN_LEVEL: dict[str, int] = {
 }
 
 
+# Сколько дней «живут» ops после конца месяца. Если с конца месяца прошло
+# больше OPS_LIVE_DAYS_WINDOW И последний синк был ПОСЛЕ конца месяца —
+# считаем месяц замороженным (бейдж серый, кнопка скрыта). Иначе — кнопка
+# доступна, бейдж окрашен по возрасту синка.
+#
+# Сейчас прошито константой; если понадобится per-PF-key — добавим колонку
+# planfact_keys.live_days_window и миграцию (по аналогии с live_months_window).
+OPS_LIVE_DAYS_WINDOW = 10
+
+
+async def _compute_ops_freshness(
+    session, owner_id: int, period_month: str,
+) -> dict:
+    """Возвращает payload для индикатора свежести ops на фронте.
+
+    Поля ответа:
+      last_synced_at: ISO-строка max(updated_at) по ops_metrics за период,
+                      или None если ни одной строки нет.
+      period_end:     YYYY-MM-DD — последний день периода (для расчёта на
+                      фронте «дни с конца месяца»).
+      is_current_month: True если period_month совпадает с текущим месяцем
+                       сервера. Влияет на формат бейджа (возраст vs дата).
+      is_frozen:       True если месяц «закрыт» — синк был полным (после
+                       конца месяца) И с тех пор прошло > OPS_LIVE_DAYS_WINDOW
+                       дней. Кнопка скрывается, бейдж становится серым.
+      is_partial_sync: True если последний синк случился ДО конца месяца —
+                       данные неполные. Кнопка остаётся видна, бейдж красный.
+    """
+    from calendar import monthrange
+    from datetime import date
+
+    last = await store.ops_last_synced_at(session, owner_id, period_month)
+
+    try:
+        y, m = (int(x) for x in period_month.split("-"))
+    except (ValueError, AttributeError):
+        return {
+            "last_synced_at": last.isoformat() if last else None,
+            "period_end": None,
+            "is_current_month": False,
+            "is_frozen": False,
+            "is_partial_sync": False,
+        }
+
+    last_day = monthrange(y, m)[1]
+    period_end = date(y, m, last_day)
+    today = date.today()
+    is_current_month = (today.year == y and today.month == m)
+
+    # Дни с конца месяца (отрицательные если период ещё не закончился)
+    days_since_close = (today - period_end).days
+
+    is_partial_sync = False
+    is_frozen = False
+    if last is not None:
+        last_d = last.date() if hasattr(last, "date") else last
+        is_partial_sync = last_d < period_end
+        is_frozen = (
+            (not is_partial_sync)
+            and (days_since_close > OPS_LIVE_DAYS_WINDOW)
+        )
+
+    return {
+        "last_synced_at": last.isoformat() if last else None,
+        "period_end": period_end.isoformat(),
+        "is_current_month": is_current_month,
+        "is_frozen": is_frozen,
+        "is_partial_sync": is_partial_sync,
+    }
+
+
 def _apply_metric_formulas(
     lines: list[dict],
     metrics: list[dict],
@@ -773,8 +844,12 @@ async def build_pnl(
 
     # --- Ops-метрики за указанный месяц ---
     ops_data: dict[str, dict] = {}
+    ops_freshness: dict | None = None
     if period_month:
         ops_data = await store.list_ops_metrics(session, owner_id, period_month=period_month)
+        ops_freshness = await _compute_ops_freshness(
+            session, owner_id, period_month,
+        )
     # Включаем ops в список проектов и добавляем ops-статус в target_report.
     ops_targets = await store.list_ops_targets(session, owner_id)         # global defaults {code: value}
     ops_overrides = await store.ops_project_targets_map(session, owner_id)  # {pid: {code: value}}
@@ -862,6 +937,7 @@ async def build_pnl(
         "ops_targets": ops_targets,
         "ops_project_targets": ops_overrides,     # {pid: {code: value}} — per-project override
         "ops_metrics_meta": store.OPS_METRICS,  # чтобы фронт знал labels/units/direction
+        "ops_freshness": ops_freshness,        # см. _compute_ops_freshness — для бейджа на топбаре
     }
 
     # При cache_mode="save" возвращаем компактные key-уровневые агрегаты,
