@@ -54,7 +54,7 @@ def upgrade() -> None:
         sa.Column(
             "kind", sa.String(32),
             primary_key=True,
-            comment="planfact_pnl | dodois_productivity | dodois_delivery",
+            comment="planfact_pnl (зарезервировано под расширение)",
         ),
         sa.Column("period_month", sa.String(7), primary_key=True,
                   comment="YYYY-MM"),

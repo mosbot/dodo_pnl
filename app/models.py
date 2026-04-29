@@ -133,20 +133,19 @@ class ProjectConfig(Base):
 # ---------- Cache history (immutable снэпшоты закрытых месяцев) ----------
 
 class CacheHistory(Base):
-    """Снэпшот агрегатов P&L (или Dodo IS productivity / delivery) за
-    закрытый месяц.
+    """Снэпшот агрегатов P&L PlanFact за закрытый месяц.
 
     Принципы:
       - Месяц «закрытый» если выпал из live-окна ключа (см.
-        PlanfactKey.live_months_window). До этого данные читаются live из PF.
-      - Один и тот же месяц для одного ключа кэшируется навсегда, пока
-        админ явно не нажмёт «Переоткрыть» (DELETE по PK).
-      - kind различает виды кэша:
-          'planfact_pnl' — payload содержит cat_totals, revenue_by_channel и
-              active_project_ids — всё что нужно build_pnl чтобы собрать lines.
-          'dodois_productivity' — productivity-отчёт по юнитам.
-          'dodois_delivery' — delivery-statistics по юнитам.
-      - payload — JSONB, формат свой для каждого kind.
+        PlanfactKey.live_months_window). До этого — live из PF.
+      - Один и тот же месяц для ключа кэшируется навсегда, пока админ
+        явно не нажмёт «Переоткрыть» (DELETE по PK).
+      - kind зарезервирован под расширение, сейчас всегда 'planfact_pnl'.
+        payload — cat_totals + revenue_by_channel + active_project_ids,
+        всё что нужно build_pnl чтобы собрать lines.
+
+    Dodo IS-ops не кэшируем здесь: они уже хранятся в ops_metrics со
+    своим pull-механизмом через /api/ops-metrics/sync.
     """
     __tablename__ = "cache_history"
 
