@@ -647,6 +647,7 @@ async def build_pnl(
         shown_project_ids=shown_project_ids,
         computed_lines=lines,
         return_line_amounts=True,
+        user_visibility_level=user_visibility_level,
     )
 
     # --- Применяем формулы pnl_metrics поверх старых lines ---
@@ -778,12 +779,12 @@ async def build_pnl(
     }
 
 
-# Узлы шаблона, которые мы вообще не показываем на дашборде.
-# По требованию: Дивиденды и Нераспределенная прибыль — не нужны в P&L-разрезе
-# по проектам. Сравнение по точному заголовку (case-sensitive после strip).
-HIDDEN_TEMPLATE_TITLES: set[str] = {
-    "Дивиденды",
-    "Нераспределенная прибыль",
+# Узлы шаблона с минимальным уровнем видимости.
+# Title → min_visibility_level. Для уровня партнёра (100) видны все,
+# для нижестоящих скрыты. Сравнение по точному заголовку (после strip).
+HIDDEN_TEMPLATE_TITLES_MIN_LEVEL: dict[str, int] = {
+    "Дивиденды": 100,
+    "Нераспределенная прибыль": 100,
 }
 
 # Маппинг calc-заголовка ПланФакт → код computed_row из build_pnl().
@@ -816,6 +817,7 @@ async def build_template_breakdown(
     shown_project_ids: list[str],
     computed_lines: list[dict] | None = None,
     return_line_amounts: bool = False,
+    user_visibility_level: int = 100,
 ) -> list[dict] | tuple[list[dict], dict[str, dict[int, float]]]:
     """Собрать P&L по иерархии шаблона ПланФакт.
 
@@ -950,8 +952,10 @@ async def build_template_breakdown(
     out: list[dict] = []
     for n in nodes:
         title = (n.get("title") or "").strip()
-        # 1) По требованию пользователя — не показывать в дашборде.
-        if title in HIDDEN_TEMPLATE_TITLES:
+        # Скрытие узлов по уровню видимости юзера (например, «Дивиденды»
+        # видит только партнёр).
+        min_level = HIDDEN_TEMPLATE_TITLES_MIN_LEVEL.get(title, 0)
+        if min_level > user_visibility_level:
             continue
 
         per_project: dict[str, dict] = {}
