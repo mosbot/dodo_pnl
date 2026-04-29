@@ -865,7 +865,10 @@ function renderTemplateTable(nodes) {
     }
     for (const n of nodes) {
       const depth = n.depth ?? 0;
-      if (depth === 0 && !n.is_calc && subtreeAllZero(n)) markHidden(n);
+      // Не скрываем строки с pnl_code (DIVIDENDS, INTEREST и т.п.) —
+      // они часть стандартного P&L и должны быть видимы даже с amount=0.
+      // Через тоггл «скрыть нули» юзер может скрыть их сам.
+      if (depth === 0 && !n.is_calc && !n.pnl_code && subtreeAllZero(n)) markHidden(n);
     }
     return hidden;
   })();
