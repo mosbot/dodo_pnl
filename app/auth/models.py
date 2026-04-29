@@ -41,6 +41,11 @@ class PlanfactKey(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     api_key: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Глубина live-окна (в месяцах). Текущий + N-1 предыдущих месяцев
+    # всегда читаются live из PF. Более старые — из cache_history.
+    live_months_window: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2, server_default=text("2"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )

@@ -34,6 +34,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -126,6 +127,44 @@ class ProjectConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
+    )
+
+
+# ---------- Cache history (immutable снэпшоты закрытых месяцев) ----------
+
+class CacheHistory(Base):
+    """Снэпшот агрегатов P&L (или Dodo IS productivity / delivery) за
+    закрытый месяц.
+
+    Принципы:
+      - Месяц «закрытый» если выпал из live-окна ключа (см.
+        PlanfactKey.live_months_window). До этого данные читаются live из PF.
+      - Один и тот же месяц для одного ключа кэшируется навсегда, пока
+        админ явно не нажмёт «Переоткрыть» (DELETE по PK).
+      - kind различает виды кэша:
+          'planfact_pnl' — payload содержит cat_totals, revenue_by_channel и
+              active_project_ids — всё что нужно build_pnl чтобы собрать lines.
+          'dodois_productivity' — productivity-отчёт по юнитам.
+          'dodois_delivery' — delivery-statistics по юнитам.
+      - payload — JSONB, формат свой для каждого kind.
+    """
+    __tablename__ = "cache_history"
+
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    period_month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    frozen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("NOW()"),
+    )
+    frozen_by_user_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+
+    __table_args__ = (
+        Index("ix_cache_history_pfkey_period", "planfact_key_id", "period_month"),
     )
 
 
