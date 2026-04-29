@@ -385,12 +385,27 @@ def _apply_metric_formulas(
 
     for code, metric in metrics_by_code.items():
         line = line_by_code.get(code)
-        if line is None:
-            continue  # такой код фронт не рендерит — пропускаем
         try:
             ast = formulas.parse(metric["formula"])
         except formulas.FormulaError:
             continue  # сломанная формула — оставляем старое значение
+
+        # Кастомная метрика (LOSSES, MY_KPI и т.п.): нет строки среди
+        # стандартных 17 — синтезируем на лету. label берём из метрики;
+        # значения populate'ятся в общем цикле ниже.
+        if line is None:
+            fmt = metric.get("format", "pct")
+            line = {
+                "code": code,
+                "label": metric.get("label") or code,
+                "level": 1,
+                "kind": "summary" if fmt == "rub" else "detail",
+                "denominator": "total",
+                "projects": {pid: {} for pid in shown_project_ids},
+                "total": {},
+            }
+            lines.append(line)
+            line_by_code[code] = line
 
         fmt = metric.get("format", "pct")
         # Для format=pct, если формула — деление X/Y, разлагаем на
