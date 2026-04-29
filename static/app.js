@@ -464,10 +464,12 @@ function pctTile(label, proj, target, opts = {}) {
   const valueStr = hasVal
     ? (pct * 100).toFixed(1).replace(/\.0$/, '').replace('.', ',')
     : '—';
-  let targetStr = (typeof target === 'number' && target > 0)
+  const targetStr = (typeof target === 'number' && target > 0)
     ? `цель ${(target * 100).toFixed(0)}%`
-    : '';
+    : '&nbsp;';
   // LFL-дельта в percentage points (Δпп). Меньше — лучше у cost-ratio.
+  // Рендерим отдельной строкой под «цель» — иначе на узкой плитке обрезается.
+  let deltaRow = '';
   if (
     typeof pct === 'number'
     && typeof proj?.previous_pct_of_revenue === 'number'
@@ -476,16 +478,15 @@ function pctTile(label, proj, target, opts = {}) {
     const cls = pp <= 0 ? 'pos' : 'neg';
     const sign = pp > 0 ? '+' : (pp < 0 ? '−' : '');
     const ppStr = Math.abs(pp).toFixed(1).replace('.', ',');
-    const dStr = `<span class="tile-delta ${cls}">Δ ${sign}${ppStr}пп</span>`;
-    targetStr = targetStr ? `${targetStr} · ${dStr}` : dStr;
+    deltaRow = `<div class="tile-hint"><span class="tile-delta ${cls}">Δ ${sign}${ppStr}пп</span></div>`;
   }
-  if (!targetStr) targetStr = '&nbsp;';
   const hint = opts.hint ? ` <span class="tile-sublabel">${opts.hint}</span>` : '';
   return `
     <div class="tile tile-metric ${stateCls}">
       <div class="tile-label">${label}${hint}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">%</span></div>
       <div class="tile-hint">${targetStr}</div>
+      ${deltaRow}
     </div>`;
 }
 
