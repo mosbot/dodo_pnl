@@ -27,6 +27,10 @@ class MetricIn(BaseModel):
     is_target: bool = False
     format: str = Field(default="pct", description="pct | rub | x")
     sort_order: int = 0
+    min_visibility_level: int = Field(
+        default=0, ge=0, le=100,
+        description="Минимальный visibility_level юзера для показа",
+    )
 
 
 class FormulaPreviewIn(BaseModel):

@@ -217,6 +217,24 @@ def classify_category(info: dict) -> str | None:
     return None
 
 
+def _filter_lines_by_visibility(
+    lines: list[dict],
+    metrics: list[dict],
+    user_visibility_level: int,
+) -> list[dict]:
+    """Оставить только те lines, чей метрика имеет min_visibility_level
+    меньше или равный user_visibility_level. Если для code нет метрики
+    в pnl_metrics — оставляем строку как есть (default min=0, юзер видит)."""
+    min_level_by_code = {
+        m["code"]: int(m.get("min_visibility_level") or 0)
+        for m in metrics
+    }
+    return [
+        ln for ln in lines
+        if min_level_by_code.get(ln["code"], 0) <= user_visibility_level
+    ]
+
+
 def _apply_metric_formulas(
     lines: list[dict],
     metrics: list[dict],
@@ -318,6 +336,7 @@ async def build_pnl(
     method: str = "accrual",
     require_committed: bool = True,
     period_month: str | None = None,
+    user_visibility_level: int = 100,  # 100 = видит всё (партнёр)
 ) -> dict:
     """Собрать P&L из операций.
 
@@ -642,6 +661,15 @@ async def build_pnl(
             lines, pf_metrics, line_amounts_by_pid,
             shown_project_ids, revenues, delivery_revenues,
         )
+        # Фильтрация по уровню видимости юзера. Метрики, чей
+        # min_visibility_level больше user_visibility_level — не отдаём.
+        # Это безопасно: фронт получает уже отфильтрованный список и
+        # никогда не видит «закрытых» строк, даже через DevTools.
+        lines = _filter_lines_by_visibility(
+            lines, pf_metrics, user_visibility_level,
+        )
+    else:
+        pf_metrics = []
 
     # --- projects_config (активность, отображаемое имя, сортировка) ---
     # Конфиг проектов (имена/сортировка/dodo_unit) — общий на ключ.

@@ -1249,6 +1249,9 @@ function openEditUserModal(u) {
   document.getElementById('ueUsername').value = u.username;
   document.getElementById('ueDisplayName').value = u.display_name || '';
   document.getElementById('ueIsAdmin').checked = !!u.is_admin;
+  // visibility_level — приведение к ближайшему пресету (10/30/60/100)
+  const lvl = u.visibility_level ?? 100;
+  document.getElementById('ueVisibilityLevel').value = String(lvl);
   const cats = state.adminCatalogs || { pfKeys: [], dodoisLogins: [] };
   fillSelect(
     document.getElementById('uePfKeyId'), cats.pfKeys, u.planfact_key_id ?? '',
@@ -1658,6 +1661,7 @@ async function initUsersTab() {
       is_admin: document.getElementById('cuIsAdmin').checked,
       dodois_credentials_name: document.getElementById('cuDodoisName').value || null,
       planfact_key_id: pfKeyId ? Number(pfKeyId) : null,
+      visibility_level: Number(document.getElementById('cuVisibilityLevel').value) || 100,
     };
     try {
       await post('/api/admin/users', body);
@@ -1679,6 +1683,7 @@ async function initUsersTab() {
       display_name: document.getElementById('ueDisplayName').value.trim() || null,
       is_admin: document.getElementById('ueIsAdmin').checked,
       dodois_credentials_name: document.getElementById('ueDodoisName').value || null,
+      visibility_level: Number(document.getElementById('ueVisibilityLevel').value) || 100,
     };
     if (pfKeyId === '') {
       body.clear_planfact_key = true;
@@ -1768,7 +1773,7 @@ function renderMetrics() {
   });
   if (!state.metrics || state.metrics.length === 0) {
     tbody.innerHTML = `
-      <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">
+      <tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">
         Метрик пока нет. Нажми «+ Метрика» сверху.
       </td></tr>
     `;
@@ -1792,6 +1797,15 @@ function renderMetrics() {
         <input type="checkbox" data-f="is_target" ${m.is_target ? 'checked' : ''}>
       </td>
       <td><input type="number" data-f="sort_order" value="${m.sort_order || 0}" style="width:60px"></td>
+      <td>
+        <select data-f="min_visibility_level" title="Минимальный уровень доступа юзера">
+          <option value="0" ${(m.min_visibility_level ?? 0) === 0 ? 'selected' : ''}>0 — все</option>
+          <option value="10" ${m.min_visibility_level === 10 ? 'selected' : ''}>10 — управляющий</option>
+          <option value="30" ${m.min_visibility_level === 30 ? 'selected' : ''}>30 — территориальный</option>
+          <option value="60" ${m.min_visibility_level === 60 ? 'selected' : ''}>60 — директор</option>
+          <option value="100" ${m.min_visibility_level === 100 ? 'selected' : ''}>100 — партнёр</option>
+        </select>
+      </td>
       <td>
         <button type="button" class="btn-danger metric-delete" title="Удалить">×</button>
       </td>
@@ -1828,6 +1842,8 @@ async function saveMetricRow(tr) {
     format: tr.querySelector('[data-f=format]').value,
     is_target: tr.querySelector('[data-f=is_target]').checked,
     sort_order: parseInt(tr.querySelector('[data-f=sort_order]').value, 10) || 0,
+    min_visibility_level: parseInt(
+      tr.querySelector('[data-f=min_visibility_level]').value, 10) || 0,
   };
   try {
     await api(`/api/metrics/${encodeURIComponent(code)}`, {

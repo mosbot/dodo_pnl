@@ -434,6 +434,7 @@ async def get_pnl(
             project_filter=effective_projects,
             date_start=date_start, date_end=date_end,
             method=method, period_month=pm,
+            user_visibility_level=user.visibility_level,
         )
         if compare_start and compare_end:
             prev_operations = await pf.fetch_all_operations(
@@ -445,6 +446,7 @@ async def get_pnl(
                 planfact_key_id=user.planfact_key_id,
                 categories=categories, operations=prev_operations, projects=projects,
                 project_filter=effective_projects,
+                user_visibility_level=user.visibility_level,
                 date_start=compare_start, date_end=compare_end,
                 method=method,
                 period_month=_derive_period_month(compare_start, compare_end),
@@ -1103,6 +1105,7 @@ async def upsert_metric(
         is_target=payload.is_target,
         format=payload.format,
         sort_order=payload.sort_order,
+        min_visibility_level=payload.min_visibility_level,
     )
     return {"status": "ok"}
 

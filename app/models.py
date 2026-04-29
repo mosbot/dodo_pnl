@@ -301,6 +301,11 @@ class PnLMetric(Base):
     sort_order: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"),
     )
+    # Минимальный visibility_level юзера, при котором эта метрика видна.
+    # 0 = видят все. См. User.visibility_level.
+    min_visibility_level: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

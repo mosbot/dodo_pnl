@@ -42,6 +42,7 @@ async def create_user(
     password: str,
     display_name: Optional[str] = None,
     is_admin: bool = False,
+    visibility_level: int = 100,
     dodois_credentials_name: Optional[str] = None,
     planfact_key_id: Optional[int] = None,
 ) -> User:
@@ -54,6 +55,7 @@ async def create_user(
         password_hash=hash_password(password),
         display_name=display_name,
         is_admin=is_admin,
+        visibility_level=visibility_level,
         dodois_credentials_name=dodois_credentials_name,
         planfact_key_id=planfact_key_id,
     )

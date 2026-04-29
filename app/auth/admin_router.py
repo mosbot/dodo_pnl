@@ -43,6 +43,7 @@ class AdminUserPublic(BaseModel):
     username: str
     display_name: Optional[str]
     is_admin: bool
+    visibility_level: int
     dodois_credentials_name: Optional[str]
     planfact_key_id: Optional[int]
     planfact_key_name: Optional[str]   # для отображения вместо id
@@ -56,6 +57,7 @@ class AdminUserPublic(BaseModel):
             username=u.username,
             display_name=u.display_name,
             is_admin=u.is_admin,
+            visibility_level=u.visibility_level,
             dodois_credentials_name=u.dodois_credentials_name,
             planfact_key_id=u.planfact_key_id,
             planfact_key_name=key_name,
@@ -69,6 +71,7 @@ class AdminUserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=256)
     display_name: Optional[str] = None
     is_admin: bool = False
+    visibility_level: int = Field(default=100, ge=0, le=100)
     dodois_credentials_name: Optional[str] = None
     planfact_key_id: Optional[int] = None
 
@@ -76,6 +79,7 @@ class AdminUserCreate(BaseModel):
 class AdminUserUpdate(BaseModel):
     display_name: Optional[str] = None
     is_admin: Optional[bool] = None
+    visibility_level: Optional[int] = Field(default=None, ge=0, le=100)
     dodois_credentials_name: Optional[str] = None
     planfact_key_id: Optional[int] = None
     # Явный флаг «сбросить привязку к PF-ключу» — нужен потому что None
@@ -131,6 +135,7 @@ async def admin_create_user(
             password=body.password,
             display_name=body.display_name,
             is_admin=body.is_admin,
+            visibility_level=body.visibility_level,
             dodois_credentials_name=body.dodois_credentials_name,
             planfact_key_id=body.planfact_key_id,
         )
@@ -172,6 +177,9 @@ async def admin_update_user(
     if body.is_admin is not None:
         u.is_admin = bool(body.is_admin)
         fields_changed.append("is_admin")
+    if body.visibility_level is not None:
+        u.visibility_level = int(body.visibility_level)
+        fields_changed.append("visibility_level")
     integrations_changed = (
         body.dodois_credentials_name is not None
         or body.planfact_key_id is not None

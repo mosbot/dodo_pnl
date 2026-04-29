@@ -53,18 +53,20 @@ log = logging.getLogger("seed_metrics")
 
 # (code, label, формат, is_target). Порядок = sort_order.
 _METRIC_SPEC = [
-    ("REVENUE", "Выручка", "rub", False),
-    ("UC", "Себестоимость продукции (UC)", "pct", True),
-    ("LC", "Оплата труда (LC)", "pct", True),
-    ("DC", "Расходы на доставку (DC)", "pct", True),
-    ("TC", "Total Cost (UC+LC+DC)", "pct", True),
-    ("RENT", "Помещения и аренда", "pct", True),
-    ("MARKETING", "Маркетинг", "pct", True),
-    ("FRANCHISE", "Расходы на франшизу", "pct", False),
-    ("OTHER_OPEX", "Прочие операционные расходы", "pct", False),
-    ("MGMT", "Административный персонал", "pct", False),
-    ("EBITDA", "EBITDA", "rub", False),
-    ("NET_PROFIT", "Чистая прибыль", "rub", False),
+    # (code, label, format, is_target, min_visibility_level)
+    # Уровни: 0=видят все, 10=управляющий+, 30=территориальный+, 60=директор+, 100=партнёр.
+    ("REVENUE", "Выручка", "rub", False, 0),
+    ("UC", "Себестоимость продукции (UC)", "pct", True, 10),
+    ("LC", "Оплата труда (LC)", "pct", True, 10),
+    ("DC", "Расходы на доставку (DC)", "pct", True, 10),
+    ("TC", "Total Cost (UC+LC+DC)", "pct", True, 10),
+    ("RENT", "Помещения и аренда", "pct", True, 30),
+    ("MARKETING", "Маркетинг", "pct", True, 30),
+    ("FRANCHISE", "Расходы на франшизу", "pct", False, 30),
+    ("OTHER_OPEX", "Прочие операционные расходы", "pct", False, 30),
+    ("MGMT", "Административный персонал", "pct", False, 60),
+    ("EBITDA", "EBITDA", "rub", False, 60),
+    ("NET_PROFIT", "Чистая прибыль", "rub", False, 100),
 ]
 # EBITDA_PCT / NET_PROFIT_PCT не нужны — pct_of_revenue для них уже считается
 # автоматически в _apply_metric_formulas (для format=rub возвращаем pct=value/revenue).
@@ -155,8 +157,10 @@ def _gather_metrics_for_template(
         top_lines_by_code[code] = sorted(t["line_no"] for t in tops)
     by_code = top_lines_by_code
 
-    out: list[tuple[str, str, str, str, bool, int]] = []
-    for sort_order, (code, label, fmt, is_target) in enumerate(_METRIC_SPEC, start=1):
+    out: list[tuple[str, str, str, str, bool, int, int]] = []
+    for sort_order, (code, label, fmt, is_target, min_level) in enumerate(
+        _METRIC_SPEC, start=1
+    ):
         formula: Optional[str] = None
         denom = revenue_line
         if code == "REVENUE":
@@ -193,7 +197,7 @@ def _gather_metrics_for_template(
                 code,
             )
             continue
-        out.append((code, label, formula, fmt, is_target, sort_order))
+        out.append((code, label, formula, fmt, is_target, sort_order, min_level))
     return out
 
 
@@ -255,7 +259,7 @@ async def _seed_one_key(
     )
 
     inserted = 0
-    for code, label, formula, fmt, is_target, sort_order in metrics:
+    for code, label, formula, fmt, is_target, sort_order, min_level in metrics:
         if code in existing:
             continue
         session.add(
@@ -267,6 +271,7 @@ async def _seed_one_key(
                 is_target=is_target,
                 format=fmt,
                 sort_order=sort_order,
+                min_visibility_level=min_level,
             )
         )
         inserted += 1

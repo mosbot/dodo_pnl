@@ -45,6 +45,7 @@ class UserPublic(BaseModel):
     username: str
     display_name: Optional[str]
     is_admin: bool
+    visibility_level: int
     has_dodois_credentials: bool
     has_planfact_key: bool
 
@@ -55,6 +56,7 @@ class UserPublic(BaseModel):
             username=u.username,
             display_name=u.display_name,
             is_admin=u.is_admin,
+            visibility_level=u.visibility_level,
             has_dodois_credentials=bool(u.dodois_credentials_name),
             has_planfact_key=bool(u.planfact_key_id),
         )

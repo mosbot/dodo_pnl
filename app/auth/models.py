@@ -20,6 +20,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     text,
@@ -76,6 +77,16 @@ class User(Base):
     )
 
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Уровень видимости метрик P&L. Юзер видит метрику если его level
+    # >= metric.min_visibility_level. Дефолтные пресеты:
+    #   10 — Управляющий пиццерией
+    #   30 — Территориальный управляющий
+    #   60 — Директор
+    #   100 — Партнёр (всё)
+    visibility_level: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=100, server_default=text("100"),
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
