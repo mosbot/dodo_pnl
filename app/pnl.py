@@ -326,9 +326,14 @@ async def _compute_ops_freshness(
     is_frozen = False
     if last is not None:
         last_d = last.date() if hasattr(last, "date") else last
-        is_partial_sync = last_d < period_end
+        # «Неполный синк» имеет смысл только для прошедших месяцев. В
+        # текущем месяце последний синк всегда раньше period_end (месяц
+        # ещё не закончился), но это нормальный кейс — окрашиваем по
+        # возрасту синка, а не как partial.
+        is_partial_sync = (not is_current_month) and last_d < period_end
         is_frozen = (
             (not is_partial_sync)
+            and (not is_current_month)
             and (days_since_close > OPS_LIVE_DAYS_WINDOW)
         )
 
