@@ -308,6 +308,11 @@ button:hover { background: var(--bg); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   min-height: 12px;
 }
+/* LFL-дельта на плитках (компонент строки .tile-hint) */
+.tile-delta { font-weight: 500; }
+.tile-delta.pos { color: var(--success); }
+.tile-delta.neg { color: var(--danger); }
+.tile-ly { color: var(--muted); }
 
 /* ---- Статусы ---- */
 .tile.tile-ok {

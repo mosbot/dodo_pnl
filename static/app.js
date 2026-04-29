@@ -452,6 +452,8 @@ function signClass(amount) {
 // ---- Tile builders ----
 
 // Плитка % от выручки с таргетом (UC/LC/DC/TC). Ceiling: actual <= target = ok.
+// При включённом LFL дописываем «· Δ −1,2пп» (percentage points). Для
+// cost-ratio меньше = лучше, поэтому отрицательная дельта зелёная.
 function pctTile(label, proj, target, opts = {}) {
   const pct = proj?.pct_of_revenue;
   const hasVal = typeof pct === 'number' && !isNaN(pct);
@@ -462,9 +464,22 @@ function pctTile(label, proj, target, opts = {}) {
   const valueStr = hasVal
     ? (pct * 100).toFixed(1).replace(/\.0$/, '').replace('.', ',')
     : '—';
-  const targetStr = (typeof target === 'number' && target > 0)
+  let targetStr = (typeof target === 'number' && target > 0)
     ? `цель ${(target * 100).toFixed(0)}%`
-    : '&nbsp;';
+    : '';
+  // LFL-дельта в percentage points (Δпп). Меньше — лучше у cost-ratio.
+  if (
+    typeof pct === 'number'
+    && typeof proj?.previous_pct_of_revenue === 'number'
+  ) {
+    const pp = (pct - proj.previous_pct_of_revenue) * 100;
+    const cls = pp <= 0 ? 'pos' : 'neg';
+    const sign = pp > 0 ? '+' : (pp < 0 ? '−' : '');
+    const ppStr = Math.abs(pp).toFixed(1).replace('.', ',');
+    const dStr = `<span class="tile-delta ${cls}">Δ ${sign}${ppStr}пп</span>`;
+    targetStr = targetStr ? `${targetStr} · ${dStr}` : dStr;
+  }
+  if (!targetStr) targetStr = '&nbsp;';
   const hint = opts.hint ? ` <span class="tile-sublabel">${opts.hint}</span>` : '';
   return `
     <div class="tile tile-metric ${stateCls}">
@@ -501,21 +516,33 @@ function opsTile(meta, val, target, opsRow) {
     </div>`;
 }
 
-// Большая финансовая плитка (выручка, EBITDA и т.п.)
+// Большая финансовая плитка (выручка, EBITDA и т.п.). При LFL заменяем
+// pct-хинт на «Δ +12,5% · LY 3 635 524 ₽» (для rub-метрик больше = лучше).
 function finTile(label, proj, opts = {}) {
   const amt = proj?.amount;
   const pct = proj?.pct_of_revenue;
   const hasVal = typeof amt === 'number' && !isNaN(amt);
   const cls = opts.colorize === false ? '' :
     (hasVal && amt < 0 ? 'tile-neg' : (hasVal && amt > 0 ? 'tile-pos' : ''));
-  const pctStr = (typeof pct === 'number' && !isNaN(pct))
-    ? `${(pct * 100).toFixed(1).replace('.', ',')}% от выручки`
-    : '&nbsp;';
+
+  let hintHTML;
+  if (typeof proj?.delta_pct === 'number' && proj?.previous_amount != null) {
+    const d = proj.delta_pct * 100;
+    const dCls = d >= 0 ? 'pos' : 'neg';
+    const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+    const dStr = `<span class="tile-delta ${dCls}">Δ ${sign}${Math.abs(d).toFixed(1).replace('.', ',')}%</span>`;
+    const lyStr = `<span class="tile-ly muted">LY ${fmt(proj.previous_amount)} ₽</span>`;
+    hintHTML = `${dStr} · ${lyStr}`;
+  } else if (typeof pct === 'number' && !isNaN(pct)) {
+    hintHTML = `${(pct * 100).toFixed(1).replace('.', ',')}% от выручки`;
+  } else {
+    hintHTML = '&nbsp;';
+  }
   return `
     <div class="tile tile-fin ${cls}">
       <div class="tile-label">${label}</div>
       <div class="tile-value">${fmt(amt)}<span class="tile-unit">₽</span></div>
-      <div class="tile-hint">${opts.hideSub ? '&nbsp;' : pctStr}</div>
+      <div class="tile-hint">${opts.hideSub && !proj?.previous_amount ? '&nbsp;' : hintHTML}</div>
     </div>`;
 }
 
