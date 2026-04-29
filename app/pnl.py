@@ -427,28 +427,42 @@ async def build_pnl(
                 continue
             stats["parts_kept"] += 1
 
-            # Не-P&L категории (Активы/Капитал/Обязательства) — пропускаем без шума.
+            # Активы/Обязательства — балансовые, в P&L не идут. Capital
+            # (Дивиденды, вклады в капитал) — нужны: дивиденды стоят в самом
+            # низу P&L после налогов.
             info_op_type = info.get("op_type")
-            if info_op_type not in ("Income", "Outcome"):
+            if info_op_type not in ("Income", "Outcome", "Capital"):
                 continue
 
             code = info.get("pnl_code")
             if code is None:
-                # Это Income/Outcome, но классификатор не справился — покажем в unclassified.
-                unclassified[cid] += value
-                continue
+                # Income/Outcome без pnl_code — в unclassified.
+                # Capital без pnl_code — пропускаем (только мапим в шаблон).
+                if info_op_type != "Capital":
+                    unclassified[cid] += value
+                # для Capital продолжаем — они нужны в cat_totals для template_lines
+                if info_op_type != "Capital":
+                    continue
 
             # Настройка «не включать управляющего в LC» — перекидываем такие
             # части в административный персонал.
-            if not include_manager_in_lc and info.get("is_manager_pay"):
+            if code and not include_manager_in_lc and info.get("is_manager_pay"):
                 code = "MGMT"
 
-            # Для возвратов может быть operationType=Outcome с Income-категорией
-            # (или наоборот) — тогда сумма идёт с минусом.
-            sign = 1 if info_op_type == op_type else -1
+            # Знак.
+            #   Income/Outcome категории: знак по совпадению op_type vs cat_type
+            #     (возврат = Outcome+Income категория = -1).
+            #   Capital категории: дивиденды — это Outcome (отток денег) +
+            #     Capital категория. Берём sign по op_type: Outcome=+1
+            #     (вычитается из прибыли), Income=-1 (взнос в капитал).
+            if info_op_type == "Capital":
+                sign = 1 if op_type == "Outcome" else -1
+            else:
+                sign = 1 if info_op_type == op_type else -1
             signed = sign * value
 
-            totals[(pid, code)] += signed
+            if code:
+                totals[(pid, code)] += signed
             cat_totals[(pid, cid)] += signed
             active_project_ids.add(pid)
 
