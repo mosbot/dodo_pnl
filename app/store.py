@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
     AppSetting,
+    CacheHistory,
     DefaultTarget,
     OpsMetric,
     OpsProjectTarget,
@@ -763,3 +764,116 @@ async def template_line_nos(
     )
     result = await session.execute(stmt)
     return {ln for (ln,) in result.all()}
+
+
+# ---------- Cache history (immutable снэпшоты закрытых месяцев) ----------
+
+CACHE_KIND_PLANFACT_PNL = "planfact_pnl"
+
+
+def is_period_in_live_window(
+    period_month: str, current_month: str, live_months_window: int,
+) -> bool:
+    """Возвращает True если period попадает в live-окно (текущий + N-1
+    предыдущих). period_month/current_month в формате 'YYYY-MM'.
+    Будущие периоды (period > current) тоже считаются live (никогда не
+    кэшируем то, чего ещё не было)."""
+    try:
+        py, pm = map(int, period_month.split("-"))
+        cy, cm = map(int, current_month.split("-"))
+    except (ValueError, AttributeError):
+        return True  # на случай странных форматов — fallback на live
+    diff = (cy - py) * 12 + (cm - pm)
+    return diff < max(1, live_months_window)
+
+
+async def get_cache_entry(
+    session: AsyncSession,
+    planfact_key_id: int,
+    period_month: str,
+    kind: str = CACHE_KIND_PLANFACT_PNL,
+) -> Optional[dict]:
+    """Прочитать payload снэпшота. None если записи нет."""
+    stmt = select(CacheHistory).where(
+        CacheHistory.planfact_key_id == planfact_key_id,
+        CacheHistory.kind == kind,
+        CacheHistory.period_month == period_month,
+    )
+    row = (await session.execute(stmt)).scalar_one_or_none()
+    return row.payload if row is not None else None
+
+
+async def save_cache_entry(
+    session: AsyncSession,
+    planfact_key_id: int,
+    period_month: str,
+    payload: dict,
+    *,
+    kind: str = CACHE_KIND_PLANFACT_PNL,
+    frozen_by_user_id: Optional[int] = None,
+) -> None:
+    """Заморозить снэпшот за период. Если запись уже есть — перезаписываем
+    (бывает после переоткрытия и повторного запроса)."""
+    stmt = (
+        pg_insert(CacheHistory)
+        .values(
+            planfact_key_id=planfact_key_id,
+            kind=kind,
+            period_month=period_month,
+            payload=payload,
+            frozen_by_user_id=frozen_by_user_id,
+        )
+        .on_conflict_do_update(
+            index_elements=["planfact_key_id", "kind", "period_month"],
+            set_={
+                "payload": payload,
+                "frozen_at": datetime.now(timezone.utc),
+                "frozen_by_user_id": frozen_by_user_id,
+            },
+        )
+    )
+    await session.execute(stmt)
+
+
+async def list_cache_entries(
+    session: AsyncSession, planfact_key_id: int,
+) -> list[dict]:
+    """Список замороженных периодов для UI. Возвращаем без payload —
+    он может быть тяжёлым."""
+    stmt = (
+        select(
+            CacheHistory.kind,
+            CacheHistory.period_month,
+            CacheHistory.frozen_at,
+            CacheHistory.frozen_by_user_id,
+        )
+        .where(CacheHistory.planfact_key_id == planfact_key_id)
+        .order_by(CacheHistory.period_month.desc())
+    )
+    result = await session.execute(stmt)
+    return [
+        {
+            "kind": r[0],
+            "period_month": r[1],
+            "frozen_at": r[2].isoformat() if r[2] else None,
+            "frozen_by_user_id": r[3],
+        }
+        for r in result.all()
+    ]
+
+
+async def delete_cache_entry(
+    session: AsyncSession,
+    planfact_key_id: int,
+    period_month: str,
+    kind: str = CACHE_KIND_PLANFACT_PNL,
+) -> None:
+    """Переоткрытие месяца. Следующий запрос за этот период пойдёт live
+    в PF и при необходимости перекэшируется."""
+    await session.execute(
+        delete(CacheHistory).where(
+            CacheHistory.planfact_key_id == planfact_key_id,
+            CacheHistory.kind == kind,
+            CacheHistory.period_month == period_month,
+        )
+    )

@@ -361,6 +361,135 @@ def _derive_period_month(date_start: str, date_end: str) -> str | None:
     return None
 
 
+def _is_full_month(date_start: str, date_end: str, period_month: str | None) -> bool:
+    """True если запрос охватывает РОВНО один календарный месяц (1-е → конец).
+
+    Кэшируем только полно-месячные запросы. Партиальные диапазоны пропускаем
+    в live, иначе будем сохранять «кусок месяца» как закрытый месяц.
+    """
+    if not period_month or len(period_month) != 7:
+        return False
+    try:
+        y, m = map(int, period_month.split("-"))
+    except ValueError:
+        return False
+    from calendar import monthrange
+    last = monthrange(y, m)[1]
+    return (
+        date_start == f"{period_month}-01"
+        and date_end == f"{period_month}-{last:02d}"
+    )
+
+
+def _current_month_str() -> str:
+    """Текущий месяц 'YYYY-MM' в системной таймзоне сервера."""
+    from datetime import date
+    today = date.today()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+async def _build_pnl_for_period(
+    *,
+    session: AsyncSession,
+    user: User,
+    pf: PlanFactClient,
+    date_start: str,
+    date_end: str,
+    period_month: str | None,
+    project_filter: list[str] | None,
+    method: str,
+) -> dict:
+    """Получить P&L за период с учётом кэша закрытых месяцев (S3.5).
+
+    Логика:
+      1) Период вне live-окна И полно-месячный И ключ задан → пытаемся читать
+         cache_history. Hit → передаём в build_pnl как cached_aggregates.
+      2) Cache miss в той же ситуации → fetch ВСЕХ операций ключа (без
+         project_filter), build_pnl(cache_mode="save"), сохраняем агрегаты.
+         project_filter применяется только при выборе shown_project_ids,
+         поэтому юзер сразу видит свой срез, а кэш — общий на ключ.
+      3) Иначе — старая live-логика.
+    """
+    pf_key_id = user.planfact_key_id
+    cacheable = (
+        pf_key_id is not None
+        and period_month is not None
+        and _is_full_month(date_start, date_end, period_month)
+    )
+
+    cached_payload: dict | None = None
+    use_cache_after_miss = False
+    if cacheable:
+        from .auth.models import PlanfactKey
+        pk = await session.get(PlanfactKey, pf_key_id)
+        lmw = pk.live_months_window if pk else 2
+        if not store.is_period_in_live_window(
+            period_month, _current_month_str(), lmw,
+        ):
+            cached_payload = await store.get_cache_entry(
+                session, pf_key_id, period_month,
+            )
+            use_cache_after_miss = cached_payload is None
+
+    if cached_payload is not None:
+        # HIT: операции не нужны, тянем только projects+categories
+        # (они описывают структуру и в любом случае читаются live).
+        import asyncio
+        projects, categories = await asyncio.gather(
+            pf.list_projects(),
+            pf.list_operation_categories(),
+        )
+        return await pnl_module.build_pnl(
+            session=session, owner_id=user.id,
+            planfact_key_id=pf_key_id,
+            categories=categories, operations=[], projects=projects,
+            project_filter=project_filter,
+            date_start=date_start, date_end=date_end,
+            method=method, period_month=period_month,
+            user_visibility_level=user.visibility_level,
+            cached_aggregates=cached_payload,
+        )
+
+    if use_cache_after_miss:
+        # MISS: качаем ключ-уровневый снэпшот (без project_filter), агрегируем
+        # для всего ключа, рендерим под фильтр юзера, сохраняем в cache_history.
+        projects, categories, operations = await _fetch_period(
+            pf, date_start, date_end, None, method=method,
+        )
+        result = await pnl_module.build_pnl(
+            session=session, owner_id=user.id,
+            planfact_key_id=pf_key_id,
+            categories=categories, operations=operations, projects=projects,
+            project_filter=project_filter,
+            date_start=date_start, date_end=date_end,
+            method=method, period_month=period_month,
+            user_visibility_level=user.visibility_level,
+            cache_mode="save",
+        )
+        agg = result.pop("_cache_aggregates", None)
+        if agg is not None:
+            await store.save_cache_entry(
+                session, pf_key_id, period_month, agg,
+                frozen_by_user_id=user.id,
+            )
+            await session.commit()
+        return result
+
+    # Live (текущий месяц или multi-month): обычный путь.
+    projects, categories, operations = await _fetch_period(
+        pf, date_start, date_end, project_filter, method=method,
+    )
+    return await pnl_module.build_pnl(
+        session=session, owner_id=user.id,
+        planfact_key_id=pf_key_id,
+        categories=categories, operations=operations, projects=projects,
+        project_filter=project_filter,
+        date_start=date_start, date_end=date_end,
+        method=method, period_month=period_month,
+        user_visibility_level=user.visibility_level,
+    )
+
+
 async def _resolve_project_filter(
     session: AsyncSession,
     user_id: int,
@@ -424,32 +553,18 @@ async def get_pnl(
 
     pf = await planfact_for(session, user)
     try:
-        projects, categories, operations = await _fetch_period(
-            pf, date_start, date_end, effective_projects, method=method,
-        )
-        result = await pnl_module.build_pnl(
-            session=session, owner_id=user.id,
-            planfact_key_id=user.planfact_key_id,
-            categories=categories, operations=operations, projects=projects,
-            project_filter=effective_projects,
-            date_start=date_start, date_end=date_end,
-            method=method, period_month=pm,
-            user_visibility_level=user.visibility_level,
+        result = await _build_pnl_for_period(
+            session=session, user=user, pf=pf,
+            date_start=date_start, date_end=date_end, period_month=pm,
+            project_filter=effective_projects, method=method,
         )
         if compare_start and compare_end:
-            prev_operations = await pf.fetch_all_operations(
+            prev_pm = _derive_period_month(compare_start, compare_end)
+            prev = await _build_pnl_for_period(
+                session=session, user=user, pf=pf,
                 date_start=compare_start, date_end=compare_end,
-                project_ids=effective_projects, method=method,
-            )
-            prev = await pnl_module.build_pnl(
-                session=session, owner_id=user.id,
-                planfact_key_id=user.planfact_key_id,
-                categories=categories, operations=prev_operations, projects=projects,
-                project_filter=effective_projects,
-                user_visibility_level=user.visibility_level,
-                date_start=compare_start, date_end=compare_end,
-                method=method,
-                period_month=_derive_period_month(compare_start, compare_end),
+                period_month=prev_pm,
+                project_filter=effective_projects, method=method,
             )
             result = pnl_module.compare_pnl(result, prev, mode=compare_mode)
             result["period"] = {

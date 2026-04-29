@@ -372,6 +372,8 @@ async def build_pnl(
     require_committed: bool = True,
     period_month: str | None = None,
     user_visibility_level: int = 100,  # 100 = видит всё (партнёр)
+    cached_aggregates: dict | None = None,
+    cache_mode: str = "off",        # "off" | "save"
 ) -> dict:
     """Собрать P&L из операций.
 
@@ -383,13 +385,27 @@ async def build_pnl(
 
     method="cash" — берём всё как есть (фильтр сервера был по
         operationDate), клиентской дофильтрации нет.
+
+    Кэширование закрытых месяцев (S3.5):
+      - cached_aggregates=<payload> — пропускаем агрегацию из operations,
+        восстанавливаем totals/cat_totals/revenue_by_channel/active_project_ids
+        из кэша. Шаблон, метрики, таргеты, projects_config и ops читаем из БД
+        как обычно — они могут меняться независимо от закрытого месяца.
+      - cache_mode="save" — агрегируем БЕЗ применения project_filter (по всем
+        проектам ключа), чтобы snapshot был «ключе-уровневый» и не зависел от
+        того, кто из юзеров его первый запросил. project_filter всё равно
+        применяется на этапе рендера (shown_project_ids).
     """
     # --- проекты ---
     projects_by_id = {
         str(p.get("projectId") or p.get("id")): (p.get("title") or p.get("name") or "")
         for p in projects
     }
-    if project_filter:
+    # При cache_mode="save" агрегируем по всем проектам ключа, а не только
+    # по project_filter — иначе кэш «обеднеет» под того юзера, который его
+    # инициировал. project_filter всё равно применяется при выборе
+    # shown_project_ids ниже.
+    if project_filter and cache_mode != "save":
         proj_set = set(project_filter)
     else:
         proj_set = set(projects_by_id.keys())
@@ -423,7 +439,28 @@ async def build_pnl(
         "parts_kept": 0,
     }
 
-    for op in operations:
+    if cached_aggregates is not None:
+        # ---- Восстановление из кэша (S3.5) ----
+        # JSONB не умеет хранить tuple-keys, поэтому в payload они склеены
+        # через "|". Парсим обратно. Числовые значения приводим явно — на
+        # случай если когда-то JSONB вернёт их как str.
+        for k, v in (cached_aggregates.get("totals") or {}).items():
+            pid, code = k.split("|", 1)
+            totals[(pid, code)] += float(v or 0.0)
+        for k, v in (cached_aggregates.get("cat_totals") or {}).items():
+            pid, cid = k.split("|", 1)
+            cat_totals[(pid, cid)] += float(v or 0.0)
+        for pid, ch_dict in (cached_aggregates.get("revenue_by_channel") or {}).items():
+            for ch in REVENUE_CHANNELS:
+                revenue_by_channel[pid][ch] = float((ch_dict or {}).get(ch, 0.0))
+        active_project_ids.update(
+            str(p) for p in (cached_aggregates.get("active_project_ids") or [])
+        )
+        stats["cache"] = "hit"
+        # Для unclassified в кэше нет данных — это диагностика, не критично.
+
+    # Если кэш не подан — собираем агрегаты из operations обычным способом.
+    for op in (operations if cached_aggregates is None else []):
         op_type = op.get("operationType")  # Income | Outcome | ...
         if op_type not in ("Income", "Outcome"):
             continue
@@ -794,7 +831,7 @@ async def build_pnl(
             "ops": ops_data.get(pid),
         })
 
-    return {
+    result = {
         "projects": projects_payload,
         "lines": lines,
         "template_lines": template_lines,
@@ -826,6 +863,26 @@ async def build_pnl(
         "ops_project_targets": ops_overrides,     # {pid: {code: value}} — per-project override
         "ops_metrics_meta": store.OPS_METRICS,  # чтобы фронт знал labels/units/direction
     }
+
+    # При cache_mode="save" возвращаем компактные key-уровневые агрегаты,
+    # чтобы вызывающий мог их положить в cache_history. Endpoint должен
+    # извлечь это поле через result.pop("_cache_aggregates", None) перед
+    # отправкой клиенту — наружу его светить не надо.
+    if cache_mode == "save":
+        result["_cache_aggregates"] = {
+            "version": 1,
+            "totals": {
+                f"{pid}|{code}": amt for (pid, code), amt in totals.items()
+            },
+            "cat_totals": {
+                f"{pid}|{cid}": amt for (pid, cid), amt in cat_totals.items()
+            },
+            "revenue_by_channel": {
+                pid: dict(rev) for pid, rev in revenue_by_channel.items()
+            },
+            "active_project_ids": sorted(active_project_ids),
+        }
+    return result
 
 
 # Узлы шаблона PlanFact с минимальным уровнем видимости (по title).

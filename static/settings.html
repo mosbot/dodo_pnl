@@ -395,6 +395,36 @@
   </div>
 </div>
 
+<!-- ============ Модалка: Кэш закрытых месяцев (S3.5) ============ -->
+<div id="cacheModal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="cacheTitle">Кэш закрытых месяцев</h3>
+      <button class="close-btn" data-close>×</button>
+    </div>
+    <div style="padding:0 4px 12px 4px;">
+      <p class="muted" style="font-size:12px;margin:4px 0 12px 0;">
+        Закрытые месяцы (вне live-окна) хранятся как снэпшоты — это ускоряет
+        историю. Live-окно — последние N месяцев, всегда читаемые из PlanFact.
+        «Переоткрыть» — стереть снэпшот; следующий запрос пересоберёт из live.
+      </p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;">
+        <label style="font-size:12px;font-weight:600;">Live-окно (мес.):</label>
+        <input type="number" id="cacheLmw" min="1" max="24" step="1"
+               style="width:64px;padding:4px 6px;font-size:13px;">
+        <button type="button" class="btn-secondary" id="cacheLmwSave">Сохранить</button>
+        <span class="muted" style="font-size:11px;">Текущий + (N-1) предыдущих месяцев читаются live.</span>
+      </div>
+      <div id="cacheTableWrap" class="block-scroll-x">
+        <p class="muted">Загрузка…</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-primary" data-close>Готово</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ Модалка: Доступ пользователя к проектам ============ -->
 <div id="userProjectsModal" class="modal hidden">
   <div class="modal-content" id="upModalContent">

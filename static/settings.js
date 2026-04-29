@@ -1095,6 +1095,7 @@ async function renderPfKeysTable() {
       <td>
         <button class="btn-secondary js-edit-pfkey" data-id="${k.id}">Изменить</button>
         <button class="btn-secondary js-key-projects" data-id="${k.id}" data-name="${esc(k.name)}" style="margin-left:4px;">Проекты</button>
+        <button class="btn-secondary js-key-cache" data-id="${k.id}" data-name="${esc(k.name)}" data-lmw="${k.live_months_window || 2}" style="margin-left:4px;">Кэш</button>
       </td>
     </tr>
   `).join('');
@@ -1108,6 +1109,110 @@ async function renderPfKeysTable() {
     btn.addEventListener('click', () => {
       openKeyProjectsModal(Number(btn.dataset.id), btn.dataset.name);
     });
+  });
+  tbody.querySelectorAll('.js-key-cache').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openCacheModal(
+        Number(btn.dataset.id),
+        btn.dataset.name,
+        Number(btn.dataset.lmw) || 2,
+      );
+    });
+  });
+}
+
+// --- Cache history modal (S3.5) ---
+async function openCacheModal(keyId, keyName, currentLmw) {
+  document.getElementById('cacheTitle').textContent = `Кэш — ${keyName}`;
+  document.getElementById('cacheLmw').value = currentLmw;
+  state.cacheKeyId = keyId;
+  document.getElementById('cacheTableWrap').innerHTML = '<p class="muted">Загрузка…</p>';
+  openModal('cacheModal');
+  await renderCacheTable(keyId);
+}
+
+async function renderCacheTable(keyId) {
+  const wrap = document.getElementById('cacheTableWrap');
+  let rows;
+  try {
+    rows = await api(`/api/admin/planfact-keys/${keyId}/cache`);
+  } catch (e) {
+    wrap.innerHTML = `<p class="neg">Ошибка: ${esc(e.message)}</p>`;
+    return;
+  }
+  if (!rows.length) {
+    wrap.innerHTML = '<p class="muted">Замороженных месяцев пока нет. Они появятся при первом запросе закрытого месяца.</p>';
+    return;
+  }
+  const fmtDt = (s) => {
+    if (!s) return '—';
+    try { return new Date(s).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }); }
+    catch { return s; }
+  };
+  wrap.innerHTML = `
+    <table class="dense-table" style="width:100%;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Месяц</th>
+          <th style="text-align:left;">Заморожен</th>
+          <th style="text-align:left;">Кем</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td><strong>${esc(r.period_month)}</strong></td>
+            <td>${esc(fmtDt(r.frozen_at))}</td>
+            <td class="muted">${esc(r.frozen_by_username || '—')}</td>
+            <td>
+              <button class="btn-secondary js-cache-reopen" data-pm="${esc(r.period_month)}">
+                Переоткрыть
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  wrap.querySelectorAll('.js-cache-reopen').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const pm = btn.dataset.pm;
+      if (!confirm(`Переоткрыть месяц ${pm}? Снэпшот будет удалён, при следующем запросе пересоберётся из PlanFact.`)) return;
+      try {
+        await api(
+          `/api/admin/planfact-keys/${keyId}/cache/${pm}`,
+          { method: 'DELETE' },
+        );
+        toast(`Месяц ${pm} переоткрыт`);
+        await renderCacheTable(keyId);
+      } catch (e) {
+        toast(`Ошибка: ${e.message}`);
+      }
+    });
+  });
+}
+
+function initCacheModal() {
+  document.getElementById('cacheLmwSave')?.addEventListener('click', async () => {
+    const keyId = state.cacheKeyId;
+    if (!keyId) return;
+    const v = Number(document.getElementById('cacheLmw').value);
+    if (!Number.isInteger(v) || v < 1 || v > 24) {
+      toast('Окно должно быть целым числом от 1 до 24');
+      return;
+    }
+    try {
+      await api(`/api/admin/planfact-keys/${keyId}/live-months-window`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ live_months_window: v }),
+      });
+      toast(`Live-окно: ${v} мес.`);
+      await renderPfKeysTable();  // обновим data-lmw на кнопке Кэш
+    } catch (e) {
+      toast(`Ошибка: ${e.message}`);
+    }
   });
 }
 
@@ -1638,6 +1743,7 @@ async function initUsersTab() {
   // Подгружаем каталоги (PF-ключи + Dodo IS логины) для селектов
   await loadAdminCatalogs();
   initPfKeysCatalog();
+  initCacheModal();
 
   // Закрытие модалок по [data-close]
   document.querySelectorAll('[data-close]').forEach(btn => {

@@ -607,6 +607,7 @@ class PlanfactKeyPublic(BaseModel):
     api_key_masked: str
     note: Optional[str]
     used_by_count: int   # сколько юзеров привязано
+    live_months_window: int  # глубина live-окна для cache_history (S3.4)
     created_at: str
     updated_at: str
 
@@ -653,6 +654,7 @@ async def admin_list_planfact_keys(
         out.append(PlanfactKeyPublic(
             id=k.id, name=k.name, api_key_masked=_mask_key(k.api_key),
             note=k.note, used_by_count=cnt,
+            live_months_window=k.live_months_window,
             created_at=k.created_at.isoformat(),
             updated_at=k.updated_at.isoformat(),
         ))
@@ -679,6 +681,7 @@ async def admin_create_planfact_key(
     return PlanfactKeyPublic(
         id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
         note=pk.note, used_by_count=0,
+        live_months_window=pk.live_months_window,
         created_at=pk.created_at.isoformat(),
         updated_at=pk.updated_at.isoformat(),
     )
@@ -712,6 +715,7 @@ async def admin_update_planfact_key(
     return PlanfactKeyPublic(
         id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
         note=pk.note, used_by_count=cnt,
+        live_months_window=pk.live_months_window,
         created_at=pk.created_at.isoformat(),
         updated_at=pk.updated_at.isoformat(),
     )
@@ -735,6 +739,98 @@ async def admin_delete_planfact_key(
     await session.delete(pk)
     await session.commit()
     return {"status": "ok"}
+
+
+# ---------- Cache history (S3.5) ----------
+# Снэпшоты P&L по закрытым месяцам. Лежат на уровне planfact_key.
+
+class CacheEntryPublic(BaseModel):
+    kind: str
+    period_month: str
+    frozen_at: Optional[str]
+    frozen_by_user_id: Optional[int]
+    frozen_by_username: Optional[str] = None
+
+
+class LiveMonthsWindowUpdate(BaseModel):
+    live_months_window: int = Field(ge=1, le=24)
+
+
+@admin_router.get(
+    "/api/admin/planfact-keys/{key_id}/cache",
+    response_model=list[CacheEntryPublic],
+)
+async def admin_list_key_cache(
+    key_id: int,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список замороженных месяцев под ключом + кто и когда заморозил."""
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+    entries = await store.list_cache_entries(session, key_id)
+    if not entries:
+        return []
+    # Resolve username для frozen_by_user_id (одним SELECT, не N+1).
+    user_ids = sorted({e["frozen_by_user_id"] for e in entries if e["frozen_by_user_id"]})
+    usernames: dict[int, str] = {}
+    if user_ids:
+        res = await session.execute(
+            select(User.id, User.username).where(User.id.in_(user_ids))
+        )
+        usernames = {row[0]: row[1] for row in res.all()}
+    return [
+        CacheEntryPublic(
+            kind=e["kind"],
+            period_month=e["period_month"],
+            frozen_at=e["frozen_at"],
+            frozen_by_user_id=e["frozen_by_user_id"],
+            frozen_by_username=usernames.get(e["frozen_by_user_id"]),
+        )
+        for e in entries
+    ]
+
+
+@admin_router.delete(
+    "/api/admin/planfact-keys/{key_id}/cache/{period_month}"
+)
+async def admin_delete_key_cache(
+    key_id: int, period_month: str,
+    kind: str = "planfact_pnl",
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Переоткрытие месяца. Следующий запрос за этот период пересоберёт
+    снэпшот из live PlanFact-данных. Используется когда бухгалтер
+    задним числом изменил операции в PF и нужно подтянуть свежие цифры."""
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+    await store.delete_cache_entry(session, key_id, period_month, kind=kind)
+    await session.commit()
+    return {"status": "ok", "period_month": period_month}
+
+
+@admin_router.patch(
+    "/api/admin/planfact-keys/{key_id}/live-months-window"
+)
+async def admin_update_live_months_window(
+    key_id: int,
+    body: LiveMonthsWindowUpdate,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Глубина live-окна — сколько последних месяцев читаются live из PF
+    (всегда). Старые читаются из cache_history. Дефолт = 2 (текущий + 1
+    предыдущий). Поднять до 4 если бухгалтер закрывает квартал."""
+    pk = await session.get(PlanfactKey, key_id)
+    if pk is None:
+        raise HTTPException(404, "Ключ не найден")
+    pk.live_months_window = int(body.live_months_window)
+    pk.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+    return {"status": "ok", "live_months_window": pk.live_months_window}
 
 
 # ---------- Список Dodo IS логинов из соседской БД ----------
