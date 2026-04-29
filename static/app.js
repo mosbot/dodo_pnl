@@ -523,17 +523,12 @@ function renderCards() {
   const box = el('kpiCards');
   box.innerHTML = '';
   const revenue = findLine('REVENUE');
-  const uc = findLine('UC');
-  const lc = findLine('LC');
-  const dc = findLine('DC');
-  const tc = findLine('TC');
-  const margin = findLine('MARGIN');
+  // EBITDA нужен для определения цвета рамки карточки (profit/loss)
+  // независимо от того, видит ли его юзер.
   const ebitda = findLine('EBITDA');
-  const net = findLine('NET_PROFIT');
   if (!revenue) return;
 
   const defT = state.pnl?.default_targets || {};
-  // target_report уже содержит эффективный таргет (project override ИЛИ default)
   const projT = {};
   (state.pnl?.targets || []).forEach(t => {
     if (t.project_id && t.metric && typeof t.target_pct === 'number') {
@@ -546,6 +541,29 @@ function renderCards() {
   const opsMeta = state.pnl?.ops_metrics_meta || [];
   const opsTargets = state.pnl?.ops_targets || {};
 
+  // S8.9: набор плиток на карточке настраивается через pnl_metrics.is_visible
+  // + sort_order. format='rub' → фин-блок (большие плитки в ₽), 'pct'/'x' →
+  // блок метрик (компактные плитки %). Хинт «от дост.» для DC хардкодим.
+  const allMetrics = (state.pnl?.metrics || [])
+    .filter(m => m.is_visible !== false)
+    .slice();
+  // Legacy fallback: MARGIN считается в build_pnl как computed_row, но в
+  // seed_metrics его нет (формула зависит от шаблона). Чтобы не потерять
+  // плитку у существующих юзеров, добавляем её если такой код не настроен
+  // в pnl_metrics. Если юзер заведёт MARGIN-метрику с is_visible=false —
+  // плитка скроется (его явная воля побеждает legacy-дефолт).
+  const LEGACY_FALLBACK = [
+    { code: 'MARGIN', label: 'Маржин. прибыль', format: 'rub', sort_order: 50 },
+  ];
+  LEGACY_FALLBACK.forEach(lv => {
+    if (!state.pnl?.metrics?.find(m => m.code === lv.code)) {
+      allMetrics.push(lv);
+    }
+  });
+  allMetrics.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const finMetrics = allMetrics.filter(m => m.format === 'rub');
+  const pctMetrics = allMetrics.filter(m => m.format !== 'rub');
+
   state.pnl.projects.forEach(p => {
     const rev = revenue.projects[p.id]?.amount || 0;
     const ebP = ebitda?.projects[p.id] || {};
@@ -554,24 +572,33 @@ function renderCards() {
     let cls = '';
     if (rev > 0) cls = (ebP.amount ?? 0) >= 0 ? 'profit' : 'loss';
 
-    // Блок метрик: UC/LC/DC/TC + ops. Если строка отфильтрована backend'ом
-    // по visibility_level юзера — не рендерим плитку (lib бы показывала «—»,
-    // но это лишний шум).
-    const metricTiles = [
-      uc && pctTile('UC', uc.projects[p.id], targetFor(p.id, 'UC')),
-      lc && pctTile('LC', lc.projects[p.id], targetFor(p.id, 'LC')),
-      dc && pctTile('DC', dc.projects[p.id], targetFor(p.id, 'DC'), { hint: 'от дост.' }),
-      tc && pctTile('TC', tc.projects[p.id], targetFor(p.id, 'TC')),
-      ...opsMeta.map(m => opsTile(m, ops[m.field], opsTargets[m.code], ops)),
-    ].filter(Boolean).join('');
+    // Финансовый блок: визуально первая плитка — Выручка (большая, без
+    // подзаголовка %). Остальные format='rub' метрики после неё с %.
+    // Если юзер скрыл REVENUE из настроек, она просто не попадает сюда.
+    const finTiles = finMetrics.map(m => {
+      const ln = findLine(m.code);
+      if (!ln) return '';   // строка фильтруется backend'ом по visibility
+      const isRevenue = m.code === 'REVENUE';
+      return finTile(
+        m.label,
+        ln.projects[p.id],
+        isRevenue ? { colorize: false, hideSub: true } : {},
+      );
+    }).filter(Boolean).join('');
 
-    // Блок финансов — те же правила фильтрации по visibility.
-    const finTiles = [
-      finTile('Выручка', revenue.projects[p.id], { colorize: false, hideSub: true }),
-      margin && finTile('Маржин. прибыль', margin.projects[p.id]),
-      ebitda && finTile('EBITDA', ebitda.projects[p.id]),
-      net && finTile('Чистая прибыль', net.projects[p.id]),
-    ].filter(Boolean).join('');
+    // Блок метрик: format=pct/x → плитка %, плюс ops-плитки в конце.
+    const pctTiles = pctMetrics.map(m => {
+      const ln = findLine(m.code);
+      if (!ln) return '';
+      const opts = m.code === 'DC' ? { hint: 'от дост.' } : {};
+      return pctTile(m.label, ln.projects[p.id], targetFor(p.id, m.code), opts);
+    }).filter(Boolean).join('');
+
+    const opsTiles = opsMeta
+      .map(om => opsTile(om, ops[om.field], opsTargets[om.code], ops))
+      .join('');
+
+    const metricTiles = pctTiles + opsTiles;
 
     const div = document.createElement('div');
     div.className = 'card ' + cls;

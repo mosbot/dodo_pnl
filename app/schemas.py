@@ -31,6 +31,10 @@ class MetricIn(BaseModel):
         default=0, ge=0, le=100,
         description="Минимальный visibility_level юзера для показа",
     )
+    is_visible: bool = Field(
+        default=True,
+        description="Рисовать ли плитку метрики на карточке проекта",
+    )
 
 
 class FormulaPreviewIn(BaseModel):

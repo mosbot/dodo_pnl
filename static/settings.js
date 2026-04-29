@@ -1879,7 +1879,7 @@ function renderMetrics() {
   });
   if (!state.metrics || state.metrics.length === 0) {
     tbody.innerHTML = `
-      <tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">
+      <tr><td colspan="9" style="text-align:center; color:var(--muted); padding:24px;">
         Метрик пока нет. Нажми «+ Метрика» сверху.
       </td></tr>
     `;
@@ -1901,6 +1901,9 @@ function renderMetrics() {
       </td>
       <td style="text-align:center">
         <input type="checkbox" data-f="is_target" ${m.is_target ? 'checked' : ''}>
+      </td>
+      <td style="text-align:center" title="Рисовать ли плитку на карточке проекта">
+        <input type="checkbox" data-f="is_visible" ${m.is_visible !== false ? 'checked' : ''}>
       </td>
       <td><input type="number" data-f="sort_order" value="${m.sort_order || 0}" style="width:60px"></td>
       <td>
@@ -1950,6 +1953,7 @@ async function saveMetricRow(tr) {
     sort_order: parseInt(tr.querySelector('[data-f=sort_order]').value, 10) || 0,
     min_visibility_level: parseInt(
       tr.querySelector('[data-f=min_visibility_level]').value, 10) || 0,
+    is_visible: tr.querySelector('[data-f=is_visible]').checked,
   };
   try {
     await api(`/api/metrics/${encodeURIComponent(code)}`, {

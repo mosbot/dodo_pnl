@@ -344,6 +344,12 @@ class PnLMetric(Base):
     min_visibility_level: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"),
     )
+    # Рисовать ли плитку на карточке проекта (формат='rub' → фин-блок,
+    # 'pct'/'x' → блок метрик). False прячет именно плитку, формула
+    # продолжает считаться (нужно для drill'а / API). См. seed_metrics.
+    is_visible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

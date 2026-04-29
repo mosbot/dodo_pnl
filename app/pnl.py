@@ -943,6 +943,13 @@ async def build_pnl(
         "ops_project_targets": ops_overrides,     # {pid: {code: value}} — per-project override
         "ops_metrics_meta": store.OPS_METRICS,  # чтобы фронт знал labels/units/direction
         "ops_freshness": ops_freshness,        # см. _compute_ops_freshness — для бейджа на топбаре
+        # Список настроенных пользовательских метрик (code/label/format/sort_order/
+        # is_visible/min_visibility_level/is_target). Фронт использует это для
+        # отрисовки плиток на карточках: фильтр по is_visible + сортировка по
+        # sort_order. Видимость по уровню юзера (lines уже отфильтрованы выше)
+        # тут дублируется только для UI — backend всё равно гарантирует, что
+        # запрещённых для юзера строк в lines нет.
+        "metrics": pf_metrics,
     }
 
     # При cache_mode="save" возвращаем компактные key-уровневые агрегаты,

@@ -731,6 +731,7 @@ async def list_metrics(
             "format": m.format,
             "sort_order": m.sort_order,
             "min_visibility_level": m.min_visibility_level,
+            "is_visible": bool(m.is_visible),
         }
         for m in result.scalars()
     ]
@@ -741,6 +742,7 @@ async def upsert_metric(
     code: str, label: str, formula: str,
     is_target: bool, format: str, sort_order: int,
     min_visibility_level: int = 0,
+    is_visible: bool = True,
 ) -> None:
     stmt = (
         pg_insert(PnLMetric)
@@ -749,6 +751,7 @@ async def upsert_metric(
             code=code, label=label, formula=formula,
             is_target=is_target, format=format, sort_order=sort_order,
             min_visibility_level=min_visibility_level,
+            is_visible=is_visible,
         )
         .on_conflict_do_update(
             index_elements=["planfact_key_id", "code"],
@@ -759,6 +762,7 @@ async def upsert_metric(
                 "format": format,
                 "sort_order": sort_order,
                 "min_visibility_level": min_visibility_level,
+                "is_visible": is_visible,
                 "updated_at": datetime.now(timezone.utc),
             },
         )

@@ -1220,6 +1220,7 @@ async def upsert_metric(
         format=payload.format,
         sort_order=payload.sort_order,
         min_visibility_level=payload.min_visibility_level,
+        is_visible=payload.is_visible,
     )
     return {"status": "ok"}
 
