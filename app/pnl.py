@@ -222,17 +222,43 @@ def _filter_lines_by_visibility(
     metrics: list[dict],
     user_visibility_level: int,
 ) -> list[dict]:
-    """Оставить только те lines, чей метрика имеет min_visibility_level
-    меньше или равный user_visibility_level. Если для code нет метрики
-    в pnl_metrics — оставляем строку как есть (default min=0, юзер видит)."""
+    """Оставить только те lines, чьё min_visibility_level <= user-level.
+
+    Приоритет источника min_level:
+      1. pnl_metrics (если для code задана метрика — берём её min_visibility_level).
+      2. LINE_CODE_DEFAULT_MIN_LEVEL — хардкод-дефолты для стандартных
+         кодов P&L (MARGIN, EBITDA, INTEREST, TAX, NET_PROFIT и т.п.),
+         для которых метрик может не быть (computed-агрегаты или балансовые).
+      3. 0 — по умолчанию строка видна всем.
+
+    Без шага 2 управляющий видел бы MARGIN, OPERATING_PROFIT, INTEREST, TAX,
+    NET_PROFIT, DIVIDENDS — которые он по бизнес-логике видеть не должен.
+    """
     min_level_by_code = {
         m["code"]: int(m.get("min_visibility_level") or 0)
         for m in metrics
     }
     return [
         ln for ln in lines
-        if min_level_by_code.get(ln["code"], 0) <= user_visibility_level
+        if min_level_by_code.get(
+            ln["code"],
+            LINE_CODE_DEFAULT_MIN_LEVEL.get(ln["code"], 0),
+        ) <= user_visibility_level
     ]
+
+
+# Дефолтные уровни видимости для стандартных кодов P&L. Применяются когда
+# в pnl_metrics нет явной записи (например, для computed-метрик MARGIN/
+# OPERATING_PROFIT/EBITDA или для балансовых INTEREST/TAX/DIVIDENDS).
+# Юзер с уровнем доступа >= этого значения видит строку.
+LINE_CODE_DEFAULT_MIN_LEVEL: dict[str, int] = {
+    "REVENUE": 0,
+    "UC": 10, "LC": 10, "DC": 10, "TC": 10,
+    "RENT": 30, "MARKETING": 30, "FRANCHISE": 30, "OTHER_OPEX": 30,
+    "MARGIN": 30,
+    "MGMT": 60, "OPERATING_PROFIT": 60, "OTHER_INCOME": 60, "EBITDA": 60,
+    "INTEREST": 100, "TAX": 100, "NET_PROFIT": 100, "DIVIDENDS": 100,
+}
 
 
 def _apply_metric_formulas(
@@ -793,10 +819,33 @@ async def build_pnl(
     }
 
 
-# Узлы шаблона с минимальным уровнем видимости.
-# Title → min_visibility_level. Для уровня партнёра (100) видны все,
-# для нижестоящих скрыты. Сравнение по точному заголовку (после strip).
+# Узлы шаблона PlanFact с минимальным уровнем видимости (по title).
+# Для calc-узлов (Маржа/EBITDA/Чистая прибыль и пр.) у нас нет pnl_code,
+# поэтому фильтр для них работает по тексту title. Список не претендует
+# на исчерпывающий — если у юзера в шаблоне другие заголовки, он может
+# их добавить (или дополнить через метрики с min_visibility_level).
 HIDDEN_TEMPLATE_TITLES_MIN_LEVEL: dict[str, int] = {
+    # До маржи — видит территориальный (30+):
+    "Маржинальная прибыль": 30,
+    "Маржинальность": 30,
+    "Постоянные расходы": 30,
+    # До EBITDA — видит директор (60+):
+    "Операционная прибыль": 60,
+    "Операционная рентабельность": 60,
+    "Прочие доходы": 60,
+    "Прочие расходы": 60,
+    "Амортизация": 60,
+    "EBITDA": 60,
+    "Рентабельность по EBITDA": 60,
+    "Прибыль до процентов и налогов (EBIT)": 60,
+    "Рентабельность по EBIT": 60,
+    # Финансовая часть — только партнёр (100):
+    "Проценты по кредитам и займам": 100,
+    "Прибыль до налогов (EBT)": 100,
+    "Рентабельность по EBT": 100,
+    "Налог на прибыль (доходы)": 100,
+    "Чистая прибыль (убыток)": 100,
+    "Рентабельность чистой прибыли": 100,
     "Дивиденды": 100,
     "Нераспределенная прибыль": 100,
 }
@@ -966,9 +1015,12 @@ async def build_template_breakdown(
     out: list[dict] = []
     for n in nodes:
         title = (n.get("title") or "").strip()
-        # Скрытие узлов по уровню видимости юзера (например, «Дивиденды»
-        # видит только партнёр).
-        min_level = HIDDEN_TEMPLATE_TITLES_MIN_LEVEL.get(title, 0)
+        # Скрытие узла по уровню видимости юзера. Берём максимум из двух
+        # источников: title-маппинг (для calc-узлов без pnl_code) и
+        # дефолтный по pnl_code (для leaf-узлов с кодом).
+        title_min = HIDDEN_TEMPLATE_TITLES_MIN_LEVEL.get(title, 0)
+        code_min = LINE_CODE_DEFAULT_MIN_LEVEL.get(n.get("pnl_code") or "", 0)
+        min_level = max(title_min, code_min)
         if min_level > user_visibility_level:
             continue
 
