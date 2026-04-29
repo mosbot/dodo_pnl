@@ -127,6 +127,11 @@
           <button id="btnTplImport" type="button" class="btn-secondary">Импорт из ПланФакт (.xlsx)</button>
           <button id="btnTplSave" type="button" class="btn-primary" disabled>Сохранить шаблон</button>
           <button id="btnTplClear" type="button" class="btn-secondary" title="Удалить импортированный шаблон, вернуться к эвристике">Очистить</button>
+          <label class="inline" style="margin-left:auto;font-size:12px;color:var(--muted);"
+                 title="Показать колонку «P&amp;L-код» — техническое поле, отвечающее за группировку статей в стандартные показатели (UC/LC/DC/...). В 99% случаев заполняется автоматически.">
+            <input type="checkbox" id="tplAdvancedToggle">
+            Расширенный режим
+          </label>
           <span id="tplStatus" class="muted" style="margin-left:8px;"></span>
         </div>
       </div>

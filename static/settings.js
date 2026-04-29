@@ -755,6 +755,21 @@ function initTemplate() {
 
   btnSave.addEventListener('click', saveTemplatePreview);
   btnClear.addEventListener('click', clearTemplate);
+
+  // Расширенный режим: показывать колонку «P&L-код». Хранится в localStorage,
+  // чтобы не сбрасывалось при перезагрузке.
+  const adv = el('tplAdvancedToggle');
+  if (adv) {
+    adv.checked = localStorage.getItem('pnlDashboard.tplAdvanced') === '1';
+    adv.addEventListener('change', () => {
+      localStorage.setItem('pnlDashboard.tplAdvanced', adv.checked ? '1' : '0');
+      renderTemplate();
+    });
+  }
+}
+
+function isTplAdvanced() {
+  return localStorage.getItem('pnlDashboard.tplAdvanced') === '1';
 }
 
 async function uploadTemplatePreview(file) {
@@ -857,6 +872,8 @@ function renderTemplate() {
     return opts.join('');
   };
 
+  const advanced = isTplAdvanced();
+
   const rows = nodes.map((n, idx) => {
     const indent = '&nbsp;&nbsp;'.repeat(n.depth || 0);
     const flag = n.is_calc ? '<span class="muted" title="Расчётная строка ПланФакт — не сохраняется как статья">[calc]</span>' :
@@ -871,18 +888,25 @@ function renderTemplate() {
     const lineNoCell = lineNo
       ? `<td class="tpl-lineno"><code>[${lineNo}]</code></td>`
       : `<td class="tpl-lineno muted">—</td>`;
+    // Колонка «P&L-код» — только в расширенном режиме. По умолчанию шум,
+    // мешает скроллу. Эвристика классификации работает без ручной правки
+    // в 99% случаев на стандартном плане счетов Dodo.
+    const codeCell = advanced
+      ? `<td class="tpl-code-cell">${select}</td>`
+      : '';
     return `<tr class="${n.is_calc ? 'tpl-calc' : ''}">
       ${lineNoCell}
       <td class="tpl-title">${indent}${esc(n.title)} ${flag}</td>
-      <td class="tpl-code-cell">${select}</td>
+      ${codeCell}
       <td class="muted tpl-path">${esc(Array.isArray(n.path) ? n.path.join(' / ') : (n.path || ''))}</td>
     </tr>`;
   }).join('');
 
+  const codeHead = advanced ? '<th>P&amp;L-код</th>' : '';
   box.innerHTML = `
     ${warnHtml}
     <table class="tpl-tree">
-      <thead><tr><th class="tpl-lineno-head">№</th><th>Статья</th><th>P&amp;L-код</th><th class="muted">Полный путь</th></tr></thead>
+      <thead><tr><th class="tpl-lineno-head">№</th><th>Статья</th>${codeHead}<th class="muted">Полный путь</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
