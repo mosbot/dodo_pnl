@@ -8,6 +8,8 @@ const state = {
   allProjects: [],              // полный список из /api/projects для сайдбара
   selectedProjects: new Set(),  // ручной фильтр пользователя
   pnl: null,
+  revHistory: null,             // 12-месячная история выручки (фоновая)
+  loadCounter: 0,               // race-protect для асинхронных загрузок
   charts: {},
   currentMonth: null,
 };
@@ -342,8 +344,27 @@ async function loadPnl() {
     params.set('compare_mode', 'lfl');
   }
 
-  // Параллельно подтягиваем 12-месячную историю выручки. Тот же
-  // project_filter и LFL-флаг — анхор=текущий месяц, окно 12 мес.
+  // S9.4: грузим основной отчёт первым — пользователь видит карточки и
+  // детализацию сразу. 12-месячная история выручки — отдельный медленный
+  // запрос (PF за 12 мес или микс с cache_history), уходит в фоне.
+  // Чтобы старая история не «мигала» при смене проектов/месяца — сразу
+  // зануляем и показываем спиннер. Идентификатор loadId защищает от
+  // race condition: если юзер быстро переключил месяц, старый ответ
+  // не перезапишет свежий.
+  const loadId = ++state.loadCounter;
+  state.revHistory = null;
+  showRevHistoryLoading(true);
+
+  try {
+    state.pnl = await api('/api/pnl?' + params.toString());
+    if (loadId !== state.loadCounter) return;  // юзер уже переключил период
+    render();
+  } catch (e) {
+    toast('Ошибка загрузки: ' + e.message, 'error');
+    return;
+  }
+
+  // Фон: тянем revenue-history, по приходу — только перерисовываем графики.
   const histParams = new URLSearchParams();
   histParams.set('anchor', state.currentMonth);
   histParams.set('months', '12');
@@ -351,16 +372,33 @@ async function loadPnl() {
   if (el('compareToggle').checked) histParams.set('include_ly', 'true');
 
   try {
-    const [pnl, hist] = await Promise.all([
-      api('/api/pnl?' + params.toString()),
-      api('/api/revenue-history?' + histParams.toString())
-        .catch(() => null),  // история — не критична, не валим основной запрос
-    ]);
-    state.pnl = pnl;
+    const hist = await api('/api/revenue-history?' + histParams.toString());
+    if (loadId !== state.loadCounter) return;
     state.revHistory = hist;
-    render();
-  } catch (e) {
-    toast('Ошибка загрузки: ' + e.message, 'error');
+  } catch {
+    // fail-open: 12-месячный график просто останется пустым.
+    if (loadId !== state.loadCounter) return;
+    state.revHistory = null;
+  }
+  showRevHistoryLoading(false);
+  renderCharts();
+}
+
+// Спиннер на карточке revHistory12m. Не нужен на других — они рендерятся
+// сразу из /api/pnl.
+function showRevHistoryLoading(on) {
+  const box = document.querySelector('[data-chart-id="revHistory12m"]');
+  if (!box) return;
+  let spinner = box.querySelector('.chart-loading');
+  if (on) {
+    if (!spinner) {
+      spinner = document.createElement('div');
+      spinner.className = 'chart-loading';
+      spinner.textContent = 'Загрузка истории выручки…';
+      box.appendChild(spinner);
+    }
+  } else if (spinner) {
+    spinner.remove();
   }
 }
 
