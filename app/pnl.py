@@ -1351,8 +1351,11 @@ def compare_pnl(current: dict, previous: dict, *, mode: str = "lfl") -> dict:
     return current
 
 
-def build_revenue_history(
+async def build_revenue_history(
     *,
+    session,
+    owner_id: int,
+    planfact_key_id: int | None,
     categories: list[dict],
     operations: list[dict],
     project_filter: list[str] | None,
@@ -1368,20 +1371,30 @@ def build_revenue_history(
         {
           "months": [YYYY-MM, ...],
           "totals": {month: amount},
+          "by_channel": {month: {delivery, restaurant, takeaway, other}},
           "projects": {pid: {month: amount}},
           "project_names": {pid: name},
         }
 
+    Канал берётся из cat_index[].revenue_channel — он распознаётся в
+    _build_category_index по словам в path («доставк»/«ресторан»/
+    «самовывоз»). Это даёт стек-бары на фронте без второго запроса.
+
     Для accrual мы группируем по operationParts[].calculationDate (месяц),
     только REVENUE-категории.
     """
-    cat_index = _build_category_index(categories)
+    cat_index = await _build_category_index(
+        session, owner_id, planfact_key_id, categories
+    )
 
     proj_set = set(project_filter) if project_filter else None
     projects_by_id: dict[str, str] = {}
 
     month_set = set(months)
     totals: dict[str, float] = {m: 0.0 for m in months}
+    by_channel: dict[str, dict[str, float]] = {
+        m: {ch: 0.0 for ch in REVENUE_CHANNELS} for m in months
+    }
     by_project: dict[str, dict[str, float]] = defaultdict(
         lambda: {m: 0.0 for m in months}
     )
@@ -1429,6 +1442,8 @@ def build_revenue_history(
             signed = sign * value
 
             totals[ym] += signed
+            ch = info.get("revenue_channel") or "other"
+            by_channel[ym][ch] += signed
             by_project[pid][ym] += signed
             if pid not in projects_by_id:
                 projects_by_id[pid] = project.get("title") or ""
@@ -1436,6 +1451,7 @@ def build_revenue_history(
     return {
         "months": months,
         "totals": totals,
+        "by_channel": by_channel,
         "projects": dict(by_project),
         "project_names": projects_by_id,
     }

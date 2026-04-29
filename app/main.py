@@ -608,7 +608,9 @@ async def get_revenue_history(
         _, categories, operations = await _fetch_period(
             pf, date_start, date_end, effective_projects, method=method,
         )
-        cur = pnl_module.build_revenue_history(
+        cur = await pnl_module.build_revenue_history(
+            session=session, owner_id=user.id,
+            planfact_key_id=user.planfact_key_id,
             categories=categories,
             operations=operations,
             project_filter=effective_projects,
@@ -619,6 +621,7 @@ async def get_revenue_history(
         out: dict = {
             "months": cur["months"],
             "totals": cur["totals"],
+            "by_channel": cur["by_channel"],
             "projects": cur["projects"],
             "project_names": cur["project_names"],
             "period": {"start": date_start, "end": date_end},
@@ -638,7 +641,9 @@ async def get_revenue_history(
                 project_ids=effective_projects,
                 method=method,
             )
-            ly = pnl_module.build_revenue_history(
+            ly = await pnl_module.build_revenue_history(
+                session=session, owner_id=user.id,
+                planfact_key_id=user.planfact_key_id,
                 categories=categories,
                 operations=ly_operations,
                 project_filter=effective_projects,
@@ -648,6 +653,7 @@ async def get_revenue_history(
             out["ly"] = {
                 "months": ly["months"],
                 "totals": ly["totals"],
+                "by_channel": ly["by_channel"],
                 "period": {"start": ly_start, "end": ly_end},
             }
     except PlanFactError as e:

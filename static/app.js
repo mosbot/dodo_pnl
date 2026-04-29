@@ -866,45 +866,69 @@ function renderCharts() {
   }
 
   // --- График 4: Выручка по месяцам · 12 мес ---
-  // Источник — /api/revenue-history (PlanFact). Бары = выбранный год,
-  // линия (если включён LFL) = тот же месяц годом ранее.
+  // Источник — /api/revenue-history (PlanFact). Стек-бары по каналам
+  // (Доставка / Ресторан / Самовывоз / Прочее) + опциональная LY-линия.
   if (isChartVisible('revHistory12m') && state.revHistory && state.revHistory.months) {
     const hist = state.revHistory;
     const histLabels = hist.months.map(m => monthLabel(m));
-    const histDatasets = [
-      {
-        type: 'bar',
-        label: 'Выручка',
-        data: hist.months.map(m => hist.totals[m] || 0),
-        backgroundColor: '#3b82f6',
-        borderRadius: 4,
-        order: 2,
-      },
+    // Проверим, есть ли разбивка по каналам (новый API).
+    const hasChannels = !!hist.by_channel;
+    const channelMeta = [
+      { key: 'delivery',   label: 'Доставка',   color: '#3b82f6' },
+      { key: 'restaurant', label: 'Ресторан',   color: '#10b981' },
+      { key: 'takeaway',   label: 'Самовывоз',  color: '#f59e0b' },
+      { key: 'other',      label: 'Прочее',     color: '#9ca3af' },
     ];
+    const histDatasets = [];
+    if (hasChannels) {
+      // Скрываем каналы, у которых ноль во всех месяцах — иначе легенда
+      // забита нерелевантными «Прочее = 0».
+      channelMeta.forEach(ch => {
+        const data = hist.months.map(m => hist.by_channel[m]?.[ch.key] || 0);
+        if (data.some(v => v !== 0)) {
+          histDatasets.push({
+            type: 'bar', label: ch.label, data,
+            backgroundColor: ch.color, borderRadius: 4, stack: 'rev', order: 2,
+          });
+        }
+      });
+    } else {
+      // Fallback: суммарная выручка одной серией (если backend старый).
+      histDatasets.push({
+        type: 'bar', label: 'Выручка',
+        data: hist.months.map(m => hist.totals[m] || 0),
+        backgroundColor: '#3b82f6', borderRadius: 4, stack: 'rev', order: 2,
+      });
+    }
     if (hist.ly && hist.ly.months) {
       histDatasets.push({
-        type: 'line',
-        label: 'LY',
+        type: 'line', label: 'LY (всего)',
         data: hist.ly.months.map(m => hist.ly.totals[m] || 0),
-        borderColor: '#9ca3af',
-        backgroundColor: '#9ca3af',
-        borderDash: [4, 3],
-        pointRadius: 3,
-        tension: 0.2,
-        fill: false,
-        order: 1,
+        borderColor: '#374151', backgroundColor: '#374151',
+        borderDash: [4, 3], pointRadius: 3, tension: 0.2, fill: false, order: 1,
       });
     }
     state.charts.revHistory12m = new Chart(el('revHistory12m'), {
       data: { labels: histLabels, datasets: histDatasets },
       options: {
         ...baseOpts,
+        scales: {
+          ...baseOpts.scales,
+          x: { ...baseOpts.scales.x, stacked: true },
+          y: { ...baseOpts.scales.y, stacked: true },
+        },
         plugins: {
           ...baseOpts.plugins,
           tooltip: {
             callbacks: {
               label: (ctx) =>
                 `${ctx.dataset.label}: ${Number(ctx.parsed.y).toLocaleString('ru-RU')} ₽`,
+              footer: (items) => {
+                const sum = items
+                  .filter(i => i.dataset.stack === 'rev')
+                  .reduce((s, i) => s + (i.parsed.y || 0), 0);
+                return sum ? `Итого: ${sum.toLocaleString('ru-RU')} ₽` : '';
+              },
             },
           },
         },
