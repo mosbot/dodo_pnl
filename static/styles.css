@@ -130,13 +130,15 @@ button:hover { background: var(--bg); }
   content: ""; width: 6px; height: 6px; border-radius: 50%;
   display: inline-block; background: currentColor;
 }
-.ops-freshness.f-green { background: #EAF3DE; border-color: #639922; color: #27500A; }
-.ops-freshness.f-amber { background: #FAEEDA; border-color: #BA7517; color: #633806; }
-.ops-freshness.f-red   { background: #FCEBEB; border-color: #A32D2D; color: #791F1F; }
+/* Палитра подобрана под существующие .tile-ok/.tile-bad — emerald/coral,
+ * не лайм/жжёный-янтарь. */
+.ops-freshness.f-green { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.ops-freshness.f-amber { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.ops-freshness.f-red   { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
 .ops-freshness.f-gray  { background: var(--bg); border-color: var(--border); color: var(--muted); }
-.ops-freshness.f-green::before { background: #639922; }
-.ops-freshness.f-amber::before { background: #BA7517; }
-.ops-freshness.f-red::before   { background: #A32D2D; }
+.ops-freshness.f-green::before { background: #047857; }
+.ops-freshness.f-amber::before { background: #b45309; }
+.ops-freshness.f-red::before   { background: #b91c1c; }
 .ops-freshness.f-gray::before  { background: var(--muted); }
 .hidden { display: none !important; }
 
