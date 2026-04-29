@@ -388,6 +388,126 @@ def _current_month_str() -> str:
     return f"{today.year:04d}-{today.month:02d}"
 
 
+async def _build_revenue_history_window(
+    *,
+    session: AsyncSession,
+    user: User,
+    pf: PlanFactClient,
+    period_months: list[str],
+    project_filter: list[str] | None,
+    method: str,
+) -> dict:
+    """Собрать историю выручки для окна `period_months`, используя
+    cache_history для замороженных месяцев — операции из PlanFact качаем
+    только за live-окно. См. S9.3.
+
+    Возвращает в формате build_revenue_history (months/totals/by_channel/
+    projects/project_names).
+    """
+    from calendar import monthrange
+    from collections import defaultdict
+    from . import pnl as pnl_module
+
+    pf_key_id = user.planfact_key_id
+
+    # Глубина live-окна берётся с PF-ключа (S3.4). Без ключа — кэшем
+    # пользоваться нельзя, всё качается live.
+    if pf_key_id:
+        from .auth.models import PlanfactKey
+        pk = await session.get(PlanfactKey, pf_key_id)
+        lmw = pk.live_months_window if pk else 2
+    else:
+        lmw = 0
+
+    cur_month = _current_month_str()
+
+    # Делим месяцы окна на «cache hit» и «нужно качать live».
+    cached: dict[str, dict] = {}
+    live_set: set[str] = set()
+    for m in period_months:
+        if (
+            pf_key_id
+            and lmw > 0
+            and not store.is_period_in_live_window(m, cur_month, lmw)
+        ):
+            payload = await store.get_cache_entry(session, pf_key_id, m)
+            if payload:
+                cached[m] = payload
+                continue
+        live_set.add(m)
+
+    # Заготовки результата
+    totals = {m: 0.0 for m in period_months}
+    by_channel = {
+        m: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS}
+        for m in period_months
+    }
+    by_project: dict[str, dict[str, float]] = defaultdict(
+        lambda: {m: 0.0 for m in period_months}
+    )
+    project_names: dict[str, str] = {}
+
+    # Заполняем из cache_history
+    proj_filter_set = set(project_filter) if project_filter else None
+    for m, payload in cached.items():
+        rbc = payload.get("revenue_by_channel") or {}
+        for pid, channels in rbc.items():
+            if proj_filter_set is not None and pid not in proj_filter_set:
+                continue
+            for ch in pnl_module.REVENUE_CHANNELS:
+                v = float((channels or {}).get(ch, 0.0))
+                if v == 0:
+                    continue
+                totals[m] += v
+                by_channel[m][ch] += v
+                by_project[pid][m] += v
+
+    # Live-месяцы тянем одним PF-запросом (минимальный диапазон).
+    if live_set:
+        live_months = sorted(live_set)
+        date_start = f"{live_months[0]}-01"
+        last_y, last_m = (int(x) for x in live_months[-1].split("-"))
+        date_end = f"{live_months[-1]}-{monthrange(last_y, last_m)[1]:02d}"
+        _, categories, operations = await _fetch_period(
+            pf, date_start, date_end, project_filter, method=method,
+        )
+        live_hist = await pnl_module.build_revenue_history(
+            session=session, owner_id=user.id, planfact_key_id=pf_key_id,
+            categories=categories, operations=operations,
+            project_filter=project_filter,
+            months=live_months, method=method,
+        )
+        for m in live_months:
+            totals[m] = live_hist["totals"].get(m, 0.0)
+            month_ch = live_hist["by_channel"].get(m) or {}
+            for ch in pnl_module.REVENUE_CHANNELS:
+                by_channel[m][ch] = float(month_ch.get(ch, 0.0))
+            for pid, monthly in (live_hist.get("projects") or {}).items():
+                by_project[pid][m] = monthly.get(m, 0.0)
+        project_names.update(live_hist.get("project_names") or {})
+
+    # Если не ходили в PF (всё из кэша) — для имён проектов всё-таки
+    # дёргаем pf.list_projects() (один лёгкий запрос с TTL).
+    missing = set(by_project.keys()) - set(project_names.keys())
+    if missing:
+        try:
+            projects = await pf.list_projects()
+            for p in projects:
+                pid = str(p.get("projectId") or p.get("id") or "")
+                if pid in missing:
+                    project_names[pid] = p.get("title") or p.get("name") or ""
+        except PlanFactError:
+            pass  # имена опциональны — фронт показывает projectId
+
+    return {
+        "months": period_months,
+        "totals": totals,
+        "by_channel": by_channel,
+        "projects": dict(by_project),
+        "project_names": project_names,
+    }
+
+
 async def _build_pnl_for_period(
     *,
     session: AsyncSession,
@@ -605,17 +725,12 @@ async def get_revenue_history(
 
     pf = await planfact_for(session, user)
     try:
-        _, categories, operations = await _fetch_period(
-            pf, date_start, date_end, effective_projects, method=method,
-        )
-        cur = await pnl_module.build_revenue_history(
-            session=session, owner_id=user.id,
-            planfact_key_id=user.planfact_key_id,
-            categories=categories,
-            operations=operations,
-            project_filter=effective_projects,
-            months=period_months,
-            method=method,
+        # S9.3: для замороженных месяцев читаем revenue_by_channel из
+        # cache_history, в PF идём только за live-окном.
+        cur = await _build_revenue_history_window(
+            session=session, user=user, pf=pf,
+            period_months=period_months,
+            project_filter=effective_projects, method=method,
         )
 
         out: dict = {
@@ -635,20 +750,10 @@ async def get_revenue_history(
             ly_y, ly_m = (int(x) for x in ly_months[-1].split("-"))
             ly_last_day = monthrange(ly_y, ly_m)[1]
             ly_end = f"{ly_months[-1]}-{ly_last_day:02d}"
-            ly_operations = await pf.fetch_all_operations(
-                date_start=ly_start,
-                date_end=ly_end,
-                project_ids=effective_projects,
-                method=method,
-            )
-            ly = await pnl_module.build_revenue_history(
-                session=session, owner_id=user.id,
-                planfact_key_id=user.planfact_key_id,
-                categories=categories,
-                operations=ly_operations,
-                project_filter=effective_projects,
-                months=ly_months,
-                method=method,
+            ly = await _build_revenue_history_window(
+                session=session, user=user, pf=pf,
+                period_months=ly_months,
+                project_filter=effective_projects, method=method,
             )
             out["ly"] = {
                 "months": ly["months"],
