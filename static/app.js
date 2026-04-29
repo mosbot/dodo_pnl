@@ -554,22 +554,24 @@ function renderCards() {
     let cls = '';
     if (rev > 0) cls = (ebP.amount ?? 0) >= 0 ? 'profit' : 'loss';
 
-    // Блок метрик: UC/LC/DC/TC + ops — все плитки
+    // Блок метрик: UC/LC/DC/TC + ops. Если строка отфильтрована backend'ом
+    // по visibility_level юзера — не рендерим плитку (lib бы показывала «—»,
+    // но это лишний шум).
     const metricTiles = [
-      pctTile('UC', uc?.projects[p.id], targetFor(p.id, 'UC')),
-      pctTile('LC', lc?.projects[p.id], targetFor(p.id, 'LC')),
-      pctTile('DC', dc?.projects[p.id], targetFor(p.id, 'DC'), { hint: 'от дост.' }),
-      pctTile('TC', tc?.projects[p.id], targetFor(p.id, 'TC')),
+      uc && pctTile('UC', uc.projects[p.id], targetFor(p.id, 'UC')),
+      lc && pctTile('LC', lc.projects[p.id], targetFor(p.id, 'LC')),
+      dc && pctTile('DC', dc.projects[p.id], targetFor(p.id, 'DC'), { hint: 'от дост.' }),
+      tc && pctTile('TC', tc.projects[p.id], targetFor(p.id, 'TC')),
       ...opsMeta.map(m => opsTile(m, ops[m.field], opsTargets[m.code], ops)),
-    ].join('');
+    ].filter(Boolean).join('');
 
-    // Блок финансов: выручка, маржин. прибыль, EBITDA, чистая прибыль
+    // Блок финансов — те же правила фильтрации по visibility.
     const finTiles = [
       finTile('Выручка', revenue.projects[p.id], { colorize: false, hideSub: true }),
-      finTile('Маржин. прибыль', margin?.projects[p.id]),
-      finTile('EBITDA', ebitda?.projects[p.id]),
-      finTile('Чистая прибыль', net?.projects[p.id]),
-    ].join('');
+      margin && finTile('Маржин. прибыль', margin.projects[p.id]),
+      ebitda && finTile('EBITDA', ebitda.projects[p.id]),
+      net && finTile('Чистая прибыль', net.projects[p.id]),
+    ].filter(Boolean).join('');
 
     const div = document.createElement('div');
     div.className = 'card ' + cls;
