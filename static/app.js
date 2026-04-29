@@ -342,8 +342,22 @@ async function loadPnl() {
     params.set('compare_mode', 'lfl');
   }
 
+  // Параллельно подтягиваем 12-месячную историю выручки. Тот же
+  // project_filter и LFL-флаг — анхор=текущий месяц, окно 12 мес.
+  const histParams = new URLSearchParams();
+  histParams.set('anchor', state.currentMonth);
+  histParams.set('months', '12');
+  state.selectedProjects.forEach(p => histParams.append('project_ids', p));
+  if (el('compareToggle').checked) histParams.set('include_ly', 'true');
+
   try {
-    state.pnl = await api('/api/pnl?' + params.toString());
+    const [pnl, hist] = await Promise.all([
+      api('/api/pnl?' + params.toString()),
+      api('/api/revenue-history?' + histParams.toString())
+        .catch(() => null),  // история — не критична, не валим основной запрос
+    ]);
+    state.pnl = pnl;
+    state.revHistory = hist;
     render();
   } catch (e) {
     toast('Ошибка загрузки: ' + e.message, 'error');
@@ -660,9 +674,10 @@ function destroyCharts() {
 //   3) добавить ветку рендера в renderCharts(), обёрнутую в isChartVisible(id).
 // Тогда чекбокс в попапе «⚙ Графики» появится автоматически.
 const CHARTS = [
-  { id: 'revProfit', title: 'Выручка vs Чистая прибыль',         defaultVisible: true },
-  { id: 'margins',   title: 'Маржинальность по уровням, %',      defaultVisible: true },
-  { id: 'costShare', title: 'Структура затрат, % от выручки',    defaultVisible: true },
+  { id: 'revProfit',     title: 'Выручка vs Чистая прибыль',          defaultVisible: true },
+  { id: 'margins',       title: 'Маржинальность по уровням, %',       defaultVisible: true },
+  { id: 'costShare',     title: 'Структура затрат, % от выручки',     defaultVisible: true },
+  { id: 'revHistory12m', title: 'Выручка по месяцам · 12 мес',        defaultVisible: true },
 ];
 
 // Храним set СКРЫТЫХ id (а не видимых), чтобы при добавлении нового графика
@@ -847,6 +862,53 @@ function renderCharts() {
       type: 'bar',
       data: { labels, datasets: costDatasets },
       options: { ...pctOpts, scales: { ...pctOpts.scales, x: { ...pctOpts.scales.x, stacked: true }, y: { ...pctOpts.scales.y, stacked: true } } }
+    });
+  }
+
+  // --- График 4: Выручка по месяцам · 12 мес ---
+  // Источник — /api/revenue-history (PlanFact). Бары = выбранный год,
+  // линия (если включён LFL) = тот же месяц годом ранее.
+  if (isChartVisible('revHistory12m') && state.revHistory && state.revHistory.months) {
+    const hist = state.revHistory;
+    const histLabels = hist.months.map(m => monthLabel(m));
+    const histDatasets = [
+      {
+        type: 'bar',
+        label: 'Выручка',
+        data: hist.months.map(m => hist.totals[m] || 0),
+        backgroundColor: '#3b82f6',
+        borderRadius: 4,
+        order: 2,
+      },
+    ];
+    if (hist.ly && hist.ly.months) {
+      histDatasets.push({
+        type: 'line',
+        label: 'LY',
+        data: hist.ly.months.map(m => hist.ly.totals[m] || 0),
+        borderColor: '#9ca3af',
+        backgroundColor: '#9ca3af',
+        borderDash: [4, 3],
+        pointRadius: 3,
+        tension: 0.2,
+        fill: false,
+        order: 1,
+      });
+    }
+    state.charts.revHistory12m = new Chart(el('revHistory12m'), {
+      data: { labels: histLabels, datasets: histDatasets },
+      options: {
+        ...baseOpts,
+        plugins: {
+          ...baseOpts.plugins,
+          tooltip: {
+            callbacks: {
+              label: (ctx) =>
+                `${ctx.dataset.label}: ${Number(ctx.parsed.y).toLocaleString('ru-RU')} ₽`,
+            },
+          },
+        },
+      },
     });
   }
 }
