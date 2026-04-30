@@ -412,9 +412,9 @@ async function loadPnl() {
   // 12 месяцев заканчивая текущим (например, май'25..апр'26).
   histParams.set('months', '12');
   state.selectedProjects.forEach(p => histParams.append('project_ids', p));
-  // ВСЕГДА просим LY-разбивку: новая ветка рендера revHistory12m строит
-  // парные бары (текущий+LY) и YoY-аннотации, без LY график бесполезен.
-  histParams.set('include_ly', 'true');
+  // LY-разбивка только при включённом LFL — иначе график выручки показывает
+  // одиночный стек без парных баров и YoY-аннотаций.
+  if (el('compareToggle').checked) histParams.set('include_ly', 'true');
 
   try {
     const hist = await api('/api/revenue-history?' + histParams.toString());
