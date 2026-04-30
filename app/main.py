@@ -891,7 +891,12 @@ async def get_pnl_xlsx(
         method=method,
         is_period_mode=is_period_mode,
     )
-    fname = xlsx_export.make_filename("pnl", period_label)
+    # ASCII-имя для Content-Disposition: pnl-2026-04.xlsx или pnl-2026-03_2026-04.xlsx
+    iso_period = (
+        date_start[:7] if date_start[:7] == date_end[:7]
+        else f"{date_start[:7]}_{date_end[:7]}"
+    )
+    fname = xlsx_export.make_filename("pnl", iso_period)
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1139,9 +1144,11 @@ async def get_operations_xlsx(
         project_label=project_label,
         category_label=label or "—",
     )
-    fname = xlsx_export.make_filename(
-        "operations", _human_period_label(date_start, date_end),
+    iso_period = (
+        date_start[:7] if date_start[:7] == date_end[:7]
+        else f"{date_start[:7]}_{date_end[:7]}"
     )
+    fname = xlsx_export.make_filename("operations", iso_period)
     return Response(
         content=blob,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

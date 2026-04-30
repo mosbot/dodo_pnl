@@ -46,8 +46,16 @@ def _ru_month(month_key: str) -> str:
 
 
 def _safe_filename(s: str) -> str:
-    """Убирает кириллицу/опасные символы для Content-Disposition."""
-    return "".join(c if c.isalnum() or c in "._-" else "_" for c in s)
+    """ASCII-only имя файла для Content-Disposition. Кириллицу/всё нелатинское
+    превращаем в '_'. Иначе latin-1 кодировка HTTP-заголовков падает с
+    UnicodeEncodeError."""
+    out = []
+    for c in s:
+        if c.isascii() and (c.isalnum() or c in "._-"):
+            out.append(c)
+        else:
+            out.append("_")
+    return "".join(out)
 
 
 def render_pnl_xlsx(
