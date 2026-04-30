@@ -206,6 +206,8 @@ button:hover { background: var(--bg); }
 .ops-freshness.f-red   { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
 .ops-freshness.f-gray  { background: var(--bg); border-color: var(--border); color: var(--muted); }
 .ops-freshness.f-green::before { background: #047857; }
+.ops-freshness.syncing::before { animation: ops-sync-pulse 1s ease-in-out infinite; }
+@keyframes ops-sync-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .ops-freshness.f-amber::before { background: #b45309; }
 .ops-freshness.f-red::before   { background: #b91c1c; }
 .ops-freshness.f-gray::before  { background: var(--muted); }

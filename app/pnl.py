@@ -347,12 +347,16 @@ async def _compute_ops_freshness(
             and (days_since_close > OPS_LIVE_DAYS_WINDOW)
         )
 
+    # is_syncing проставит endpoint /api/pnl поверх (S11.9: фоновая sync).
+    # Здесь оставляем False — pnl-модуль не должен импортить main.py во
+    # избежание циклов.
     return {
         "last_synced_at": last.isoformat() if last else None,
         "period_end": period_end.isoformat(),
         "is_current_month": is_current_month,
         "is_frozen": is_frozen,
         "is_partial_sync": is_partial_sync,
+        "is_syncing": False,
     }
 
 

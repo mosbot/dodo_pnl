@@ -496,6 +496,17 @@ function renderOpsFreshness() {
   let text = '';
   let showBtn = !f.is_frozen;
 
+  // S11.9: пока в фоне идёт sync — приоритетно показываем «синхронизация…»,
+  // чтобы юзер не недоумевал почему цифры старые. Кнопка скрыта (она же
+  // вызвала этот синк) — повторный клик ничем не поможет.
+  if (f.is_syncing) {
+    badge.className = 'ops-freshness f-amber syncing';
+    badge.textContent = 'синхронизация…';
+    badge.classList.remove('hidden');
+    btn.classList.add('hidden');
+    return;
+  }
+
   if (last == null) {
     cls = 'f-red';
     text = 'не синхронизировано';
@@ -534,6 +545,35 @@ function renderOpsFreshness() {
   // когда не frozen; если у юзера нет Dodo IS, sync-эндпоинт ответит
   // 400 NoTokenError, юзер увидит понятный toast.
   btn.classList.toggle('hidden', !showBtn);
+}
+
+// Авто-обновление /api/pnl пока идёт фоновый ops-синк. Останавливаемся
+// либо по таймауту (~3 мин), либо когда is_syncing=false на бэкенде.
+let _opsPollTimer = null;
+function _pollOpsSync(period) {
+  if (_opsPollTimer) clearTimeout(_opsPollTimer);
+  const startedAt = Date.now();
+  const MAX_MS = 3 * 60 * 1000;
+  const STEP_MS = 8000;
+
+  const tick = async () => {
+    if (state.currentMonth !== period) return;  // юзер уже сменил месяц
+    if (Date.now() - startedAt > MAX_MS) {
+      toast('Синхронизация дольше обычного — данные подтянутся при ручном обновлении');
+      return;
+    }
+    try {
+      await loadPnl();
+      const fr = state.pnl?.ops_freshness;
+      if (fr && !fr.is_syncing) {
+        // Готово — показываем результат.
+        toast('Метрики обновлены');
+        return;
+      }
+    } catch { /* ignore */ }
+    _opsPollTimer = setTimeout(tick, STEP_MS);
+  };
+  _opsPollTimer = setTimeout(tick, STEP_MS);
 }
 
 // «5 минут назад», «3 ч назад», «2 дня назад»
@@ -1395,9 +1435,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   el('compareToggle').addEventListener('change', loadPnl);
 
-  // S3.6: одна кнопка «⟳ Метрики» — синхронизирует ops из Dodo IS.
-  // PlanFact-кэш TTL=5 мин истекает сам; закрытые месяцы лежат в
-  // cache_history (инвалидация — через админку «Переоткрыть»).
+  // S3.6/S11.9: «⟳ Метрики» — стартует фоновый синк ops из Dodo IS.
+  // POST возвращается мгновенно (202 scheduled), не блокируя UI. Прогресс
+  // юзер видит через бейдж «синхронизация…», авто-poll по /api/pnl каждые
+  // 8 секунд до 3 минут или пока last_synced_at не обновится.
   el('opsRefreshBtn')?.addEventListener('click', async () => {
     const btn = el('opsRefreshBtn');
     if (!state.currentMonth) return;
@@ -1413,15 +1454,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(`${r.status}: ${t}`);
       }
       const res = await r.json();
-      const n = (res.updated || []).length;
-      const nf = (res.not_found_in_response || []).length;
-      const msg = nf
-        ? `Метрики обновлены: ${n}, без ответа: ${nf}`
-        : (n ? `Метрики обновлены: ${n}` : 'Нет привязанных юнитов');
-      toast(msg);
+      if (res.status === 'already_running') {
+        toast('Синхронизация уже идёт');
+      } else {
+        toast('Синхронизация запущена в фоне');
+      }
+      // Обновим UI один раз — там уже будет is_syncing=true (badge сменится).
       await loadPnl();
+      // Запускаем авто-poll до 3 минут с шагом 8с.
+      _pollOpsSync(state.currentMonth);
     } catch (e) {
-      toast('Ошибка синка: ' + e.message, 'error');
+      toast('Ошибка запуска синка: ' + e.message, 'error');
     } finally {
       btn.disabled = false;
       btn.classList.remove('spinning');

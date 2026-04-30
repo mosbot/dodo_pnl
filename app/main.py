@@ -701,6 +701,16 @@ async def get_pnl(
             result["period"] = {"current": {"start": date_start, "end": date_end}}
     except PlanFactError as e:
         raise HTTPException(502, str(e))
+
+    # S11.9: проставляем флаг «синк сейчас идёт» — берётся из памяти процесса
+    # (set _OPS_SYNC_INFLIGHT). Делаем тут, а не в pnl.py, чтобы не импортить
+    # main → pnl циклически.
+    if (
+        user.planfact_key_id and pm
+        and result.get("ops_freshness") is not None
+        and is_ops_sync_running(user.planfact_key_id, pm)
+    ):
+        result["ops_freshness"]["is_syncing"] = True
     return result
 
 
@@ -1125,118 +1135,167 @@ async def dodois_units(
     return {"units": pizzerias, "all": units}
 
 
+# Какие (planfact_key_id, period) сейчас синхронизируются — чтобы блокировать
+# дубль-запуски и показывать «идёт синхронизация» в UI. Лежит в памяти процесса:
+# при рестарте сервиса пропадёт (и это ок — фоновый task тоже умрёт вместе с
+# процессом). Если хотим persist — это уже отдельная история.
+_OPS_SYNC_INFLIGHT: set[tuple[int, str]] = set()
+
+
+def is_ops_sync_running(planfact_key_id: int, period: str) -> bool:
+    return (planfact_key_id, period) in _OPS_SYNC_INFLIGHT
+
+
 @app.post("/api/ops-metrics/sync")
 async def sync_ops_metrics_from_dodois(
     period: str = Query(..., description="'YYYY-MM' — месяц, для которого тянем ops"),
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Тянет ops-метрики из Dodo IS для всех проектов текущего юзера, у которых
-    задан dodo_unit_uuid. Идемпотентно UPSERT-ит в ops_metrics."""
+    """Запускает синк ops-метрик из Dodo IS в фоне (S11.9). Возвращает 202 +
+    статус «scheduled»/«already_running» сразу, не дожидаясь окончания.
+
+    Сам синк живёт ~30-80 сек (см. /api/health логи), блокировать UI на это
+    время не годится. Прогресс юзер видит через ops_freshness.is_syncing
+    в /api/pnl, а готовность — по обновившемуся last_synced_at.
+    """
+    import asyncio as _asyncio
     from datetime import datetime
 
     try:
         y, m = map(int, period.split("-"))
-        from_dt = datetime(y, m, 1, 0, 0, 0)
-        if m == 12:
-            to_dt = datetime(y + 1, 1, 1, 0, 0, 0)
-        else:
-            to_dt = datetime(y, m + 1, 1, 0, 0, 0)
+        datetime(y, m, 1)  # просто валидация
     except Exception:
         raise HTTPException(400, "period должен быть 'YYYY-MM'")
 
     if not user.planfact_key_id:
-        return {"status": "ok", "updated": [], "skipped_no_uuid": []}
-    cfg = await store.list_projects_config(session, user.planfact_key_id)
-    targets = [
-        (pid, c["dodo_unit_uuid"])
-        for pid, c in cfg.items()
-        if c.get("dodo_unit_uuid")
-    ]
-    if not targets:
-        return {"status": "ok", "updated": [], "skipped_no_uuid": list(cfg)}
+        raise HTTPException(400, "У пользователя не задан ключ PlanFact.")
 
-    unit_uuids = [uuid for _, uuid in targets]
-    # Три endpoint'а Dodo IS — независимы, тянем параллельно через asyncio.gather.
-    # Каждый внутри уже батчится по юнитам с sem=_MAX_PARALLEL.
+    if is_ops_sync_running(user.planfact_key_id, period):
+        return {
+            "status": "already_running", "period": period,
+            "detail": "Синхронизация этого периода уже идёт.",
+        }
+
+    # Сразу помечаем что синк стартовал — на случай быстрых повторных кликов.
+    # Реальный таск может дождаться чтобы create_task запустился (event loop).
+    _OPS_SYNC_INFLIGHT.add((user.planfact_key_id, period))
+    _asyncio.create_task(
+        _run_ops_sync(user_id=user.id, period=period)
+    )
+    return {"status": "scheduled", "period": period}
+
+
+async def _run_ops_sync(*, user_id: int, period: str) -> None:
+    """Фоновый воркер ops-синка. Создаёт собственную DB-сессию и httpx-клиента
+    (нельзя переиспользовать запросные — они закрыты к моменту старта таска)."""
     import asyncio as _asyncio
     import logging
     import time
-    # uvicorn.error — настроенный логгер, чей INFO попадает в journal.
-    # Свой `app.main` без явного config'а молчит.
+    from datetime import datetime
+    from .auth.tokens import NoTokenError
+    from .db import get_session_factory
+
     log = logging.getLogger("uvicorn.error")
+    Sm = get_session_factory()
 
-    async def _timed(name, coro):
-        t = time.monotonic()
+    async with Sm() as session:
+        user = await session.get(User, user_id)
+        if user is None or not user.planfact_key_id:
+            log.warning("ops sync: user %s vanished or has no PF key", user_id)
+            _OPS_SYNC_INFLIGHT.discard((user.planfact_key_id, period) if user else (-1, period))
+            return
+
+        pf_key_id = user.planfact_key_id
         try:
-            res = await coro
-            log.info("ops sync %s: %s done in %.1fs", period, name, time.monotonic() - t)
-            return res
-        except Exception as e:
-            log.warning("ops sync %s: %s FAILED in %.1fs: %s",
-                        period, name, time.monotonic() - t, e)
-            raise
+            y, m = map(int, period.split("-"))
+            from_dt = datetime(y, m, 1, 0, 0, 0)
+            to_dt = (
+                datetime(y + 1, 1, 1, 0, 0, 0) if m == 12
+                else datetime(y, m + 1, 1, 0, 0, 0)
+            )
 
-    t0 = time.monotonic()
-    try:
-        stats, cert_counts, delivery_stats = await _asyncio.gather(
-            _timed("productivity", with_dodois_retry(
-                session, user,
-                dodois_client.fetch_productivity_many, unit_uuids, from_dt, to_dt,
-            )),
-            _timed("vouchers", with_dodois_retry(
-                session, user,
-                dodois_client.fetch_late_delivery_vouchers_count, unit_uuids, from_dt, to_dt,
-            )),
-            _timed("delivery-stats", with_dodois_retry(
-                session, user,
-                dodois_client.fetch_delivery_statistics, unit_uuids, from_dt, to_dt,
-            )),
-        )
-    except DodoISError as e:
-        raise HTTPException(502, str(e))
-    log.info(
-        "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d / certs=%d / delivery=%d",
-        period, time.monotonic() - t0, len(unit_uuids),
-        len(stats), len(cert_counts), len(delivery_stats),
-    )
+            cfg = await store.list_projects_config(session, pf_key_id)
+            targets = [
+                (pid, c["dodo_unit_uuid"])
+                for pid, c in cfg.items() if c.get("dodo_unit_uuid")
+            ]
+            if not targets:
+                log.info("ops sync %s: no units linked, ничего не делаем", period)
+                return
 
-    by_uuid = {s.get("unitId", "").lower(): s for s in stats}
-    by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
+            unit_uuids = [uuid for _, uuid in targets]
 
-    updated: list[dict] = []
-    not_found: list[str] = []
-    for pid, uuid in targets:
-        key = (uuid or "").lower().replace("-", "")
-        s = by_uuid.get(key) or by_uuid.get(uuid.lower())
-        d = by_uuid_dlv.get(key) or by_uuid_dlv.get(uuid.lower()) or {}
-        cert_n = cert_counts.get(key, 0)
-        delivery_orders = int(d.get("deliveryOrdersCount") or 0)
-        cert_pct = (cert_n / delivery_orders * 100.0) if delivery_orders > 0 else None
-        if not s:
-            not_found.append(pid)
-            continue
-        await store.upsert_ops_metric(
-            session, user.planfact_key_id, pid, period,
-            orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
-            products_per_h=s.get("productsPerLaborHour"),
-            revenue_per_person_h=s.get("salesPerLaborHour"),
-            late_delivery_certs=cert_n,
-            delivery_orders_count=delivery_orders,
-            late_delivery_certs_pct=cert_pct,
-        )
-        updated.append({
-            "project_id": pid,
-            "unit_name": s.get("unitName"),
-            "orders_per_courier_h": s.get("ordersPerCourierLabourHour"),
-            "products_per_h": s.get("productsPerLaborHour"),
-            "revenue_per_person_h": s.get("salesPerLaborHour"),
-            "late_delivery_certs": cert_n,
-            "delivery_orders_count": delivery_orders,
-            "late_delivery_certs_pct": cert_pct,
-        })
-    return {"status": "ok", "period": period, "updated": updated,
-            "not_found_in_response": not_found}
+            async def _timed(name, coro):
+                t = time.monotonic()
+                try:
+                    res = await coro
+                    log.info("ops sync %s: %s done in %.1fs",
+                             period, name, time.monotonic() - t)
+                    return res
+                except Exception as e:
+                    log.warning("ops sync %s: %s FAILED in %.1fs: %s",
+                                period, name, time.monotonic() - t, e)
+                    raise
+
+            t0 = time.monotonic()
+            try:
+                stats, cert_counts, delivery_stats = await _asyncio.gather(
+                    _timed("productivity", with_dodois_retry(
+                        session, user,
+                        dodois_client.fetch_productivity_many,
+                        unit_uuids, from_dt, to_dt,
+                    )),
+                    _timed("vouchers", with_dodois_retry(
+                        session, user,
+                        dodois_client.fetch_late_delivery_vouchers_count,
+                        unit_uuids, from_dt, to_dt,
+                    )),
+                    _timed("delivery-stats", with_dodois_retry(
+                        session, user,
+                        dodois_client.fetch_delivery_statistics,
+                        unit_uuids, from_dt, to_dt,
+                    )),
+                )
+            except (DodoISError, NoTokenError) as e:
+                log.warning("ops sync %s: ABORT: %s", period, e)
+                return
+
+            log.info(
+                "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d",
+                period, time.monotonic() - t0, len(unit_uuids),
+                len(stats), len(cert_counts), len(delivery_stats),
+            )
+
+            by_uuid = {s.get("unitId", "").lower(): s for s in stats}
+            by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
+            for pid, uuid in targets:
+                key = (uuid or "").lower().replace("-", "")
+                s = by_uuid.get(key) or by_uuid.get(uuid.lower())
+                d = by_uuid_dlv.get(key) or by_uuid_dlv.get(uuid.lower()) or {}
+                cert_n = cert_counts.get(key, 0)
+                delivery_orders = int(d.get("deliveryOrdersCount") or 0)
+                cert_pct = (
+                    (cert_n / delivery_orders * 100.0)
+                    if delivery_orders > 0 else None
+                )
+                if not s:
+                    continue
+                await store.upsert_ops_metric(
+                    session, pf_key_id, pid, period,
+                    orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
+                    products_per_h=s.get("productsPerLaborHour"),
+                    revenue_per_person_h=s.get("salesPerLaborHour"),
+                    late_delivery_certs=cert_n,
+                    delivery_orders_count=delivery_orders,
+                    late_delivery_certs_pct=cert_pct,
+                )
+            await session.commit()
+            log.info("ops sync %s: committed", period)
+        except Exception:
+            log.exception("ops sync %s: unhandled error", period)
+        finally:
+            _OPS_SYNC_INFLIGHT.discard((pf_key_id, period))
 
 
 # --- PnL template (импорт из экспорта ПланФакт) ---
