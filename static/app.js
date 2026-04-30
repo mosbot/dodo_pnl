@@ -497,13 +497,17 @@ function renderOpsFreshness() {
   let showBtn = !f.is_frozen;
 
   // S11.9: пока в фоне идёт sync — приоритетно показываем «синхронизация…»,
-  // чтобы юзер не недоумевал почему цифры старые. Кнопка скрыта (она же
+  // чтобы юзер не недоумевал почему цифры старые. Кнопка disabled (она же
   // вызвала этот синк) — повторный клик ничем не поможет.
+  // S12.2: оставляем кнопку видимой (просто disabled) чтобы топбар не
+  // прыгал между состояниями.
   if (f.is_syncing) {
     badge.className = 'ops-freshness f-amber syncing';
     badge.textContent = 'синхронизация…';
     badge.classList.remove('hidden');
-    btn.classList.add('hidden');
+    btn.classList.remove('hidden');
+    btn.disabled = true;
+    btn.title = 'Идёт синхронизация…';
     return;
   }
 
@@ -539,12 +543,15 @@ function renderOpsFreshness() {
   badge.className = 'ops-freshness ' + cls;
   badge.textContent = text;
   badge.classList.remove('hidden');
-  // Кнопка имеет смысл только если есть Dodo IS токен; индикатор «не
-  // синхронизировано» при null может означать как «не настроено», так и
-  // «не нажимали». Backend этого не различает — показываем кнопку всегда
-  // когда не frozen; если у юзера нет Dodo IS, sync-эндпоинт ответит
-  // 400 NoTokenError, юзер увидит понятный toast.
-  btn.classList.toggle('hidden', !showBtn);
+  // S12.2: кнопка теперь ВСЕГДА видима (чтобы топбар не прыгал при
+  // переключении месяцев). Для замороженных месяцев — disabled с подсказкой.
+  // Раньше: btn.classList.toggle('hidden', !showBtn) → display:none →
+  // соседи (селектор месяца, LFL) сдвигались на ~108px.
+  btn.classList.remove('hidden');
+  btn.disabled = !showBtn;
+  btn.title = showBtn
+    ? 'Запустить синхронизацию ops-метрик из Dodo IS'
+    : 'Месяц заморожен — синхронизация ops отключена';
 }
 
 // Авто-обновление /api/pnl пока идёт фоновый ops-синк. Останавливаемся
