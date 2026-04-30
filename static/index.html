@@ -55,10 +55,7 @@
 
   <section id="kpiCards" class="cards"></section>
 
-  <!-- Блок графиков скрыт пока малоинформативен. Чтобы вернуть — убрать
-       hidden у этих двух элементов. JS-каркас (CHARTS, renderCharts) и
-       canvas-теги остаются в DOM, чтобы код работал без ошибок. -->
-  <div class="charts-toolbar" hidden>
+  <div class="charts-toolbar">
     <details class="charts-config">
       <summary class="charts-config-trigger" title="Выбрать видимые графики">⚙ Графики</summary>
       <div class="charts-config-popover">
@@ -72,7 +69,7 @@
     </details>
   </div>
 
-  <section class="charts" id="chartsGrid" hidden>
+  <section class="charts" id="chartsGrid">
     <div class="chart-box" data-chart-id="revProfit">
       <h3>Выручка vs Чистая прибыль</h3>
       <div class="chart-wrap"><canvas id="revProfit"></canvas></div>
@@ -84,6 +81,10 @@
     <div class="chart-box" data-chart-id="costShare">
       <h3>Структура затрат, % от выручки</h3>
       <div class="chart-wrap"><canvas id="costShare"></canvas></div>
+    </div>
+    <div class="chart-box wide" data-chart-id="revHistory12m">
+      <h3>Выручка по месяцам · 12 мес</h3>
+      <div class="chart-wrap"><canvas id="revHistory12m"></canvas></div>
     </div>
   </section>
 

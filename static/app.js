@@ -8,6 +8,8 @@ const state = {
   allProjects: [],              // полный список из /api/projects для сайдбара
   selectedProjects: new Set(),  // ручной фильтр пользователя
   pnl: null,
+  revHistory: null,             // 12-месячная история выручки (фоновая)
+  loadCounter: 0,               // race-protect для асинхронных загрузок
   charts: {},
   currentMonth: null,
 };
@@ -378,25 +380,73 @@ async function loadPnl() {
     params.set('compare_mode', 'lfl');
   }
 
-  // S10.1: skeleton + прогресс-бар. Skeleton рисуется ДО запроса —
-  // юзер сразу видит структуру дашборда, не пустую страницу. После
-  // получения данных render() заменяет skeleton реальным контентом.
+  // S10.1 + S9.4: skeleton + прогресс-бар сразу, основной /api/pnl,
+  // потом фоновая загрузка /api/revenue-history (она тяжелее, потому
+  // что 12 месяцев), отдельным запросом — чтобы основной отчёт
+  // отрисовался без задержки. loadId защищает от race-condition:
+  // юзер быстро переключил месяц → старый ответ не перезапишет свежий.
+  const loadId = ++state.loadCounter;
+  state.revHistory = null;
   showLoading(true);
   renderSkeleton();
+  showRevHistoryLoading(true);
 
   try {
     state.pnl = await api('/api/pnl?' + params.toString());
+    if (loadId !== state.loadCounter) return;  // юзер уже переключил период
     render();
   } catch (e) {
     toast('Ошибка загрузки: ' + e.message, 'error');
+    showLoading(false);
+    showRevHistoryLoading(false);
+    return;
   } finally {
+    // Прогресс-бар гасим только когда основной /api/pnl ответил.
+    // 12-месячная история продолжит грузиться в фоне со своим спиннером.
     showLoading(false);
   }
+
+  // Фон: тянем revenue-history, по приходу — только перерисовываем графики.
+  const histParams = new URLSearchParams();
+  histParams.set('anchor', state.currentMonth);
+  histParams.set('months', '12');
+  state.selectedProjects.forEach(p => histParams.append('project_ids', p));
+  if (el('compareToggle').checked) histParams.set('include_ly', 'true');
+
+  try {
+    const hist = await api('/api/revenue-history?' + histParams.toString());
+    if (loadId !== state.loadCounter) return;
+    state.revHistory = hist;
+  } catch {
+    // fail-open: 12-месячный график просто останется пустым.
+    if (loadId !== state.loadCounter) return;
+    state.revHistory = null;
+  }
+  showRevHistoryLoading(false);
+  renderCharts();
 }
 
 function showLoading(on) {
   const bar = el('loadingBar');
   if (bar) bar.hidden = !on;
+}
+
+// Спиннер на карточке revHistory12m. Не нужен на других — они рендерятся
+// сразу из /api/pnl.
+function showRevHistoryLoading(on) {
+  const box = document.querySelector('[data-chart-id="revHistory12m"]');
+  if (!box) return;
+  let spinner = box.querySelector('.chart-loading');
+  if (on) {
+    if (!spinner) {
+      spinner = document.createElement('div');
+      spinner.className = 'chart-loading';
+      spinner.textContent = 'Загрузка истории выручки…';
+      box.appendChild(spinner);
+    }
+  } else if (spinner) {
+    spinner.remove();
+  }
 }
 
 // Дружелюбный empty-state — когда ни одной пиццерии не выбрано.
@@ -836,9 +886,10 @@ function destroyCharts() {
 //   3) добавить ветку рендера в renderCharts(), обёрнутую в isChartVisible(id).
 // Тогда чекбокс в попапе «⚙ Графики» появится автоматически.
 const CHARTS = [
-  { id: 'revProfit', title: 'Выручка vs Чистая прибыль',         defaultVisible: true },
-  { id: 'margins',   title: 'Маржинальность по уровням, %',      defaultVisible: true },
-  { id: 'costShare', title: 'Структура затрат, % от выручки',    defaultVisible: true },
+  { id: 'revProfit',     title: 'Выручка vs Чистая прибыль',          defaultVisible: true },
+  { id: 'margins',       title: 'Маржинальность по уровням, %',       defaultVisible: true },
+  { id: 'costShare',     title: 'Структура затрат, % от выручки',     defaultVisible: true },
+  { id: 'revHistory12m', title: 'Выручка по месяцам · 12 мес',        defaultVisible: true },
 ];
 
 // Храним set СКРЫТЫХ id (а не видимых), чтобы при добавлении нового графика
@@ -1026,6 +1077,76 @@ function renderCharts() {
     });
   }
 
+  // --- График 4: Выручка по месяцам · 12 мес ---
+  // Источник — /api/revenue-history (PlanFact). Стек-бары по каналам
+  // (Доставка / Ресторан / Самовывоз / Прочее) + опциональная LY-линия.
+  if (isChartVisible('revHistory12m') && state.revHistory && state.revHistory.months) {
+    const hist = state.revHistory;
+    const histLabels = hist.months.map(m => monthLabel(m));
+    // Проверим, есть ли разбивка по каналам (новый API).
+    const hasChannels = !!hist.by_channel;
+    const channelMeta = [
+      { key: 'delivery',   label: 'Доставка',   color: '#3b82f6' },
+      { key: 'restaurant', label: 'Ресторан',   color: '#10b981' },
+      { key: 'takeaway',   label: 'Самовывоз',  color: '#f59e0b' },
+      { key: 'other',      label: 'Прочее',     color: '#9ca3af' },
+    ];
+    const histDatasets = [];
+    if (hasChannels) {
+      // Скрываем каналы, у которых ноль во всех месяцах — иначе легенда
+      // забита нерелевантными «Прочее = 0».
+      channelMeta.forEach(ch => {
+        const data = hist.months.map(m => hist.by_channel[m]?.[ch.key] || 0);
+        if (data.some(v => v !== 0)) {
+          histDatasets.push({
+            type: 'bar', label: ch.label, data,
+            backgroundColor: ch.color, borderRadius: 4, stack: 'rev', order: 2,
+          });
+        }
+      });
+    } else {
+      // Fallback: суммарная выручка одной серией (если backend старый).
+      histDatasets.push({
+        type: 'bar', label: 'Выручка',
+        data: hist.months.map(m => hist.totals[m] || 0),
+        backgroundColor: '#3b82f6', borderRadius: 4, stack: 'rev', order: 2,
+      });
+    }
+    if (hist.ly && hist.ly.months) {
+      histDatasets.push({
+        type: 'line', label: 'LY (всего)',
+        data: hist.ly.months.map(m => hist.ly.totals[m] || 0),
+        borderColor: '#374151', backgroundColor: '#374151',
+        borderDash: [4, 3], pointRadius: 3, tension: 0.2, fill: false, order: 1,
+      });
+    }
+    state.charts.revHistory12m = new Chart(el('revHistory12m'), {
+      data: { labels: histLabels, datasets: histDatasets },
+      options: {
+        ...baseOpts,
+        scales: {
+          ...baseOpts.scales,
+          x: { ...baseOpts.scales.x, stacked: true },
+          y: { ...baseOpts.scales.y, stacked: true },
+        },
+        plugins: {
+          ...baseOpts.plugins,
+          tooltip: {
+            callbacks: {
+              label: (ctx) =>
+                `${ctx.dataset.label}: ${Number(ctx.parsed.y).toLocaleString('ru-RU')} ₽`,
+              footer: (items) => {
+                const sum = items
+                  .filter(i => i.dataset.stack === 'rev')
+                  .reduce((s, i) => s + (i.parsed.y || 0), 0);
+                return sum ? `Итого: ${sum.toLocaleString('ru-RU')} ₽` : '';
+              },
+            },
+          },
+        },
+      },
+    });
+  }
 }
 
 

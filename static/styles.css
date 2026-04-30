@@ -560,6 +560,15 @@ button:hover { background: var(--bg); }
   gap: 12px;
   margin-bottom: 20px;
 }
+.chart-loading {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--muted);
+  background: rgba(255,255,255,0.7);
+  pointer-events: none;
+}
+.chart-box { position: relative; }
 .chart-box {
   background: white; border-radius: 10px;
   padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
