@@ -12,6 +12,11 @@ const state = {
   loadCounter: 0,               // race-protect для асинхронных загрузок
   charts: {},
   currentMonth: null,
+  // S13.1: режим «Месяц» (по умолчанию) или «Период» (диапазон месяцев).
+  // В период-режиме скрываем LFL, ops_freshness, ⟳ Метрики, график 12 мес.
+  mode: 'month',
+  periodFrom: null,  // 'YYYY-MM'
+  periodTo: null,    // 'YYYY-MM'
 };
 
 const el = (id) => document.getElementById(id);
@@ -52,7 +57,6 @@ const fmtNum = (n, digits = 2) => {
 
 // --- Month picker ---
 function initMonthSelect() {
-  const sel = el('monthSelect');
   const now = new Date();
   const opts = [];
   for (let i = 0; i < 24; i++) {
@@ -61,17 +65,140 @@ function initMonthSelect() {
     const label = d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' });
     opts.push({ key, label: label.charAt(0).toUpperCase() + label.slice(1) });
   }
-  sel.innerHTML = opts.map(o => `<option value="${o.key}">${o.label}</option>`).join('');
-  // По умолчанию — текущий месяц
-  state.currentMonth = opts[0].key;
-  sel.value = state.currentMonth;
-  syncPeriodFromMonth();
+  const optsHtml = opts.map(o => `<option value="${o.key}">${o.label}</option>`).join('');
+  for (const id of ['monthSelect', 'monthSelectFrom', 'monthSelectTo']) {
+    const sel = el(id);
+    if (sel) sel.innerHTML = optsHtml;
+  }
 
-  sel.addEventListener('change', () => {
-    state.currentMonth = sel.value;
-    syncPeriodFromMonth();
+  // Текущий месяц — дефолт. Период по умолчанию — текущий + предыдущий
+  // (с = текущий-1, по = текущий).
+  state.currentMonth = opts[0].key;
+  el('monthSelect').value = state.currentMonth;
+  state.periodTo = opts[0].key;
+  state.periodFrom = opts[1] ? opts[1].key : opts[0].key;
+
+  // Восстанавливаем сохранённые значения и режим (per-user, выставляются
+  // позже в applyUserPrefs() — после прихода /auth/me).
+  el('monthSelectFrom').value = state.periodFrom;
+  el('monthSelectTo').value = state.periodTo;
+  syncDateRangeFromMode();
+
+  el('monthSelect').addEventListener('change', (e) => {
+    state.currentMonth = e.target.value;
+    syncDateRangeFromMode();
     loadPnl();
   });
+  el('monthSelectFrom').addEventListener('change', (e) => {
+    state.periodFrom = e.target.value;
+    // если from стал > to — поднимаем to до from
+    if (state.periodFrom > state.periodTo) {
+      state.periodTo = state.periodFrom;
+      el('monthSelectTo').value = state.periodTo;
+    }
+    savePeriodRange();
+    syncDateRangeFromMode();
+    loadPnl();
+  });
+  el('monthSelectTo').addEventListener('change', (e) => {
+    state.periodTo = e.target.value;
+    if (state.periodTo < state.periodFrom) {
+      state.periodFrom = state.periodTo;
+      el('monthSelectFrom').value = state.periodFrom;
+    }
+    savePeriodRange();
+    syncDateRangeFromMode();
+    loadPnl();
+  });
+
+  // Toggle Месяц/Период
+  document.querySelectorAll('#periodModeToggle .mode-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const m = btn.dataset.mode;
+      if (m === state.mode) return;
+      applyMode(m);
+      loadPnl();
+    });
+  });
+}
+
+// Per-user persistence для режима и диапазона.
+function _modeKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.periodMode.${u}`;
+}
+function _periodRangeKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.periodRange.${u}`;
+}
+function saveMode() {
+  try { localStorage.setItem(_modeKey(), state.mode); } catch {}
+}
+function savePeriodRange() {
+  try {
+    localStorage.setItem(_periodRangeKey(),
+      JSON.stringify([state.periodFrom, state.periodTo]));
+  } catch {}
+}
+function loadModeAndRangeFromStorage() {
+  try {
+    const m = localStorage.getItem(_modeKey());
+    if (m === 'period' || m === 'month') state.mode = m;
+    const raw = localStorage.getItem(_periodRangeKey());
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length === 2) {
+        state.periodFrom = arr[0];
+        state.periodTo = arr[1];
+      }
+    }
+  } catch {}
+}
+
+// Применяет режим: переключает кнопки, видимость полей и контролов
+// (LFL/⟳ Метрики/freshness/график 12мес скрыты в Период), синхронизирует
+// dateStart/dateEnd. Не вызывает loadPnl — это решение caller'а.
+function applyMode(mode) {
+  state.mode = mode;
+  saveMode();
+  // Переключаем визуальное состояние кнопок toggle
+  document.querySelectorAll('#periodModeToggle .mode-toggle-btn').forEach(b => {
+    const active = b.dataset.mode === mode;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  // Поля периода
+  el('monthFieldSingle')?.classList.toggle('hidden', mode === 'period');
+  el('monthFieldFrom')?.classList.toggle('hidden', mode !== 'period');
+  el('monthFieldTo')?.classList.toggle('hidden', mode !== 'period');
+  // В Период: прячем LFL toggle, freshness, ⟳ Метрики, график 12мес.
+  // Они все привязаны к концепции «один месяц».
+  el('lflToggleWrap')?.classList.toggle('hidden', mode === 'period');
+  if (mode === 'period') {
+    // Безусловно скрываем — renderOpsFreshness не должен их открывать.
+    el('opsRefreshBtn')?.classList.add('hidden');
+    el('opsFreshness')?.classList.add('hidden');
+    // График 12мес — тоже скрываем.
+    const histBox = document.querySelector('[data-chart-id="revHistory12m"]');
+    if (histBox) histBox.style.display = 'none';
+  } else {
+    // График вернётся согласно chartsHidden пользователя (applyChartsVisibility).
+    applyChartsVisibility?.();
+    // freshness/refresh-кнопку пересчитает renderOpsFreshness.
+  }
+  syncDateRangeFromMode();
+}
+
+function syncDateRangeFromMode() {
+  if (state.mode === 'period') {
+    const [fs] = monthToRange(state.periodFrom);
+    const [, te] = monthToRange(state.periodTo);
+    el('dateStart').value = fs;
+    el('dateEnd').value = te;
+    el('periodMonth').value = '';  // backend поймёт что multi-month
+  } else {
+    syncPeriodFromMonth();
+  }
 }
 
 function syncPeriodFromMonth() {
@@ -370,10 +497,16 @@ async function loadPnl() {
   const params = new URLSearchParams();
   params.set('date_start', ds);
   params.set('date_end', de);
-  params.set('period_month', state.currentMonth);
+  // period_month отправляем только в режиме «Месяц». В Период бэк увидит
+  // отсутствие параметра и не будет применять month-specific логику
+  // (cache_history, ops_freshness и т.п.).
+  if (state.mode === 'month') {
+    params.set('period_month', state.currentMonth);
+  }
   state.selectedProjects.forEach(p => params.append('project_ids', p));
 
-  if (el('compareToggle').checked) {
+  // LFL только в режиме «Месяц». В Период LFL мы прячем целиком.
+  if (state.mode === 'month' && el('compareToggle').checked) {
     const [ps, pe] = monthToRange(previousYearKey(state.currentMonth));
     params.set('compare_start', ps);
     params.set('compare_end', pe);
@@ -407,6 +540,13 @@ async function loadPnl() {
   }
 
   // Фон: тянем revenue-history, по приходу — только перерисовываем графики.
+  // В Период-режиме график 12 мес скрыт, грузить нечего — просто гасим
+  // спиннер и рендерим оставшиеся графики (если они видимы).
+  if (state.mode === 'period') {
+    showRevHistoryLoading(false);
+    renderCharts();
+    return;
+  }
   const histParams = new URLSearchParams();
   histParams.set('anchor', state.currentMonth);
   // 12 месяцев заканчивая текущим (например, май'25..апр'26).
@@ -1767,6 +1907,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       new Promise(r => window.addEventListener('user-loaded', r, { once: true })),
       new Promise(r => setTimeout(r, 800)),
     ]);
+    // S13.1: восстанавливаем mode и диапазон ПЕРЕД loadPnl, чтобы первый
+    // запрос ушёл уже под нужный режим. Поля from/to синхронизируем с
+    // селекторами, потом applyMode переключит видимость и пересчитает
+    // dateStart/dateEnd.
+    loadModeAndRangeFromStorage();
+    if (state.periodFrom) el('monthSelectFrom').value = state.periodFrom;
+    if (state.periodTo) el('monthSelectTo').value = state.periodTo;
+    applyMode(state.mode);
     await loadProjects();
     await loadPnl();
   } catch (e) {

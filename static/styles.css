@@ -234,6 +234,34 @@ button:hover { background: var(--bg); }
   justify-content: center;
 }
 
+/* S13.1: сегментный переключатель «Месяц | Период».
+ * Стиль повторяет высоту/радиус остальных контролов топбара (~30px / 6px). */
+.mode-toggle {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--bg, #f9fafb);
+  overflow: hidden;
+  height: 30px;
+}
+.mode-toggle-btn {
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  font-size: 12px; font-weight: 500;
+  color: var(--muted, #6b7280);
+  cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.mode-toggle-btn:not(:last-child) {
+  border-right: 1px solid var(--border, #e5e7eb);
+}
+.mode-toggle-btn:hover { color: var(--text); }
+.mode-toggle-btn.is-active {
+  background: white;
+  color: #1d4ed8;
+}
+
 /* UX-5: LFL-toggle как сегментная кнопка-pill вместо мелкого чекбокса. */
 .lfl-toggle {
   display: inline-flex; align-items: center;
