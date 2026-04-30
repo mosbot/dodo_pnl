@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     planfact_base_url: str = "https://api.planfact.io/api/v1"
     # SQLite-путь — legacy single-tenant хранилище. После S2.x уйдёт.
     database_path: str = "./data/pnl.db"
-    cache_ttl: int = 300
+    # TTL in-memory кэша PlanFact-клиента (LRU). Используется для лёгких
+    # списочных endpoint'ов (/projects, /operationcategories) — они меняются
+    # редко, поэтому 60 минут уместно. /operations кэшируется отдельно
+    # (NO_CACHE_PATHS) и через cache_history по полному месяцу.
+    cache_ttl: int = 3600
     port: int = 8000
     basic_auth_user: str = ""
     basic_auth_password: str = ""
