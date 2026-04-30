@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -790,6 +790,115 @@ def _month_range_dates(month_key: str) -> tuple[str, str]:
     return f"{month_key}-01", f"{month_key}-{monthrange(y, m)[1]:02d}"
 
 
+def _human_period_label(date_start: str, date_end: str) -> str:
+    """Человекочитаемый период для xlsx-шапки.
+
+    Один месяц → 'Апрель 2026 г.'
+    Несколько → 'Март – Апрель 2026'
+    Произвольно → '01.03.2026 – 30.04.2026'
+    """
+    months_ru = [
+        "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+    ]
+    try:
+        from datetime import date as _date
+        d1 = _date.fromisoformat(date_start)
+        d2 = _date.fromisoformat(date_end)
+    except Exception:
+        return f"{date_start} – {date_end}"
+    months = _months_between(date_start, date_end)
+    if len(months) == 1:
+        y, m = months[0].split("-")
+        return f"{months_ru[int(m) - 1]} {y} г."
+    if len(months) >= 2:
+        ys, ms = months[0].split("-")
+        ye, me = months[-1].split("-")
+        if ys == ye:
+            return f"{months_ru[int(ms) - 1]} – {months_ru[int(me) - 1]} {ys}"
+        return f"{months_ru[int(ms) - 1]} {ys} – {months_ru[int(me) - 1]} {ye}"
+    return f"{date_start} – {date_end}"
+
+
+@app.get("/api/pnl.xlsx")
+async def get_pnl_xlsx(
+    date_start: str = Query(..., description="YYYY-MM-DD"),
+    date_end: str = Query(..., description="YYYY-MM-DD"),
+    project_ids: list[str] | None = Query(None),
+    method: str = Query("accrual", regex="^(accrual|cash)$"),
+    period_month: str | None = Query(None),
+    group_by: str | None = Query(None, regex="^(month)$"),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Скачать детализацию P&L в xlsx (S13.5).
+
+    Параметры идентичны /api/pnl. Логика сборки данных та же — переиспользуем
+    _build_pnl_for_period (включая cache_history и LRU). Затем рендерим
+    xlsx через xlsx_export.render_pnl_xlsx.
+    """
+    from . import xlsx_export
+
+    effective_projects = await _resolve_project_filter(
+        session, user.id, user.planfact_key_id, project_ids,
+    )
+    if effective_projects is not None and len(effective_projects) == 0:
+        raise HTTPException(400, "Не выбрано ни одной пиццерии.")
+
+    pm = period_month or _derive_period_month(date_start, date_end)
+    pf = await planfact_for(session, user)
+    try:
+        result = await _build_pnl_for_period(
+            session=session, user=user, pf=pf,
+            date_start=date_start, date_end=date_end, period_month=pm,
+            project_filter=effective_projects, method=method,
+        )
+        is_period_mode = group_by == "month"
+        if is_period_mode:
+            months_in_range = _months_between(date_start, date_end)
+            monthly_map: dict[str, dict] = {}
+            for m in months_in_range:
+                ms, me = _month_range_dates(m)
+                month_result = await _build_pnl_for_period(
+                    session=session, user=user, pf=pf,
+                    date_start=ms, date_end=me, period_month=m,
+                    project_filter=effective_projects, method=method,
+                )
+                by_node = {}
+                for tn in month_result.get("template_lines") or []:
+                    nid = tn.get("id")
+                    if nid is not None:
+                        by_node[str(nid)] = (tn.get("total") or {}).get("amount")
+                by_code = {
+                    ln["code"]: (ln.get("total") or {}).get("amount")
+                    for ln in month_result.get("lines") or []
+                }
+                monthly_map[m] = {"by_node": by_node, "by_code": by_code}
+            result["monthly"] = monthly_map
+            result["months_in_range"] = months_in_range
+    except PlanFactError as e:
+        raise HTTPException(502, str(e))
+
+    period_label = _human_period_label(date_start, date_end)
+    project_names_map = {p["id"]: p.get("name") or str(p["id"]) for p in result.get("projects") or []}
+    selected_names = [project_names_map.get(pid, pid) for pid in (effective_projects or [])]
+
+    blob = xlsx_export.render_pnl_xlsx(
+        pnl=result,
+        project_names=project_names_map,
+        period_label=period_label,
+        selected_project_names=selected_names,
+        method=method,
+        is_period_mode=is_period_mode,
+    )
+    fname = xlsx_export.make_filename("pnl", period_label)
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @app.get("/api/revenue-history")
 async def get_revenue_history(
     anchor: str = Query(..., description="'YYYY-MM' — последний месяц окна"),
@@ -903,22 +1012,43 @@ async def get_operations(
         raise HTTPException(502, str(e))
 
     # Нормализуем операции: фильтруем operationParts по project_ids и category_ids.
-    items = data.get("items") or []
-    norm = []
-    sum_value = 0.0
+    norm, sum_value, raw_count = _normalize_operation_parts(
+        data.get("items") or [], proj_ids_list, cat_ids_list,
+    )
+    return {
+        "items": norm,
+        "total": data.get("total"),
+        "raw_count": raw_count,
+        "filtered_count": len(norm),
+        "sum_value": sum_value,
+    }
+
+
+def _normalize_operation_parts(
+    items: list[dict],
+    proj_ids_list: list[str] | None,
+    cat_ids_list: list[str] | None,
+) -> tuple[list[dict], float, int]:
+    """Достаём операции из PlanFact-ответа, фильтруем по проектам/категориям,
+    разворачиваем operationParts в плоский список и считаем сумму.
+
+    Возвращаем (norm_items, sum_value, raw_count). Используется и в
+    /api/operations (JSON), и в /api/operations.xlsx.
+    """
     proj_filter_set = set(proj_ids_list) if proj_ids_list else None
+    cat_ids_set = set(cat_ids_list) if cat_ids_list else None
+    norm: list[dict] = []
+    sum_value = 0.0
     for op in items:
         parts = op.get("operationParts") or []
         if proj_filter_set:
             parts = [p for p in parts if str((p.get("project") or {}).get("projectId")) in proj_filter_set]
-        if cat_ids_list:
-            cat_ids_set = set(cat_ids_list)
+        if cat_ids_set:
             parts = [
                 p for p in parts
                 if str((p.get("operationCategory") or {}).get("operationCategoryId")) in cat_ids_set
             ]
         op_type = op.get("operationType") or ""
-        # Знак для суммы: Outcome — со знаком минус, всё остальное — как есть.
         sign = -1 if op_type == "Outcome" else 1
         for p in parts:
             raw_v = p.get("value") if p.get("value") is not None else op.get("value")
@@ -938,13 +1068,85 @@ async def get_operations(
                 "category": (p.get("operationCategory") or {}).get("title"),
                 "contrAgent": (p.get("contrAgent") or {}).get("title"),
             })
-    return {
-        "items": norm,
-        "total": data.get("total"),
-        "raw_count": len(items),
-        "filtered_count": len(norm),
-        "sum_value": sum_value,
-    }
+    return norm, sum_value, len(items)
+
+
+@app.get("/api/operations.xlsx")
+async def get_operations_xlsx(
+    date_start: str,
+    date_end: str,
+    project_id: str | None = None,
+    project_ids: list[str] = Query(default_factory=list),
+    category_id: str | None = None,
+    category_ids: list[str] = Query(default_factory=list),
+    label: str | None = Query(None, description="Название статьи/категории — попадёт в шапку и имя файла"),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Скачать список операций в xlsx (S13.6). Те же параметры что у /api/operations,
+    плюс label для пользовательского контекста (статья / итог)."""
+    from . import xlsx_export
+
+    pf = await planfact_for(session, user)
+    cat_id_set: set[str] = set()
+    if category_id:
+        cat_id_set.add(category_id)
+    for c in (category_ids or []):
+        if c:
+            cat_id_set.add(c)
+    cat_ids_list: list[str] | None = sorted(cat_id_set) if cat_id_set else None
+
+    proj_id_set: set[str] = set()
+    if project_id:
+        proj_id_set.add(project_id)
+    for p in (project_ids or []):
+        if p:
+            proj_id_set.add(p)
+    proj_ids_list: list[str] | None = sorted(proj_id_set) if proj_id_set else None
+
+    try:
+        # Достаём с большим limit, чтобы влезли все операции одного периода.
+        # Pages у PF тут уже есть пагинация, но для drill-down 5000 хватает.
+        data = await pf.list_operations(
+            date_start=date_start, date_end=date_end,
+            project_ids=proj_ids_list, category_ids=cat_ids_list,
+            offset=0, limit=5000,
+        )
+    except PlanFactError as e:
+        raise HTTPException(502, str(e))
+
+    norm, sum_value, _ = _normalize_operation_parts(
+        data.get("items") or [], proj_ids_list, cat_ids_list,
+    )
+
+    # Имена проектов для подписи. Если выбран один — берём его имя из PF.
+    project_label = "Все выбранные"
+    if proj_ids_list and len(proj_ids_list) == 1:
+        try:
+            projects = await pf.list_projects()
+            for p in projects:
+                pid = str(p.get("projectId") or p.get("id") or "")
+                if pid == proj_ids_list[0]:
+                    project_label = p.get("title") or p.get("name") or pid
+                    break
+        except PlanFactError:
+            project_label = proj_ids_list[0]
+
+    blob = xlsx_export.render_operations_xlsx(
+        items=norm,
+        sum_value=sum_value,
+        period_label=_human_period_label(date_start, date_end),
+        project_label=project_label,
+        category_label=label or "—",
+    )
+    fname = xlsx_export.make_filename(
+        "operations", _human_period_label(date_start, date_end),
+    )
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 # /api/refresh удалён в S3.6: in-memory PlanFact-кэш истекает по TTL

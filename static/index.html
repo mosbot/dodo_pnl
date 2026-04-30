@@ -123,7 +123,17 @@
   </section>
 
   <section class="table-wrap">
-    <h3>Детализация по статьям</h3>
+    <div class="table-head">
+      <h3>Детализация по статьям</h3>
+      <button id="pnlExportXlsxBtn" type="button" class="btn-secondary export-btn"
+              title="Скачать детализацию в Excel">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                d="M8 2v8m0 0l-3-3m3 3l3-3M3 12v1.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V12"/>
+        </svg>
+        .xlsx
+      </button>
+    </div>
     <div class="table-scroll">
       <table id="pnlTable"></table>
     </div>
@@ -141,7 +151,17 @@
   <div class="modal-content wide">
     <div class="modal-header">
       <h3 id="drillTitle">Операции</h3>
-      <button class="close-btn" data-close>×</button>
+      <div class="modal-header-actions">
+        <button id="drillExportXlsxBtn" type="button" class="btn-secondary export-btn"
+                title="Скачать список операций в Excel">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                  d="M8 2v8m0 0l-3-3m3 3l3-3M3 12v1.5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5V12"/>
+          </svg>
+          .xlsx
+        </button>
+        <button class="close-btn" data-close>×</button>
+      </div>
     </div>
     <div id="drillBody"></div>
   </div>

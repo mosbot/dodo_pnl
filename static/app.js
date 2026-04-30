@@ -1871,6 +1871,15 @@ async function openDrillDown(code, label, projectId = null, projectName = '', ca
     if (cid) params.append('category_ids', cid);
   }
 
+  // S13.6: запоминаем контекст для кнопки «📥 .xlsx» в шапке модалки.
+  state._drillCtx = {
+    dateStart: ds, dateEnd: de,
+    projectId,
+    projectIds: projectId ? [] : [...state.selectedProjects],
+    categoryIds: [...(categoryIds || [])],
+    label: `${prefix}${label}`,
+  };
+
   try {
     const data = await api('/api/operations?' + params.toString());
     const items = data.items || [];
@@ -2001,6 +2010,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.querySelectorAll('[data-close]').forEach(b => {
     b.addEventListener('click', () => b.closest('.modal').classList.add('hidden'));
+  });
+
+  // S13.5: экспорт детализации в .xlsx — собираем ровно те же query-params,
+  // что и /api/pnl, и редиректим в /api/pnl.xlsx (браузер скачает файл).
+  el('pnlExportXlsxBtn')?.addEventListener('click', () => {
+    if (!state.pnl || state.selectedProjects.size === 0) {
+      toast('Сначала выбери период и пиццерии', 'error');
+      return;
+    }
+    const ds = el('dateStart').value;
+    const de = el('dateEnd').value;
+    const params = new URLSearchParams();
+    params.set('date_start', ds);
+    params.set('date_end', de);
+    state.selectedProjects.forEach(p => params.append('project_ids', p));
+    if (state.mode === 'month') {
+      params.set('period_month', state.currentMonth);
+    } else {
+      params.set('group_by', 'month');
+    }
+    window.location.href = '/api/pnl.xlsx?' + params.toString();
+  });
+
+  // S13.6: экспорт drill-down — кнопка живёт всегда внутри модалки, но
+  // имеет смысл только когда модалка открыта. Параметры берём из state,
+  // куда они складывались при последнем openDrillDown.
+  el('drillExportXlsxBtn')?.addEventListener('click', () => {
+    const ctx = state._drillCtx;
+    if (!ctx) return;
+    const params = new URLSearchParams({
+      date_start: ctx.dateStart, date_end: ctx.dateEnd,
+    });
+    if (ctx.projectId) params.set('project_id', ctx.projectId);
+    else (ctx.projectIds || []).forEach(p => params.append('project_ids', p));
+    (ctx.categoryIds || []).forEach(c => params.append('category_ids', c));
+    if (ctx.label) params.set('label', ctx.label);
+    window.location.href = '/api/operations.xlsx?' + params.toString();
   });
 
   try {
