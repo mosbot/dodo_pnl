@@ -1351,19 +1351,26 @@ def compare_pnl(current: dict, previous: dict, *, mode: str = "lfl") -> dict:
             prev_proj = prev["projects"].get(pid)
             if not prev_proj:
                 continue
-            cur_proj["previous_amount"] = prev_proj["amount"]
+            cur_proj["previous_amount"] = prev_proj.get("amount")
             cur_proj["previous_pct_of_revenue"] = prev_proj.get("pct_of_revenue")
-            if prev_proj["amount"]:
-                cur_proj["delta_pct"] = (cur_proj["amount"] - prev_proj["amount"]) / abs(prev_proj["amount"])
+            # Защита от None: для синтетических метрик без данных
+            # (например, кастомные формулы у XFood, где не все линии шаблона
+            # участвуют в формуле) amount может быть None. Считаем дельту
+            # только когда оба числа есть и предыдущее ≠ 0.
+            ca = cur_proj.get("amount")
+            pa = prev_proj.get("amount")
+            if ca is not None and pa:
+                cur_proj["delta_pct"] = (ca - pa) / abs(pa)
             else:
                 cur_proj["delta_pct"] = None
-        line["total"]["previous_amount"] = prev["total"]["amount"]
+        line["total"]["previous_amount"] = prev["total"].get("amount")
         line["total"]["previous_pct_of_revenue"] = prev["total"].get("pct_of_revenue")
-        if prev["total"]["amount"]:
-            line["total"]["delta_pct"] = (
-                (line["total"]["amount"] - prev["total"]["amount"])
-                / abs(prev["total"]["amount"])
-            )
+        ct = line["total"].get("amount")
+        pt = prev["total"].get("amount")
+        if ct is not None and pt:
+            line["total"]["delta_pct"] = (ct - pt) / abs(pt)
+        else:
+            line["total"]["delta_pct"] = None
     current["comparison"] = True
     current["compare"] = {
         "mode": mode,
