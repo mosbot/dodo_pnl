@@ -1073,10 +1073,11 @@ function applyChartsVisibility() {
   for (const c of CHARTS) {
     const box = document.querySelector(`[data-chart-id="${c.id}"]`);
     if (!box) continue;
-    box.style.display = hidden.has(c.id) ? 'none' : '';
+    // S13.1: график 12 мес имеет смысл только в режиме «Месяц» — в Период
+    // его принудительно прячем независимо от пользовательского set'а.
+    const forcedHidden = (state.mode === 'period' && c.id === 'revHistory12m');
+    box.style.display = (hidden.has(c.id) || forcedHidden) ? 'none' : '';
   }
-  // Если ВСЕ графики скрыты — прячем и тулбар-таб «⚙ Графики»? Нет, наоборот,
-  // оставляем — иначе пользователь не сможет их вернуть. Тулбар всегда виден.
 }
 
 function renderChartsConfigList() {
