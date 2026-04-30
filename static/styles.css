@@ -125,6 +125,13 @@ body {
 .controls {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   font-size: 13px;
+  /* S13.1: расширяемся на всё доступное справа от brand и распределяем
+   * left/right через space-between, чтобы скрытие LFL/⟳/freshness
+   * (в Период) не двигало левый кластер. */
+  flex: 1; justify-content: space-between;
+}
+.controls-left, .controls-right {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 
 /* Топбар: блок текущего пользователя справа.
