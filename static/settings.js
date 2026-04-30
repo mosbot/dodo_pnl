@@ -324,16 +324,32 @@ function initMonthSelect() {
   });
 }
 
-// Перезагружает таргеты под выбранный period_month (или __default__).
+// Перезагружает таргеты под выбранный period_month.
+// При period='__default__' — обычная картинка (как раньше).
+// При period='YYYY-MM' дополнительно подгружаем общие __default__-цели —
+// они становятся placeholder'ом в пустых ячейках (показывают «текущая
+// эффективная цель» для подсказки).
 async function reloadTargets() {
   const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
+  const isMonthSpecific = pm !== TARGETS_DEFAULT_PERIOD;
   const q = `?period_month=${encodeURIComponent(pm)}`;
+  const qDef = `?period_month=${encodeURIComponent(TARGETS_DEFAULT_PERIOD)}`;
   try {
-    const [defR, tarR, opsTgR] = await Promise.all([
+    const requests = [
       api('/api/targets/defaults' + q),
       api('/api/targets' + q),
       api('/api/ops-targets' + q),
-    ]);
+    ];
+    if (isMonthSpecific) {
+      requests.push(
+        api('/api/targets/defaults' + qDef),
+        api('/api/targets' + qDef),
+        api('/api/ops-targets' + qDef),
+      );
+    }
+    const responses = await Promise.all(requests);
+    const [defR, tarR, opsTgR, defGlobal, tarGlobal, opsGlobal] = responses;
+
     state.defaultTargets = defR.defaults || {};
     state.projectTargets = {};
     (tarR.targets || []).forEach(t => {
@@ -344,6 +360,27 @@ async function reloadTargets() {
     (opsTgR.project_targets || []).forEach(t => {
       state.opsProjectTargets[`${t.project_id}|${t.metric_code}`] = t.target_value;
     });
+
+    // Для подсказки — общие default-цели (placeholder в пустых ячейках).
+    if (isMonthSpecific) {
+      state.defaultTargetsGlobal = defGlobal.defaults || {};
+      state.projectTargetsGlobal = {};
+      (tarGlobal.targets || []).forEach(t => {
+        state.projectTargetsGlobal[`${t.project_id}|${t.metric_code}`] = t.target_pct;
+      });
+      state.opsTargetsGlobal = opsGlobal.targets || {};
+      state.opsProjectTargetsGlobal = {};
+      (opsGlobal.project_targets || []).forEach(t => {
+        state.opsProjectTargetsGlobal[`${t.project_id}|${t.metric_code}`] = t.target_value;
+      });
+    } else {
+      // В __default__-режиме placeholder и value совпадают — отдельных
+      // global-копий не нужно, render-логика поймёт по флагу.
+      state.defaultTargetsGlobal = state.defaultTargets;
+      state.projectTargetsGlobal = state.projectTargets;
+      state.opsTargetsGlobal = state.opsTargets;
+      state.opsProjectTargetsGlobal = state.opsProjectTargets;
+    }
   } catch (e) {
     toast('Не удалось загрузить цели: ' + e.message, 'error');
   }
@@ -546,10 +583,14 @@ function renderPnlMatrix() {
       <td class="sticky-col metric-col target-label">Дефолт</td>`;
   targetMetrics.forEach(m => {
     const def = state.defaultTargets[m.code];
+    // Placeholder в month-specific режиме = общий __default__, чтобы юзер
+    // видел «текущая цель N% (используется общая)».
+    const placeholderDef = (state.defaultTargetsGlobal || {})[m.code];
     html += `<td class="col-proj">
       <input type="text" class="js-def-target inp-flush inp-right target-input"
         data-metric="${esc(m.code)}"${roTitle}
-        value="${def != null ? fmtPct(def) : ''}" placeholder="—" ${roAttr}>
+        value="${def != null ? fmtPct(def) : ''}"
+        placeholder="${placeholderDef != null ? fmtPct(placeholderDef) : '—'}" ${roAttr}>
     </td>`;
   });
   html += `</tr>
@@ -565,12 +606,18 @@ function renderPnlMatrix() {
       targetMetrics.forEach(m => {
         const pct = state.projectTargets[`${p.id}|${m.code}`];
         const hasOverride = pct != null;
-        const def = state.defaultTargets[m.code];
+        // Placeholder = эффективная цель из __default__: project-override (если есть)
+        // или default-цель. То есть когда юзер открыл «Апрель 2026», он видит
+        // в placeholder то значение, которое реально применится к этому
+        // проекту на этом месяце по правилам fallback.
+        const phProj = (state.projectTargetsGlobal || {})[`${p.id}|${m.code}`];
+        const phDef = (state.defaultTargetsGlobal || {})[m.code];
+        const placeholder = phProj != null ? phProj : phDef;
         html += `<td class="col-proj ${hasOverride ? 'has-override' : ''}">
           <input type="text" class="js-proj-target inp-flush inp-right"
             data-pid="${esc(p.id)}" data-metric="${esc(m.code)}"${roTitle}
             value="${hasOverride ? fmtPct(pct) : ''}"
-            placeholder="${def != null ? fmtPct(def) : '—'}" ${roAttr}>
+            placeholder="${placeholder != null ? fmtPct(placeholder) : '—'}" ${roAttr}>
         </td>`;
       });
       html += '</tr>';
@@ -687,10 +734,12 @@ function renderOpsMatrix() {
       <td class="sticky-col metric-col target-label">Дефолт</td>`;
   meta.forEach(m => {
     const v = state.opsTargets[m.code];
+    const ph = (state.opsTargetsGlobal || {})[m.code];
     html += `<td class="col-proj">
       <input type="text" class="js-ops-def-target inp-flush inp-right target-input"
         data-code="${esc(m.code)}"${roTitle}
-        value="${v != null ? fmtNum(v, dig(m)) : ''}" placeholder="—" ${roAttr}>
+        value="${v != null ? fmtNum(v, dig(m)) : ''}"
+        placeholder="${ph != null ? fmtNum(ph, dig(m)) : '—'}" ${roAttr}>
     </td>`;
   });
   html += `</tr>
@@ -722,11 +771,16 @@ function renderOpsMatrix() {
           }
           factTxt = s;
         }
+        // Placeholder = эффективная цель из общего __default__ (project-override
+        // если есть, иначе default).
+        const phProj = (state.opsProjectTargetsGlobal || {})[`${p.id}|${m.code}`];
+        const phDef = (state.opsTargetsGlobal || {})[m.code];
+        const placeholder = phProj != null ? phProj : phDef;
         html += `<td class="col-proj ${cls} ${override != null ? 'has-override' : ''}">
           <input type="text" class="js-ops-proj-target inp-flush inp-right"
             data-pid="${esc(p.id)}" data-code="${esc(m.code)}"${roTitle}
             value="${override != null ? fmtNum(override, dig(m)) : ''}"
-            placeholder="${def != null ? fmtNum(def, dig(m)) : '—'}" ${roAttr}>
+            placeholder="${placeholder != null ? fmtNum(placeholder, dig(m)) : '—'}" ${roAttr}>
           <div class="cell-sub muted js-ops-fact" data-field="${esc(m.field)}">
             ${factTxt}
           </div>
