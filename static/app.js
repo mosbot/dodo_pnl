@@ -1861,9 +1861,12 @@ async function openDrillDown(code, label, projectId = null, projectName = '', ca
   const params = new URLSearchParams({ date_start: ds, date_end: de, limit: '500' });
   if (projectId) {
     params.set('project_id', projectId);
+  } else {
+    // «Итого» (Месяц-режим) или ячейка месяца (Период) → ограничиваем выборкой
+    // пользователя. Иначе backend отдаст все проекты ключа PF, что неверно
+    // (юзер видит итог по своим выбранным пиццериям, а в drill — по всем).
+    state.selectedProjects.forEach(p => params.append('project_ids', p));
   }
-  // "Итого" — без фильтра по проекту; PlanFact /operations отдаст все операции
-  // за период, а ниже мы покажем колонку «Проект» в таблице.
   for (const cid of (categoryIds || [])) {
     if (cid) params.append('category_ids', cid);
   }

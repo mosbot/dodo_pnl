@@ -862,6 +862,7 @@ async def get_operations(
     date_start: str,
     date_end: str,
     project_id: str | None = None,
+    project_ids: list[str] = Query(default_factory=list),
     category_id: str | None = None,
     category_ids: list[str] = Query(default_factory=list),
     offset: int = 0,
@@ -879,11 +880,21 @@ async def get_operations(
             cat_id_set.add(c)
     cat_ids_list: list[str] | None = sorted(cat_id_set) if cat_id_set else None
 
+    # Объединяем legacy single project_id и новый список project_ids.
+    # Если ни одного — фильтра нет (Backend отдаст все проекты ключа).
+    proj_id_set: set[str] = set()
+    if project_id:
+        proj_id_set.add(project_id)
+    for p in (project_ids or []):
+        if p:
+            proj_id_set.add(p)
+    proj_ids_list: list[str] | None = sorted(proj_id_set) if proj_id_set else None
+
     try:
         data = await pf.list_operations(
             date_start=date_start,
             date_end=date_end,
-            project_ids=[project_id] if project_id else None,
+            project_ids=proj_ids_list,
             category_ids=cat_ids_list,
             offset=offset,
             limit=limit,
@@ -891,14 +902,15 @@ async def get_operations(
     except PlanFactError as e:
         raise HTTPException(502, str(e))
 
-    # Нормализуем операции: фильтруем operationParts по project_id и category_ids.
+    # Нормализуем операции: фильтруем operationParts по project_ids и category_ids.
     items = data.get("items") or []
     norm = []
     sum_value = 0.0
+    proj_filter_set = set(proj_ids_list) if proj_ids_list else None
     for op in items:
         parts = op.get("operationParts") or []
-        if project_id:
-            parts = [p for p in parts if str((p.get("project") or {}).get("projectId")) == project_id]
+        if proj_filter_set:
+            parts = [p for p in parts if str((p.get("project") or {}).get("projectId")) in proj_filter_set]
         if cat_ids_list:
             cat_ids_set = set(cat_ids_list)
             parts = [
