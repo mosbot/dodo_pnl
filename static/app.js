@@ -409,9 +409,13 @@ async function loadPnl() {
   // Фон: тянем revenue-history, по приходу — только перерисовываем графики.
   const histParams = new URLSearchParams();
   histParams.set('anchor', state.currentMonth);
-  histParams.set('months', '12');
+  // 13 месяцев — чтобы график начинался с того же месяца прошлого года
+  // что и сейчас (например, текущий апр'26 → окно апр'25..апр'26).
+  histParams.set('months', '13');
   state.selectedProjects.forEach(p => histParams.append('project_ids', p));
-  if (el('compareToggle').checked) histParams.set('include_ly', 'true');
+  // ВСЕГДА просим LY-разбивку: новая ветка рендера revHistory12m строит
+  // парные бары (текущий+LY) и YoY-аннотации, без LY график бесполезен.
+  histParams.set('include_ly', 'true');
 
   try {
     const hist = await api('/api/revenue-history?' + histParams.toString());
@@ -889,7 +893,7 @@ const CHARTS = [
   { id: 'revProfit',     title: 'Выручка vs Чистая прибыль',          defaultVisible: true },
   { id: 'margins',       title: 'Маржинальность по уровням, %',       defaultVisible: true },
   { id: 'costShare',     title: 'Структура затрат, % от выручки',     defaultVisible: true },
-  { id: 'revHistory12m', title: 'Выручка по месяцам · 12 мес',        defaultVisible: true },
+  { id: 'revHistory12m', title: 'Выручка по месяцам · YoY',           defaultVisible: true },
 ];
 
 // Храним set СКРЫТЫХ id (а не видимых), чтобы при добавлении нового графика
@@ -1081,74 +1085,181 @@ function renderCharts() {
     });
   }
 
-  // --- График 4: Выручка по месяцам · 12 мес ---
-  // Источник — /api/revenue-history (PlanFact). Стек-бары по каналам
-  // (Доставка / Ресторан / Самовывоз / Прочее) + опциональная LY-линия.
+  // --- График 4: Выручка по месяцам · 13 мес (текущий + LY) ---
+  // Источник — /api/revenue-history (PlanFact). Парные стек-бары: для
+  // каждого месяца два столбика — текущий период (3 канала + LY его же
+  // соседним более бледным стеком). Над парой — общий YoY-дельта-бейдж.
+  // В tooltip — % сегмента от суммы месяца, абс. сумма месяца и YoY
+  // дельта самого сегмента (канала).
   if (isChartVisible('revHistory12m') && state.revHistory && state.revHistory.months) {
     const hist = state.revHistory;
     const histLabels = hist.months.map(m => monthLabel(m));
-    // Проверим, есть ли разбивка по каналам (новый API).
-    const hasChannels = !!hist.by_channel;
     const channelMeta = [
-      { key: 'delivery',   label: 'Доставка',   color: '#3b82f6' },
-      { key: 'restaurant', label: 'Ресторан',   color: '#10b981' },
-      { key: 'takeaway',   label: 'Самовывоз',  color: '#f59e0b' },
-      { key: 'other',      label: 'Прочее',     color: '#9ca3af' },
+      // Доставка/Ресторан/Самовывоз/Прочее. Для LY используем тот же hue,
+      // но более бледный (40% opacity) — так глаз сразу понимает «это год
+      // назад», и каналы остаются распознаваемы.
+      { key: 'delivery',   label: 'Доставка',  color: '#3b82f6', colorLY: 'rgba(59,130,246,0.42)' },
+      { key: 'restaurant', label: 'Ресторан',  color: '#10b981', colorLY: 'rgba(16,185,129,0.42)' },
+      { key: 'takeaway',   label: 'Самовывоз', color: '#f59e0b', colorLY: 'rgba(245,158,11,0.42)' },
+      { key: 'other',      label: 'Прочее',    color: '#9ca3af', colorLY: 'rgba(156,163,175,0.45)' },
     ];
+
+    const hasLy = !!(hist.ly && hist.ly.by_channel);
+    // Скрываем каналы, у которых ноль ВО ВСЕХ месяцах обоих периодов —
+    // иначе легенда забита нерелевантными нулями.
+    const channelsActive = channelMeta.filter(ch => {
+      const curHas = hist.months.some(m => (hist.by_channel?.[m]?.[ch.key] || 0) !== 0);
+      const lyHas = hasLy && (hist.ly.months || []).some(
+        m => (hist.ly.by_channel?.[m]?.[ch.key] || 0) !== 0
+      );
+      return curHas || lyHas;
+    });
+
+    // Суммы по месяцам — нужны и для tooltip, и для дельта-аннотации.
+    const curTotals = hist.months.map(
+      m => channelsActive.reduce((s, ch) => s + (hist.by_channel?.[m]?.[ch.key] || 0), 0)
+    );
+    // LY данные индексируются по своим месяцам (Apr'24..Apr'25, если
+    // current — Apr'25..Apr'26). Парим по индексу: hist.months[i] ↔ hist.ly.months[i].
+    const lyTotals = hist.months.map((_, i) => {
+      if (!hasLy || !hist.ly.months || !hist.ly.months[i]) return 0;
+      const lyMonth = hist.ly.months[i];
+      return channelsActive.reduce(
+        (s, ch) => s + (hist.ly.by_channel?.[lyMonth]?.[ch.key] || 0), 0
+      );
+    });
+
+    // Build datasets: сначала все каналы текущего (stack='cur'),
+    // потом — LY (stack='ly'). Chart.js рисует разные stacks как
+    // соседние группы — получаем парные бары.
     const histDatasets = [];
-    if (hasChannels) {
-      // Скрываем каналы, у которых ноль во всех месяцах — иначе легенда
-      // забита нерелевантными «Прочее = 0».
-      channelMeta.forEach(ch => {
-        const data = hist.months.map(m => hist.by_channel[m]?.[ch.key] || 0);
-        if (data.some(v => v !== 0)) {
-          histDatasets.push({
-            type: 'bar', label: ch.label, data,
-            backgroundColor: ch.color, borderRadius: 4, stack: 'rev', order: 2,
-          });
+    channelsActive.forEach(ch => {
+      histDatasets.push({
+        type: 'bar', label: ch.label,
+        data: hist.months.map(m => hist.by_channel?.[m]?.[ch.key] || 0),
+        backgroundColor: ch.color,
+        stack: 'cur', borderRadius: 0,
+        // мета — пригодится в tooltip, чтобы не путать cur/ly.
+        _channelKey: ch.key, _periodKey: 'cur', _periodLabel: 'текущий',
+      });
+    });
+    if (hasLy) {
+      channelsActive.forEach(ch => {
+        histDatasets.push({
+          type: 'bar', label: ch.label + ' · LY',
+          data: hist.months.map((_, i) => {
+            const lyMonth = hist.ly.months?.[i];
+            return lyMonth ? (hist.ly.by_channel?.[lyMonth]?.[ch.key] || 0) : 0;
+          }),
+          backgroundColor: ch.colorLY,
+          stack: 'ly', borderRadius: 0,
+          _channelKey: ch.key, _periodKey: 'ly', _periodLabel: 'год назад',
+        });
+      });
+    }
+
+    // Plugin: над каждой парой пишем общий YoY-процент (компактный бейдж).
+    const yoyTotalPlugin = {
+      id: 'yoyTotalAnnotation',
+      afterDatasetsDraw(chart) {
+        if (!hasLy) return;
+        const { ctx, scales: { x, y } } = chart;
+        ctx.save();
+        ctx.font = '500 11px -apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        for (let i = 0; i < hist.months.length; i++) {
+          const cur = curTotals[i], ly = lyTotals[i];
+          if (!ly) continue;
+          const d = (cur - ly) / Math.abs(ly) * 100;
+          const txt = (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(0) + '%';
+          ctx.fillStyle = d >= 0 ? '#047857' : '#b91c1c';
+          // Метим над более высоким из двух стеков, с отступом 10px.
+          const top = Math.max(cur, ly);
+          const px = x.getPixelForValue(i);
+          const py = y.getPixelForValue(top) - 10;
+          ctx.fillText(txt, px, py);
         }
-      });
-    } else {
-      // Fallback: суммарная выручка одной серией (если backend старый).
-      histDatasets.push({
-        type: 'bar', label: 'Выручка',
-        data: hist.months.map(m => hist.totals[m] || 0),
-        backgroundColor: '#3b82f6', borderRadius: 4, stack: 'rev', order: 2,
-      });
-    }
-    if (hist.ly && hist.ly.months) {
-      histDatasets.push({
-        type: 'line', label: 'LY (всего)',
-        data: hist.ly.months.map(m => hist.ly.totals[m] || 0),
-        borderColor: '#374151', backgroundColor: '#374151',
-        borderDash: [4, 3], pointRadius: 3, tension: 0.2, fill: false, order: 1,
-      });
-    }
+        ctx.restore();
+      }
+    };
+
+    const fmtRub = v => Number(v).toLocaleString('ru-RU') + ' ₽';
+
     state.charts.revHistory12m = new Chart(el('revHistory12m'), {
       data: { labels: histLabels, datasets: histDatasets },
       options: {
         ...baseOpts,
+        layout: { padding: { top: 22 } },
         scales: {
           ...baseOpts.scales,
-          x: { ...baseOpts.scales.x, stacked: true },
+          x: { ...baseOpts.scales.x, stacked: true, ticks: { ...baseOpts.scales.x.ticks, autoSkip: false } },
           y: { ...baseOpts.scales.y, stacked: true },
         },
         plugins: {
           ...baseOpts.plugins,
           tooltip: {
             callbacks: {
-              label: (ctx) =>
-                `${ctx.dataset.label}: ${Number(ctx.parsed.y).toLocaleString('ru-RU')} ₽`,
+              // Заголовок tooltip — название месяца (или ЛУ-месяц для LY-сегментов).
+              title: (items) => {
+                if (!items.length) return '';
+                const it = items[0];
+                const isLy = it.dataset._periodKey === 'ly';
+                const month = isLy
+                  ? hist.ly.months[it.dataIndex]
+                  : hist.months[it.dataIndex];
+                const label = month ? monthLabel(month) : '';
+                return label + (isLy ? ' · год назад' : '');
+              },
+              // Каждая строка — сегмент: название + сумма + % от месяца + YoY дельта самого канала.
+              label: (ctx) => {
+                const ch = ctx.dataset._channelKey;
+                const period = ctx.dataset._periodKey;
+                const i = ctx.dataIndex;
+                const v = ctx.parsed.y || 0;
+                const total = period === 'cur' ? curTotals[i] : lyTotals[i];
+                const pct = total > 0 ? (v / total * 100).toFixed(1) : '0';
+                let line = `${ctx.dataset.label}: ${fmtRub(v)} (${pct}%)`;
+                if (period === 'cur' && hasLy) {
+                  const lyMonth = hist.ly.months?.[i];
+                  const lyVal = lyMonth ? (hist.ly.by_channel?.[lyMonth]?.[ch] || 0) : 0;
+                  if (lyVal > 0) {
+                    const d = (v - lyVal) / lyVal * 100;
+                    const sign = d >= 0 ? '+' : '−';
+                    line += `   YoY ${sign}${Math.abs(d).toFixed(0)}%`;
+                  }
+                }
+                return line;
+              },
+              // В footer — итог месяца текущего и LY + общий YoY.
               footer: (items) => {
-                const sum = items
-                  .filter(i => i.dataset.stack === 'rev')
-                  .reduce((s, i) => s + (i.parsed.y || 0), 0);
-                return sum ? `Итого: ${sum.toLocaleString('ru-RU')} ₽` : '';
+                if (!items.length) return '';
+                const i = items[0].dataIndex;
+                const cur = curTotals[i], ly = lyTotals[i];
+                const lines = [`Итого текущий: ${fmtRub(cur)}`];
+                if (hasLy && ly) {
+                  lines.push(`Итого год назад: ${fmtRub(ly)}`);
+                  const d = (cur - ly) / Math.abs(ly) * 100;
+                  lines.push(`Динамика: ${(d >= 0 ? '+' : '−')}${Math.abs(d).toFixed(1)}%`);
+                }
+                return lines.join('\n');
+              },
+            },
+          },
+          legend: {
+            position: 'bottom',
+            labels: {
+              font: { size: 11 },
+              // Скрываем LY-дубликаты в легенде — оставляем только базовые
+              // 3-4 канала, чтобы не было «Доставка / Доставка · LY / Ресторан / …».
+              filter: (item, data) => {
+                const ds = data.datasets[item.datasetIndex];
+                return ds && ds._periodKey !== 'ly';
               },
             },
           },
         },
       },
+      plugins: [yoyTotalPlugin],
     });
   }
 }
