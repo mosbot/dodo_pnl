@@ -34,16 +34,17 @@ def _unwrap(payload: Any) -> Any:
 
 class PlanFactClient:
     # LRU-bound: чтобы кэш не разрастался по памяти. operations за месяц могут
-    # быть мегабайтами JSON, и без bound память течёт быстро.
-    # Bumped 50→100 (S12.1) — bulk /operations теперь кэшируем, а с
-    # parallel-by-project (по одной записи на проект+период) старого потолка
-    # уже не хватало для типичной сессии.
-    CACHE_MAX_ENTRIES = 100
-    # Раньше тут был ("/operations",) — это ломало TTL для live-месяца
-    # (каждый перезаход в дашборд = повторный bulk-fetch). Сейчас
-    # bulk-fetch (`_fetch_ops_recursive`) кэшируется на общих условиях,
-    # а drill-down `list_operations` явно передаёт use_cache=False
-    # (там offset/limit меняются на каждый клик, кэш бесполезен).
+    # быть мегабайтами JSON.
+    # Урезано 100→30 (S14-урок) — на XFood-ключе один месяц возвращает
+    # 10k+ операций (parallel-split на под-кусочки), каждый ответ как Python
+    # dict ~30-50 MB. 100 × 30 MB = 3 GB на одного юзера → за 6 мес Период
+    # клали VM (6 GB RAM, swap=0). С 30 entries потолок ~1 GB.
+    CACHE_MAX_ENTRIES = 30
+    # /operations-ответы крупнее этого порога не кэшируем — single entry
+    # размером в десятки мегабайт быстро заполнит LRU и вытолкнет всё
+    # остальное. На больших ответах cost кэширования обычно перевешивает
+    # выгоду (юзер редко повторяет тот же запрос со 100% совпадением фильтра).
+    BIG_RESPONSE_SKIP_THRESHOLD = 5000  # items
     NO_CACHE_PATHS: tuple[str, ...] = ()
 
     def __init__(
@@ -109,10 +110,20 @@ class PlanFactClient:
 
         data = _unwrap(raw)
         if use_cache and method == "GET":
-            self._cache[ck] = (now, data)
-            # LRU eviction: вышли за бортик — выкидываем самый старый
-            while len(self._cache) > self.CACHE_MAX_ENTRIES:
-                self._cache.popitem(last=False)
+            # Не кэшируем большие ответы (десятки MB на entry) — чтобы один
+            # запрос не выжрал весь LRU. См. BIG_RESPONSE_SKIP_THRESHOLD.
+            items_count = 0
+            if isinstance(data, dict):
+                its = data.get("items")
+                if isinstance(its, list):
+                    items_count = len(its)
+            elif isinstance(data, list):
+                items_count = len(data)
+            if items_count <= self.BIG_RESPONSE_SKIP_THRESHOLD:
+                self._cache[ck] = (now, data)
+                # LRU eviction: вышли за бортик — выкидываем самый старый
+                while len(self._cache) > self.CACHE_MAX_ENTRIES:
+                    self._cache.popitem(last=False)
         return data
 
     # --- high-level methods ---
@@ -178,7 +189,7 @@ class PlanFactClient:
         date_end: str,
         project_ids: list[str] | None = None,
         page_size: int = 10000,
-        hard_limit: int = 200_000,
+        hard_limit: int = 50_000,
         method: str = "accrual",
     ) -> list[dict]:
         """Все операции за период — для сборки P&L.

@@ -47,6 +47,10 @@ class Target(Base):
 
     Привязан к planfact_key, а не к юзеру: метрики (UC/LC/DC/...) теперь
     общие на ключ, таргеты по ним — тоже.
+
+    S14.1: добавлен period_month в PK. '__default__' = «на все месяцы»,
+    конкретный 'YYYY-MM' = override для этого месяца. Логика fallback —
+    в store.effective_target() (monthly → default).
     """
     __tablename__ = "targets"
 
@@ -57,6 +61,9 @@ class Target(Base):
     )
     project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    period_month: Mapped[str] = mapped_column(
+        String(16), primary_key=True, server_default=text("'__default__'")
+    )
     target_pct: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -69,7 +76,10 @@ class Target(Base):
 
 
 class DefaultTarget(Base):
-    """Дефолтный таргет по метрике (если нет per-project override)."""
+    """Дефолтный таргет по метрике (если нет per-project override).
+
+    S14.1: + period_month в PK; '__default__' = на все месяцы.
+    """
     __tablename__ = "default_targets"
 
     planfact_key_id: Mapped[int] = mapped_column(
@@ -78,6 +88,9 @@ class DefaultTarget(Base):
         primary_key=True,
     )
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    period_month: Mapped[str] = mapped_column(
+        String(16), primary_key=True, server_default=text("'__default__'")
+    )
     target_pct: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -234,7 +247,10 @@ class OpsMetric(Base):
 # ---------- Ops targets ----------
 
 class OpsTarget(Base):
-    """Дефолтный таргет ops-метрики на уровне PF-ключа."""
+    """Дефолтный таргет ops-метрики на уровне PF-ключа.
+
+    S14.1: + period_month в PK; '__default__' = на все месяцы.
+    """
     __tablename__ = "ops_targets"
 
     planfact_key_id: Mapped[int] = mapped_column(
@@ -243,6 +259,9 @@ class OpsTarget(Base):
         primary_key=True,
     )
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    period_month: Mapped[str] = mapped_column(
+        String(16), primary_key=True, server_default=text("'__default__'")
+    )
     target_value: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -251,7 +270,10 @@ class OpsTarget(Base):
 
 
 class OpsProjectTarget(Base):
-    """Override ops-таргета на конкретный проект под PF-ключом."""
+    """Override ops-таргета на конкретный проект под PF-ключом.
+
+    S14.1: + period_month в PK; '__default__' = на все месяцы.
+    """
     __tablename__ = "ops_project_targets"
 
     planfact_key_id: Mapped[int] = mapped_column(
@@ -261,6 +283,9 @@ class OpsProjectTarget(Base):
     )
     project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    period_month: Mapped[str] = mapped_column(
+        String(16), primary_key=True, server_default=text("'__default__'")
+    )
     target_value: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
