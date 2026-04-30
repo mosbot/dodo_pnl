@@ -52,6 +52,14 @@ SECTION_SEMANTICS: dict[str, tuple[str, str]] = {
     "Переменные расходы": ("Outcome", "Operating"),
     "Постоянные расходы": ("Outcome", "Operating"),
     "Прочие расходы": ("Outcome", "Operating"),
+    # Сети с упрощённым шаблоном объединяют все опер. расходы в одну корневую
+    # секцию. Без этих имён classify_category() не получает op_type и узлы
+    # остаются неклассифицированными → ничего не схлопывается в стандартные
+    # коды UC/LC/DC/MARKETING/RENT/...
+    "Основные расходы": ("Outcome", "Operating"),
+    "Операционные расходы": ("Outcome", "Operating"),
+    "Расходы": ("Outcome", "Operating"),
+    "Расходы на оплату труда": ("Outcome", "Operating"),
     # Below-the-line — финансовая/налоговая деятельность, но для целей шаблона
     # достаточно отнести к Outcome, чтобы classify_category() выбрал INTEREST/TAX/DIVIDENDS.
     "Амортизация": ("Outcome", "Operating"),
