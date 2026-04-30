@@ -71,6 +71,35 @@ async def require_admin(user: User = Depends(require_user)) -> User:
     return user
 
 
+def require_visibility_level(min_level: int, role_label: str = ""):
+    """Фабрика зависимостей: разрешает доступ юзеру с visibility_level >=
+    min_level. Админ (is_admin=True) проходит всегда — у него полный доступ.
+
+    Используется для гейтинга редактирования целей и других «управленческих»
+    операций, которые не нужно ограничивать строго админом, но не должны
+    быть доступны управляющему пиццерией (visibility_level=10)."""
+    async def _dep(user: User = Depends(require_user)) -> User:
+        if user.is_admin:
+            return user
+        if (user.visibility_level or 0) < min_level:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Нужен уровень доступа ≥ {min_level}"
+                    + (f" ({role_label})" if role_label else "")
+                ),
+            )
+        return user
+    return _dep
+
+
+# Готовые алиасы. Числа соответствуют пресетам visibility_level,
+# см. /settings → Пользователи: 10/30/60/100.
+require_territorial = require_visibility_level(30, "Территориальный или выше")
+require_director = require_visibility_level(60, "Директор или выше")
+require_partner = require_visibility_level(100, "Партнёр")
+
+
 async def optional_user(
     request: Request,
     db: AsyncSession = Depends(get_session),

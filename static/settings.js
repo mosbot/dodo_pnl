@@ -455,6 +455,15 @@ function renderProjects() {
 //   строки = проекты (+ строка Дефолт вверху),
 //   колонки = UC / LC / DC / TC
 // ======================================================
+// S11.8: цели могут редактировать Территориальный (≥30) и выше, плюс админ.
+// На фронте дополнительно блокируем инпуты — чтобы юзер с уровнем 10 не
+// получал 403 при попытке сохранить.
+function canEditTargets() {
+  const me = state.me || {};
+  if (me.is_admin) return true;
+  return (me.visibility_level || 0) >= 30;
+}
+
 function renderPnlMatrix() {
   const box = el('pnlTargetsMatrix');
   // S11.7: список метрик в матрице берём из pnl_metrics (фильтр is_target=true,
@@ -465,6 +474,10 @@ function renderPnlMatrix() {
     .slice()
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const active = state.projects.filter(p => p.is_active);
+  const editable = canEditTargets();
+  const roAttr = editable ? '' : 'disabled';
+  const roTitle = editable ? ''
+    : ' title="Редактировать цели может Территориальный управляющий или выше"';
 
   if (!targetMetrics.length) {
     box.innerHTML = `
@@ -491,8 +504,8 @@ function renderPnlMatrix() {
     const def = state.defaultTargets[m.code];
     html += `<td class="col-proj">
       <input type="text" class="js-def-target inp-flush inp-right target-input"
-        data-metric="${esc(m.code)}"
-        value="${def != null ? fmtPct(def) : ''}" placeholder="—">
+        data-metric="${esc(m.code)}"${roTitle}
+        value="${def != null ? fmtPct(def) : ''}" placeholder="—" ${roAttr}>
     </td>`;
   });
   html += `</tr>
@@ -511,9 +524,9 @@ function renderPnlMatrix() {
         const def = state.defaultTargets[m.code];
         html += `<td class="col-proj ${hasOverride ? 'has-override' : ''}">
           <input type="text" class="js-proj-target inp-flush inp-right"
-            data-pid="${esc(p.id)}" data-metric="${esc(m.code)}"
+            data-pid="${esc(p.id)}" data-metric="${esc(m.code)}"${roTitle}
             value="${hasOverride ? fmtPct(pct) : ''}"
-            placeholder="${def != null ? fmtPct(def) : '—'}">
+            placeholder="${def != null ? fmtPct(def) : '—'}" ${roAttr}>
         </td>`;
       });
       html += '</tr>';
@@ -592,6 +605,10 @@ function renderOpsMatrix() {
   const box = el('opsMetricsTable');
   const meta = state.opsMeta;
   const active = state.projects.filter(p => p.is_active);
+  const editable = canEditTargets();
+  const roAttr = editable ? '' : 'disabled';
+  const roTitle = editable ? ''
+    : ' title="Редактировать цели может Территориальный управляющий или выше"';
 
   if (!meta.length) {
     box.innerHTML = '<p class="muted">Нет ops-метрик.</p>';
@@ -624,8 +641,8 @@ function renderOpsMatrix() {
     const v = state.opsTargets[m.code];
     html += `<td class="col-proj">
       <input type="text" class="js-ops-def-target inp-flush inp-right target-input"
-        data-code="${esc(m.code)}"
-        value="${v != null ? fmtNum(v, dig(m)) : ''}" placeholder="—">
+        data-code="${esc(m.code)}"${roTitle}
+        value="${v != null ? fmtNum(v, dig(m)) : ''}" placeholder="—" ${roAttr}>
     </td>`;
   });
   html += `</tr>
@@ -659,9 +676,9 @@ function renderOpsMatrix() {
         }
         html += `<td class="col-proj ${cls} ${override != null ? 'has-override' : ''}">
           <input type="text" class="js-ops-proj-target inp-flush inp-right"
-            data-pid="${esc(p.id)}" data-code="${esc(m.code)}"
+            data-pid="${esc(p.id)}" data-code="${esc(m.code)}"${roTitle}
             value="${override != null ? fmtNum(override, dig(m)) : ''}"
-            placeholder="${def != null ? fmtNum(def, dig(m)) : '—'}">
+            placeholder="${def != null ? fmtNum(def, dig(m)) : '—'}" ${roAttr}>
           <div class="cell-sub muted js-ops-fact" data-field="${esc(m.field)}">
             ${factTxt}
           </div>

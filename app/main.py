@@ -17,7 +17,9 @@ from . import dodois_client
 from . import pnl as pnl_module
 from . import store
 from .auth.admin_router import admin_router
-from .auth.dependencies import optional_user, require_admin, require_user
+from .auth.dependencies import (
+    optional_user, require_admin, require_territorial, require_user,
+)
 from .auth.router import router as auth_router
 from . import formulas, schemas
 from .auth.models import User
@@ -873,7 +875,7 @@ async def list_targets(
 @app.post("/api/targets")
 async def upsert_target(
     payload: TargetIn,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -887,7 +889,7 @@ async def upsert_target(
 @app.delete("/api/targets")
 async def delete_target(
     project_id: str, metric_code: str,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -912,7 +914,7 @@ async def list_default_targets(
 @app.post("/api/targets/defaults")
 async def upsert_default_target(
     payload: DefaultTargetIn,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -925,7 +927,7 @@ async def upsert_default_target(
 @app.delete("/api/targets/defaults")
 async def delete_default_target(
     metric_code: str,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -1057,7 +1059,7 @@ async def list_ops_targets_ep(
 @app.post("/api/ops-targets")
 async def upsert_ops_target_ep(
     payload: OpsTargetIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -1070,7 +1072,7 @@ async def upsert_ops_target_ep(
 @app.delete("/api/ops-targets")
 async def delete_ops_target_ep(
     metric_code: str,
-    user: User = Depends(require_user),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -1081,7 +1083,7 @@ async def delete_ops_target_ep(
 @app.post("/api/ops-targets/project")
 async def upsert_ops_project_target_ep(
     payload: OpsProjectTargetIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -1095,7 +1097,7 @@ async def upsert_ops_project_target_ep(
 @app.delete("/api/ops-targets/project")
 async def delete_ops_project_target_ep(
     project_id: str, metric_code: str,
-    user: User = Depends(require_user),
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
