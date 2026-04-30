@@ -286,7 +286,7 @@ OPS_LIVE_DAYS_WINDOW = 10
 
 
 async def _compute_ops_freshness(
-    session, owner_id: int, period_month: str,
+    session, planfact_key_id: int | None, period_month: str,
 ) -> dict:
     """Возвращает payload для индикатора свежести ops на фронте.
 
@@ -306,7 +306,12 @@ async def _compute_ops_freshness(
     from calendar import monthrange
     from datetime import date
 
-    last = await store.ops_last_synced_at(session, owner_id, period_month)
+    # S11.6: ops лежат на уровне planfact_key — owner_id больше не используется.
+    # Если у юзера нет привязки к ключу, нечего считать.
+    last = (
+        await store.ops_last_synced_at(session, planfact_key_id, period_month)
+        if planfact_key_id else None
+    )
 
     try:
         y, m = (int(x) for x in period_month.split("-"))
@@ -867,17 +872,25 @@ async def build_pnl(
             return cfg["display_name"]
         return projects_by_id.get(pid, pid)
 
-    # --- Ops-метрики за указанный месяц ---
+    # --- Ops-метрики за указанный месяц (S11.6: per planfact_key) ---
     ops_data: dict[str, dict] = {}
     ops_freshness: dict | None = None
-    if period_month:
-        ops_data = await store.list_ops_metrics(session, owner_id, period_month=period_month)
+    if period_month and planfact_key_id is not None:
+        ops_data = await store.list_ops_metrics(
+            session, planfact_key_id, period_month=period_month,
+        )
         ops_freshness = await _compute_ops_freshness(
-            session, owner_id, period_month,
+            session, planfact_key_id, period_month,
         )
     # Включаем ops в список проектов и добавляем ops-статус в target_report.
-    ops_targets = await store.list_ops_targets(session, owner_id)         # global defaults {code: value}
-    ops_overrides = await store.ops_project_targets_map(session, owner_id)  # {pid: {code: value}}
+    ops_targets = (
+        await store.list_ops_targets(session, planfact_key_id)
+        if planfact_key_id is not None else {}
+    )
+    ops_overrides = (
+        await store.ops_project_targets_map(session, planfact_key_id)
+        if planfact_key_id is not None else {}
+    )
     ops_target_report: list[dict] = []
     for pid in shown_project_ids:
         values = ops_data.get(pid) or {}

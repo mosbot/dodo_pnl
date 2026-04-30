@@ -664,7 +664,10 @@ async def get_pnl(
                 await store.list_default_targets(session, user.planfact_key_id)
                 if user.planfact_key_id else {}
             ),
-            "ops_targets": await store.list_ops_targets(session, user.id),
+            "ops_targets": (
+                await store.list_ops_targets(session, user.planfact_key_id)
+                if user.planfact_key_id else {}
+            ),
             "ops_metrics_meta": store.OPS_METRICS,
             "period": {"current": {"start": date_start, "end": date_end}},
         }
@@ -993,12 +996,15 @@ async def get_ops_metrics(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    if not user.planfact_key_id:
+        return {"metrics": {}, "meta": store.OPS_METRICS, "targets": {}}
     return {
         "metrics": await store.list_ops_metrics(
-            session, user.id, period_month=period_month, project_id=project_id
+            session, user.planfact_key_id,
+            period_month=period_month, project_id=project_id,
         ),
         "meta": store.OPS_METRICS,
-        "targets": await store.list_ops_targets(session, user.id),
+        "targets": await store.list_ops_targets(session, user.planfact_key_id),
     }
 
 
@@ -1008,8 +1014,9 @@ async def upsert_ops_metric(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    pf_key_id = _require_user_pf_key(user)
     await store.upsert_ops_metric(
-        session, user.id, payload.project_id, payload.period_month,
+        session, pf_key_id, payload.project_id, payload.period_month,
         orders_per_courier_h=payload.orders_per_courier_h,
         products_per_h=payload.products_per_h,
         revenue_per_person_h=payload.revenue_per_person_h,
@@ -1023,20 +1030,25 @@ async def delete_ops_metric(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.delete_ops_metric(session, user.id, project_id, period_month)
+    pf_key_id = _require_user_pf_key(user)
+    await store.delete_ops_metric(session, pf_key_id, project_id, period_month)
     return {"status": "ok"}
 
 
-# --- Ops targets (глобальные цели по ops-метрикам) ---
+# --- Ops targets (глобальные цели по ops-метрикам, на уровне PF-ключа) ---
 
 @app.get("/api/ops-targets")
 async def list_ops_targets_ep(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    if not user.planfact_key_id:
+        return {"targets": {}, "project_targets": [], "meta": store.OPS_METRICS}
     return {
-        "targets": await store.list_ops_targets(session, user.id),
-        "project_targets": await store.list_ops_project_targets(session, user.id),
+        "targets": await store.list_ops_targets(session, user.planfact_key_id),
+        "project_targets": await store.list_ops_project_targets(
+            session, user.planfact_key_id
+        ),
         "meta": store.OPS_METRICS,
     }
 
@@ -1047,7 +1059,10 @@ async def upsert_ops_target_ep(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.upsert_ops_target(session, user.id, payload.metric_code, payload.target_value)
+    pf_key_id = _require_user_pf_key(user)
+    await store.upsert_ops_target(
+        session, pf_key_id, payload.metric_code, payload.target_value,
+    )
     return {"status": "ok"}
 
 
@@ -1057,7 +1072,8 @@ async def delete_ops_target_ep(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.delete_ops_target(session, user.id, metric_code)
+    pf_key_id = _require_user_pf_key(user)
+    await store.delete_ops_target(session, pf_key_id, metric_code)
     return {"status": "ok"}
 
 
@@ -1067,8 +1083,10 @@ async def upsert_ops_project_target_ep(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    pf_key_id = _require_user_pf_key(user)
     await store.upsert_ops_project_target(
-        session, user.id, payload.project_id, payload.metric_code, payload.target_value
+        session, pf_key_id, payload.project_id,
+        payload.metric_code, payload.target_value,
     )
     return {"status": "ok"}
 
@@ -1079,7 +1097,10 @@ async def delete_ops_project_target_ep(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    await store.delete_ops_project_target(session, user.id, project_id, metric_code)
+    pf_key_id = _require_user_pf_key(user)
+    await store.delete_ops_project_target(
+        session, pf_key_id, project_id, metric_code,
+    )
     return {"status": "ok"}
 
 
@@ -1193,7 +1214,7 @@ async def sync_ops_metrics_from_dodois(
             not_found.append(pid)
             continue
         await store.upsert_ops_metric(
-            session, user.id, pid, period,
+            session, user.planfact_key_id, pid, period,
             orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
             products_per_h=s.get("productsPerLaborHour"),
             revenue_per_person_h=s.get("salesPerLaborHour"),

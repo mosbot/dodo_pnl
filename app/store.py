@@ -329,10 +329,11 @@ async def set_user_visibility(
 # ---------- Ops metrics ----------
 
 async def list_ops_metrics(
-    session: AsyncSession, owner_id: int,
+    session: AsyncSession, planfact_key_id: int,
     period_month: Optional[str] = None, project_id: Optional[str] = None,
 ) -> dict:
-    stmt = select(OpsMetric).where(OpsMetric.owner_id == owner_id)
+    """Ops-метрики ключа (S11.6: per planfact_key_id)."""
+    stmt = select(OpsMetric).where(OpsMetric.planfact_key_id == planfact_key_id)
     if period_month:
         stmt = stmt.where(OpsMetric.period_month == period_month)
     if project_id:
@@ -357,7 +358,7 @@ async def list_ops_metrics(
 
 
 async def upsert_ops_metric(
-    session: AsyncSession, owner_id: int, project_id: str, period_month: str,
+    session: AsyncSession, planfact_key_id: int, project_id: str, period_month: str,
     *,
     orders_per_courier_h: Optional[float] = None,
     products_per_h: Optional[float] = None,
@@ -377,14 +378,15 @@ async def upsert_ops_metric(
         )
 
     stmt = select(OpsMetric).where(
-        OpsMetric.owner_id == owner_id,
+        OpsMetric.planfact_key_id == planfact_key_id,
         OpsMetric.project_id == project_id,
         OpsMetric.period_month == period_month,
     )
     existing = (await session.execute(stmt)).scalar_one_or_none()
     if existing is None:
         session.add(OpsMetric(
-            owner_id=owner_id, project_id=project_id, period_month=period_month,
+            planfact_key_id=planfact_key_id,
+            project_id=project_id, period_month=period_month,
             orders_per_courier_h=orders_per_courier_h,
             products_per_h=products_per_h,
             revenue_per_person_h=revenue_per_person_h,
@@ -409,10 +411,10 @@ async def upsert_ops_metric(
 
 
 async def delete_ops_metric(
-    session: AsyncSession, owner_id: int, project_id: str, period_month: str
+    session: AsyncSession, planfact_key_id: int, project_id: str, period_month: str
 ) -> None:
     stmt = delete(OpsMetric).where(
-        OpsMetric.owner_id == owner_id,
+        OpsMetric.planfact_key_id == planfact_key_id,
         OpsMetric.project_id == project_id,
         OpsMetric.period_month == period_month,
     )
@@ -420,20 +422,16 @@ async def delete_ops_metric(
 
 
 async def ops_last_synced_at(
-    session: AsyncSession, owner_id: int, period_month: str,
+    session: AsyncSession, planfact_key_id: int, period_month: str,
 ) -> Optional[datetime]:
-    """max(updated_at) по ops_metrics за период. None если синков не было.
-
-    Используется для индикатора свежести в /api/pnl: показываем, когда
-    последний раз тянули из Dodo IS этот месяц. Все строки месяца обычно
-    апдейтятся одновременно (один sync run обходит все юниты), поэтому
-    max'а достаточно — точное распределение per-project не нужно для UI.
-    """
+    """max(updated_at) по ops_metrics ключа за период. None если синков
+    не было. После S11.6 общий для всех юзеров одного PF-ключа: один
+    юзер запустил синк — все остальные видят свежий бейдж."""
     from sqlalchemy import func
     stmt = (
         select(func.max(OpsMetric.updated_at))
         .where(
-            OpsMetric.owner_id == owner_id,
+            OpsMetric.planfact_key_id == planfact_key_id,
             OpsMetric.period_month == period_month,
         )
     )
@@ -442,11 +440,11 @@ async def ops_last_synced_at(
 
 
 async def list_ops_metrics_months(
-    session: AsyncSession, owner_id: int, project_id: Optional[str] = None
+    session: AsyncSession, planfact_key_id: int, project_id: Optional[str] = None
 ) -> list[str]:
     stmt = (
         select(OpsMetric.period_month)
-        .where(OpsMetric.owner_id == owner_id)
+        .where(OpsMetric.planfact_key_id == planfact_key_id)
         .distinct()
         .order_by(OpsMetric.period_month.desc())
     )
@@ -456,24 +454,28 @@ async def list_ops_metrics_months(
     return [m for (m,) in result.all()]
 
 
-# ---------- Ops targets ----------
+# ---------- Ops targets (per PF-key, S11.6) ----------
 
 async def list_ops_targets(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int
 ) -> dict[str, float]:
-    stmt = select(OpsTarget).where(OpsTarget.owner_id == owner_id)
+    stmt = select(OpsTarget).where(OpsTarget.planfact_key_id == planfact_key_id)
     result = await session.execute(stmt)
     return {t.metric_code: t.target_value for t in result.scalars()}
 
 
 async def upsert_ops_target(
-    session: AsyncSession, owner_id: int, metric_code: str, target_value: float
+    session: AsyncSession, planfact_key_id: int,
+    metric_code: str, target_value: float,
 ) -> None:
     stmt = (
         pg_insert(OpsTarget)
-        .values(owner_id=owner_id, metric_code=metric_code, target_value=target_value)
+        .values(
+            planfact_key_id=planfact_key_id,
+            metric_code=metric_code, target_value=target_value,
+        )
         .on_conflict_do_update(
-            index_elements=["owner_id", "metric_code"],
+            index_elements=["planfact_key_id", "metric_code"],
             set_={"target_value": target_value, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -481,20 +483,24 @@ async def upsert_ops_target(
 
 
 async def delete_ops_target(
-    session: AsyncSession, owner_id: int, metric_code: str
+    session: AsyncSession, planfact_key_id: int, metric_code: str
 ) -> None:
     stmt = delete(OpsTarget).where(
-        OpsTarget.owner_id == owner_id, OpsTarget.metric_code == metric_code
+        OpsTarget.planfact_key_id == planfact_key_id,
+        OpsTarget.metric_code == metric_code,
     )
     await session.execute(stmt)
 
 
-# ---------- Ops project targets ----------
+# ---------- Ops project targets (per PF-key, S11.6) ----------
 
 async def list_ops_project_targets(
-    session: AsyncSession, owner_id: int, project_id: Optional[str] = None
+    session: AsyncSession, planfact_key_id: int,
+    project_id: Optional[str] = None,
 ) -> list[dict]:
-    stmt = select(OpsProjectTarget).where(OpsProjectTarget.owner_id == owner_id)
+    stmt = select(OpsProjectTarget).where(
+        OpsProjectTarget.planfact_key_id == planfact_key_id
+    )
     if project_id:
         stmt = stmt.where(OpsProjectTarget.project_id == project_id)
     result = await session.execute(stmt)
@@ -506,9 +512,9 @@ async def list_ops_project_targets(
 
 
 async def ops_project_targets_map(
-    session: AsyncSession, owner_id: int
+    session: AsyncSession, planfact_key_id: int,
 ) -> dict[str, dict[str, float]]:
-    rows = await list_ops_project_targets(session, owner_id)
+    rows = await list_ops_project_targets(session, planfact_key_id)
     out: dict[str, dict[str, float]] = {}
     for r in rows:
         out.setdefault(r["project_id"], {})[r["metric_code"]] = r["target_value"]
@@ -516,17 +522,17 @@ async def ops_project_targets_map(
 
 
 async def upsert_ops_project_target(
-    session: AsyncSession, owner_id: int, project_id: str,
+    session: AsyncSession, planfact_key_id: int, project_id: str,
     metric_code: str, target_value: float,
 ) -> None:
     stmt = (
         pg_insert(OpsProjectTarget)
         .values(
-            owner_id=owner_id, project_id=project_id,
+            planfact_key_id=planfact_key_id, project_id=project_id,
             metric_code=metric_code, target_value=target_value,
         )
         .on_conflict_do_update(
-            index_elements=["owner_id", "project_id", "metric_code"],
+            index_elements=["planfact_key_id", "project_id", "metric_code"],
             set_={"target_value": target_value, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -534,10 +540,11 @@ async def upsert_ops_project_target(
 
 
 async def delete_ops_project_target(
-    session: AsyncSession, owner_id: int, project_id: str, metric_code: str
+    session: AsyncSession, planfact_key_id: int,
+    project_id: str, metric_code: str,
 ) -> None:
     stmt = delete(OpsProjectTarget).where(
-        OpsProjectTarget.owner_id == owner_id,
+        OpsProjectTarget.planfact_key_id == planfact_key_id,
         OpsProjectTarget.project_id == project_id,
         OpsProjectTarget.metric_code == metric_code,
     )

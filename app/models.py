@@ -201,11 +201,17 @@ class UserProjectVisibility(Base):
 # ---------- Ops metrics ----------
 
 class OpsMetric(Base):
-    """Операционные метрики на месяц. PK (owner_id, project_id, period_month)."""
+    """Операционные метрики на месяц. PK (planfact_key_id, project_id, period_month).
+
+    S11.6: с owner_id переехало на planfact_key_id — данные в Dodo IS не
+    зависят от пользователя, поэтому делим один синк на всех юзеров ключа.
+    """
     __tablename__ = "ops_metrics"
 
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     period_month: Mapped[str] = mapped_column(String(7), primary_key=True)
@@ -221,18 +227,20 @@ class OpsMetric(Base):
     )
 
     __table_args__ = (
-        Index("ix_ops_metrics_owner_period", "owner_id", "period_month"),
+        Index("ix_ops_metrics_pfkey_period", "planfact_key_id", "period_month"),
     )
 
 
 # ---------- Ops targets ----------
 
 class OpsTarget(Base):
-    """Дефолтный таргет ops-метрики."""
+    """Дефолтный таргет ops-метрики на уровне PF-ключа."""
     __tablename__ = "ops_targets"
 
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
     target_value: Mapped[float] = mapped_column(Float, nullable=False)
@@ -243,11 +251,13 @@ class OpsTarget(Base):
 
 
 class OpsProjectTarget(Base):
-    """Override ops-таргета на конкретный проект."""
+    """Override ops-таргета на конкретный проект под PF-ключом."""
     __tablename__ = "ops_project_targets"
 
-    owner_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
     )
     project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     metric_code: Mapped[str] = mapped_column(String(32), primary_key=True)
