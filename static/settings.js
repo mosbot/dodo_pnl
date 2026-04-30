@@ -95,7 +95,7 @@ function flashErr(inputEl) {
   setTimeout(() => inputEl.classList.remove('cell-flash-err'), 1500);
 }
 
-// ---------- Tabs (Профиль / Интеграции / Структура / Таргеты / Пользователи) ----------
+// ---------- Tabs (Профиль / Интеграции / Структура / Цели / Пользователи) ----------
 const TABS = ['profile', 'integrations', 'structure', 'metrics', 'targets', 'users'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
@@ -116,7 +116,7 @@ function initTabs() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => showTab(btn.dataset.tab));
   });
-  // Стартовая вкладка: localStorage либо «Таргеты» по умолчанию.
+  // Стартовая вкладка: localStorage либо «Цели» по умолчанию.
   // Финальное переключение на «Структуру» — если шаблон ещё не загружен —
   // делается в loadAll() после получения /api/template.
   let saved = null;
@@ -140,8 +140,9 @@ async function loadAll() {
     api('/api/ops-targets'),
     api('/api/template'),
     api('/auth/me'),
+    api('/api/metrics'),
   ]);
-  const [projR, setR, defR, tarR, opsTgR, tplR, meR] = results;
+  const [projR, setR, defR, tarR, opsTgR, tplR, meR, metR] = results;
   const ok = (r, fb) => r.status === 'fulfilled' ? r.value : fb;
   state.me = ok(meR, null);
 
@@ -151,11 +152,13 @@ async function loadAll() {
   const tarResp  = ok(tarR,  { targets: [] });
   const opsTgResp= ok(opsTgR,{ targets: {}, project_targets: [], meta: [] });
   const tplResp  = ok(tplR,  { nodes: [] });
+  const metResp  = ok(metR,  { metrics: [] });
+  state.metrics = metResp.metrics || [];
 
   // Уведомим про упавшие запросы — но не прервём загрузку.
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      const url = ['/api/projects','/api/settings','/api/targets/defaults','/api/targets','/api/ops-targets','/api/template','/auth/me'][i];
+      const url = ['/api/projects','/api/settings','/api/targets/defaults','/api/targets','/api/ops-targets','/api/template','/auth/me','/api/metrics'][i];
       console.error(`[loadAll] ${url} failed:`, r.reason);
     }
   });
@@ -454,25 +457,41 @@ function renderProjects() {
 // ======================================================
 function renderPnlMatrix() {
   const box = el('pnlTargetsMatrix');
-  const metrics = state.targetableMetrics;
+  // S11.7: список метрик в матрице берём из pnl_metrics (фильтр is_target=true,
+  // сортировка по sort_order). Раньше был хардкод ['UC','LC','DC','TC'] —
+  // кастомные метрики (LOSSES, MGMT и т.п.) с флагом «Цель» не попадали сюда.
+  const targetMetrics = (state.metrics || [])
+    .filter(m => m.is_target)
+    .slice()
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const active = state.projects.filter(p => p.is_active);
+
+  if (!targetMetrics.length) {
+    box.innerHTML = `
+      <div class="muted" style="padding:24px;text-align:center;">
+        Нет метрик с включённым флагом «Цель».
+        Перейдите на вкладку «Структура» → секция «Метрики», отметьте чекбокс
+        «Цель» у нужных строк.
+      </div>`;
+    return;
+  }
 
   let html = `<table class="dense-table matrix-table pnl-matrix"><thead>
     <tr class="row-head-main">
       <th class="sticky-col metric-col">Пиццерия</th>`;
-  metrics.forEach(m => html += `
-    <th class="col-proj" title="${esc(state.pnlFullNames[m] || m)}">
-      <div class="ops-h-label">${esc(state.pnlCodes[m] || m)}</div>
-      <div class="ops-h-unit muted">${esc(state.pnlFullNames[m] || '')} · %</div>
+  targetMetrics.forEach(m => html += `
+    <th class="col-proj" title="${esc(m.label || m.code)}">
+      <div class="ops-h-label">${esc(m.code)}</div>
+      <div class="ops-h-unit muted">${esc(m.label || '')} · %</div>
     </th>`);
   html += `</tr>
     <tr class="row-head-target">
       <td class="sticky-col metric-col target-label">Дефолт</td>`;
-  metrics.forEach(m => {
-    const def = state.defaultTargets[m];
+  targetMetrics.forEach(m => {
+    const def = state.defaultTargets[m.code];
     html += `<td class="col-proj">
       <input type="text" class="js-def-target inp-flush inp-right target-input"
-        data-metric="${m}"
+        data-metric="${esc(m.code)}"
         value="${def != null ? fmtPct(def) : ''}" placeholder="—">
     </td>`;
   });
@@ -481,18 +500,18 @@ function renderPnlMatrix() {
 
   if (!active.length) {
     html += `<tr><td class="sticky-col metric-col muted">Нет активных проектов</td>`;
-    metrics.forEach(() => html += `<td class="col-proj"></td>`);
+    targetMetrics.forEach(() => html += `<td class="col-proj"></td>`);
     html += `</tr>`;
   } else {
     active.forEach(p => {
       html += `<tr data-pid="${esc(p.id)}"><td class="sticky-col metric-col">${esc(p.name)}</td>`;
-      metrics.forEach(m => {
-        const pct = state.projectTargets[`${p.id}|${m}`];
+      targetMetrics.forEach(m => {
+        const pct = state.projectTargets[`${p.id}|${m.code}`];
         const hasOverride = pct != null;
-        const def = state.defaultTargets[m];
+        const def = state.defaultTargets[m.code];
         html += `<td class="col-proj ${hasOverride ? 'has-override' : ''}">
           <input type="text" class="js-proj-target inp-flush inp-right"
-            data-pid="${esc(p.id)}" data-metric="${m}"
+            data-pid="${esc(p.id)}" data-metric="${esc(m.code)}"
             value="${hasOverride ? fmtPct(pct) : ''}"
             placeholder="${def != null ? fmtPct(def) : '—'}">
         </td>`;
@@ -1852,7 +1871,7 @@ async function initUsersTab() {
   document.getElementById('ueDelete').addEventListener('click', async () => {
     const id = document.getElementById('ueId').value;
     const username = document.getElementById('ueUsername').value;
-    if (!confirm(`Удалить пользователя ${username}? Это удалит ВСЕ его данные (проекты, таргеты, шаблон).`)) return;
+    if (!confirm(`Удалить пользователя ${username}? Это удалит ВСЕ его данные (проекты, цели, шаблон).`)) return;
     try {
       await api(`/api/admin/users/${id}`, { method: 'DELETE' });
       closeModal('userEditModal');
@@ -1960,6 +1979,7 @@ function renderMetrics() {
         await api(`/api/metrics/${encodeURIComponent(code)}`, { method:'DELETE' });
         await loadMetrics();
         renderMetrics();
+        if (typeof renderPnlMatrix === 'function') renderPnlMatrix();
         toast('Метрика удалена', 'ok');
       } catch (e) { toast('Не удалось удалить: ' + e.message, 'error'); }
     });
@@ -1986,6 +2006,10 @@ async function saveMetricRow(tr) {
     });
     flashOk(tr.querySelector('[data-f=formula]'));
     showFormulaStatus(tr, { ok: true, msg: 'Сохранено' });
+    // Перечитываем метрики и обновляем матрицу «Цели» — состав колонок
+    // зависит от is_target, который только что мог измениться.
+    await loadMetrics();
+    if (typeof renderPnlMatrix === 'function') renderPnlMatrix();
   } catch (e) {
     flashErr(tr.querySelector('[data-f=formula]'));
     showFormulaStatus(tr, { ok: false, msg: e.message });
