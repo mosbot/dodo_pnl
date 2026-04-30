@@ -694,11 +694,16 @@ async def get_pnl(
                 )
             },
             "default_targets": (
-                await store.list_default_targets(session, user.planfact_key_id)
+                # S14.3: учитываем period_month для эффективных таргетов.
+                (await store.effective_targets_for_period(
+                    session, user.planfact_key_id, period_month,
+                ))[1]
                 if user.planfact_key_id else {}
             ),
             "ops_targets": (
-                await store.list_ops_targets(session, user.planfact_key_id)
+                (await store.effective_ops_targets_for_period(
+                    session, user.planfact_key_id, period_month,
+                ))[0]
                 if user.planfact_key_id else {}
             ),
             "ops_metrics_meta": store.OPS_METRICS,
@@ -1169,6 +1174,7 @@ async def get_operations_xlsx(
 @app.get("/api/targets")
 async def list_targets(
     project_id: str | None = None,
+    period_month: str = Query("__default__"),
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -1176,6 +1182,7 @@ async def list_targets(
         return {"targets": []}
     return {"targets": await store.list_targets(
         session, user.planfact_key_id, project_id,
+        period_month=period_month,
     )}
 
 
@@ -1189,6 +1196,7 @@ async def upsert_target(
     await store.upsert_target(
         session, pf_key_id, payload.project_id,
         payload.metric_code, payload.target_pct,
+        period_month=payload.period_month,
     )
     return {"status": "ok"}
 
@@ -1196,11 +1204,14 @@ async def upsert_target(
 @app.delete("/api/targets")
 async def delete_target(
     project_id: str, metric_code: str,
+    period_month: str = Query("__default__"),
     user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
-    await store.delete_target(session, pf_key_id, project_id, metric_code)
+    await store.delete_target(
+        session, pf_key_id, project_id, metric_code, period_month=period_month,
+    )
     return {"status": "ok"}
 
 
@@ -1208,13 +1219,14 @@ async def delete_target(
 
 @app.get("/api/targets/defaults")
 async def list_default_targets(
+    period_month: str = Query("__default__"),
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     if not user.planfact_key_id:
         return {"defaults": {}}
     return {"defaults": await store.list_default_targets(
-        session, user.planfact_key_id,
+        session, user.planfact_key_id, period_month=period_month,
     )}
 
 
@@ -1227,6 +1239,7 @@ async def upsert_default_target(
     pf_key_id = _require_user_pf_key(user)
     await store.upsert_default_target(
         session, pf_key_id, payload.metric_code, payload.target_pct,
+        period_month=payload.period_month,
     )
     return {"status": "ok"}
 
@@ -1234,11 +1247,14 @@ async def upsert_default_target(
 @app.delete("/api/targets/defaults")
 async def delete_default_target(
     metric_code: str,
+    period_month: str = Query("__default__"),
     user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
-    await store.delete_default_target(session, pf_key_id, metric_code)
+    await store.delete_default_target(
+        session, pf_key_id, metric_code, period_month=period_month,
+    )
     return {"status": "ok"}
 
 
@@ -1349,15 +1365,18 @@ async def delete_ops_metric(
 
 @app.get("/api/ops-targets")
 async def list_ops_targets_ep(
+    period_month: str = Query("__default__"),
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     if not user.planfact_key_id:
         return {"targets": {}, "project_targets": [], "meta": store.OPS_METRICS}
     return {
-        "targets": await store.list_ops_targets(session, user.planfact_key_id),
+        "targets": await store.list_ops_targets(
+            session, user.planfact_key_id, period_month=period_month,
+        ),
         "project_targets": await store.list_ops_project_targets(
-            session, user.planfact_key_id
+            session, user.planfact_key_id, period_month=period_month,
         ),
         "meta": store.OPS_METRICS,
     }
@@ -1372,6 +1391,7 @@ async def upsert_ops_target_ep(
     pf_key_id = _require_user_pf_key(user)
     await store.upsert_ops_target(
         session, pf_key_id, payload.metric_code, payload.target_value,
+        period_month=payload.period_month,
     )
     return {"status": "ok"}
 
@@ -1379,11 +1399,14 @@ async def upsert_ops_target_ep(
 @app.delete("/api/ops-targets")
 async def delete_ops_target_ep(
     metric_code: str,
+    period_month: str = Query("__default__"),
     user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
-    await store.delete_ops_target(session, pf_key_id, metric_code)
+    await store.delete_ops_target(
+        session, pf_key_id, metric_code, period_month=period_month,
+    )
     return {"status": "ok"}
 
 
@@ -1397,6 +1420,7 @@ async def upsert_ops_project_target_ep(
     await store.upsert_ops_project_target(
         session, pf_key_id, payload.project_id,
         payload.metric_code, payload.target_value,
+        period_month=payload.period_month,
     )
     return {"status": "ok"}
 
@@ -1404,12 +1428,14 @@ async def upsert_ops_project_target_ep(
 @app.delete("/api/ops-targets/project")
 async def delete_ops_project_target_ep(
     project_id: str, metric_code: str,
+    period_month: str = Query("__default__"),
     user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
     await store.delete_ops_project_target(
         session, pf_key_id, project_id, metric_code,
+        period_month=period_month,
     )
     return {"status": "ok"}
 

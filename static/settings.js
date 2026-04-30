@@ -291,10 +291,18 @@ function initMethodology() {
 }
 
 // ---------- Month picker ----------
+// S14.4: один селектор управляет и факт-ops (за месяц), и месячными
+// целями. По умолчанию '__default__' = «общие цели + факты не показываются»
+// (юзер сначала задаёт общие цели, потом по необходимости делает override
+// на конкретный месяц).
+const TARGETS_DEFAULT_PERIOD = '__default__';
+
 function initMonthSelect() {
   const sel = el('opsMonthSelect');
   const now = new Date();
-  const opts = [];
+  const opts = [
+    { key: TARGETS_DEFAULT_PERIOD, label: 'Все месяцы (общие цели)' },
+  ];
   for (let i = 0; i < 24; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -302,16 +310,52 @@ function initMonthSelect() {
     opts.push({ key, label: label.charAt(0).toUpperCase() + label.slice(1) });
   }
   sel.innerHTML = opts.map(o => `<option value="${o.key}">${esc(o.label)}</option>`).join('');
-  state.currentMonth = opts[0].key;
-  sel.value = state.currentMonth;
+  state.targetsPeriod = TARGETS_DEFAULT_PERIOD;
+  state.currentMonth = opts[1] ? opts[1].key : '';  // первый реальный месяц для подгрузки фактов
+  sel.value = state.targetsPeriod;
   sel.addEventListener('change', async () => {
-    state.currentMonth = sel.value;
-    await loadOpsMetrics();
+    state.targetsPeriod = sel.value;
+    if (sel.value !== TARGETS_DEFAULT_PERIOD) {
+      state.currentMonth = sel.value;
+    }
+    await Promise.all([loadOpsMetrics(), reloadTargets()]);
+    renderPnlMatrix();
     renderOpsMatrix();
   });
 }
 
+// Перезагружает таргеты под выбранный period_month (или __default__).
+async function reloadTargets() {
+  const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
+  const q = `?period_month=${encodeURIComponent(pm)}`;
+  try {
+    const [defR, tarR, opsTgR] = await Promise.all([
+      api('/api/targets/defaults' + q),
+      api('/api/targets' + q),
+      api('/api/ops-targets' + q),
+    ]);
+    state.defaultTargets = defR.defaults || {};
+    state.projectTargets = {};
+    (tarR.targets || []).forEach(t => {
+      state.projectTargets[`${t.project_id}|${t.metric_code}`] = t.target_pct;
+    });
+    state.opsTargets = opsTgR.targets || {};
+    state.opsProjectTargets = {};
+    (opsTgR.project_targets || []).forEach(t => {
+      state.opsProjectTargets[`${t.project_id}|${t.metric_code}`] = t.target_value;
+    });
+  } catch (e) {
+    toast('Не удалось загрузить цели: ' + e.message, 'error');
+  }
+}
+
 async function loadOpsMetrics() {
+  // Факты ops показываем только при выбранном конкретном месяце.
+  // В режиме '__default__' показывать неоткуда — оставляем пустой набор.
+  if (!state.currentMonth || state.targetsPeriod === TARGETS_DEFAULT_PERIOD) {
+    state.opsMetrics = {};
+    return;
+  }
   const res = await api(`/api/ops-metrics?period_month=${state.currentMonth}`);
   state.opsMetrics = res.metrics || {};
 }
@@ -540,15 +584,17 @@ function renderPnlMatrix() {
     inp.addEventListener('change', async () => {
       const m = inp.dataset.metric;
       const raw = inp.value.trim();
+      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
       try {
         if (raw === '') {
-          await del(`/api/targets/defaults?metric_code=${m}`);
+          await del(`/api/targets/defaults?metric_code=${m}&period_month=${encodeURIComponent(pm)}`);
           delete state.defaultTargets[m];
         } else {
           const v = parseNum(raw);
           if (v == null) { flashErr(inp); toast('Некорректное значение', 'error'); return; }
           const pct = v / 100;
-          await post('/api/targets/defaults', { metric_code: m, target_pct: pct });
+          await post('/api/targets/defaults',
+            { metric_code: m, target_pct: pct, period_month: pm });
           state.defaultTargets[m] = pct;
         }
         // обновить placeholder в проектных ячейках
@@ -569,16 +615,18 @@ function renderPnlMatrix() {
       const raw = inp.value.trim();
       const key = `${pid}|${m}`;
       const td = inp.closest('td');
+      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
       try {
         if (raw === '') {
-          await del(`/api/targets?project_id=${pid}&metric_code=${m}`);
+          await del(`/api/targets?project_id=${pid}&metric_code=${m}&period_month=${encodeURIComponent(pm)}`);
           delete state.projectTargets[key];
           td.classList.remove('has-override');
         } else {
           const v = parseNum(raw);
           if (v == null) { flashErr(inp); toast('Некорректное значение', 'error'); return; }
           const pct = v / 100;
-          await post('/api/targets', { project_id: pid, metric_code: m, target_pct: pct });
+          await post('/api/targets',
+            { project_id: pid, metric_code: m, target_pct: pct, period_month: pm });
           state.projectTargets[key] = pct;
           td.classList.add('has-override');
         }
@@ -696,14 +744,16 @@ function renderOpsMatrix() {
       const code = inp.dataset.code;
       const raw = inp.value.trim();
       const m = state.opsMeta.find(x => x.code === code) || {};
+      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
       try {
         if (raw === '') {
-          await del(`/api/ops-targets?metric_code=${code}`);
+          await del(`/api/ops-targets?metric_code=${code}&period_month=${encodeURIComponent(pm)}`);
           delete state.opsTargets[code];
         } else {
           const v = parseNum(raw);
           if (v == null) { flashErr(inp); toast('Некорректное значение', 'error'); return; }
-          await post('/api/ops-targets', { metric_code: code, target_value: v });
+          await post('/api/ops-targets',
+            { metric_code: code, target_value: v, period_month: pm });
           state.opsTargets[code] = v;
         }
         // Обновить placeholder в project-ячейках этой метрики
@@ -725,16 +775,17 @@ function renderOpsMatrix() {
       const raw = inp.value.trim();
       const key = `${pid}|${code}`;
       const td = inp.closest('td');
+      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
       try {
         if (raw === '') {
-          await del(`/api/ops-targets/project?project_id=${pid}&metric_code=${code}`);
+          await del(`/api/ops-targets/project?project_id=${pid}&metric_code=${code}&period_month=${encodeURIComponent(pm)}`);
           delete state.opsProjectTargets[key];
           td.classList.remove('has-override');
         } else {
           const v = parseNum(raw);
           if (v == null) { flashErr(inp); toast('Некорректное значение', 'error'); return; }
           await post('/api/ops-targets/project',
-            { project_id: pid, metric_code: code, target_value: v });
+            { project_id: pid, metric_code: code, target_value: v, period_month: pm });
           state.opsProjectTargets[key] = v;
           td.classList.add('has-override');
         }

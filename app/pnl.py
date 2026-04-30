@@ -763,10 +763,14 @@ async def build_pnl(
     ]
 
     # --- цели ---
-    # Таргеты — per planfact_key. Если у юзера нет ключа — пусто.
+    # Таргеты — per planfact_key, с учётом period_month (S14.3).
+    # effective_targets_for_period возвращает таргеты, готовые к использованию:
+    # для конкретного месяца берёт month-specific override → fallback на
+    # общий ('__default__'). Если у юзера нет ключа — пусто.
     if planfact_key_id is not None:
-        raw_targets = await store.list_targets(session, planfact_key_id)
-        default_targets = await store.list_default_targets(session, planfact_key_id)
+        raw_targets, default_targets = await store.effective_targets_for_period(
+            session, planfact_key_id, period_month,
+        )
     else:
         raw_targets = []
         default_targets = {}
@@ -887,14 +891,14 @@ async def build_pnl(
             session, planfact_key_id, period_month,
         )
     # Включаем ops в список проектов и добавляем ops-статус в target_report.
-    ops_targets = (
-        await store.list_ops_targets(session, planfact_key_id)
-        if planfact_key_id is not None else {}
-    )
-    ops_overrides = (
-        await store.ops_project_targets_map(session, planfact_key_id)
-        if planfact_key_id is not None else {}
-    )
+    # S14.3: ops-таргеты тоже разрешаем через monthly fallback.
+    if planfact_key_id is not None:
+        ops_targets, ops_overrides = await store.effective_ops_targets_for_period(
+            session, planfact_key_id, period_month,
+        )
+    else:
+        ops_targets = {}
+        ops_overrides = {}
     ops_target_report: list[dict] = []
     for pid in shown_project_ids:
         values = ops_data.get(pid) or {}

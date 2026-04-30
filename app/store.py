@@ -75,17 +75,32 @@ OPS_METRIC_FIELD_BY_CODE: dict[str, str] = {m["code"]: m["field"] for m in OPS_M
 # ---------- Targets (per-project, per planfact_key) ----------
 # Метрики (UC/LC/DC/...) теперь общие на ключ — таргеты тоже.
 
+# S14.1+: period_month='__default__' = «применяется ко всем месяцам».
+# Конкретный 'YYYY-MM' = override для этого месяца.
+DEFAULT_PERIOD = "__default__"
+
+
 async def list_targets(
     session: AsyncSession, planfact_key_id: int,
     project_id: Optional[str] = None,
+    period_month: str = DEFAULT_PERIOD,
 ) -> list[dict]:
-    stmt = select(Target).where(Target.planfact_key_id == planfact_key_id)
+    """Список per-project таргетов для одного period_month.
+
+    Default-poведение (period_month='__default__'): возвращает «общие»
+    таргеты применимые ко всем месяцам. UI на /settings → Цели в режиме
+    «Все месяцы» использует этот вариант.
+    """
+    stmt = select(Target).where(
+        Target.planfact_key_id == planfact_key_id,
+        Target.period_month == period_month,
+    )
     if project_id:
         stmt = stmt.where(Target.project_id == project_id)
     result = await session.execute(stmt)
     return [
         {"project_id": t.project_id, "metric_code": t.metric_code,
-         "target_pct": t.target_pct}
+         "target_pct": t.target_pct, "period_month": t.period_month}
         for t in result.scalars()
     ]
 
@@ -93,15 +108,17 @@ async def list_targets(
 async def upsert_target(
     session: AsyncSession, planfact_key_id: int, project_id: str,
     metric_code: str, target_pct: float,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = (
         pg_insert(Target)
         .values(
             planfact_key_id=planfact_key_id, project_id=project_id,
             metric_code=metric_code, target_pct=target_pct,
+            period_month=period_month,
         )
         .on_conflict_do_update(
-            index_elements=["planfact_key_id", "project_id", "metric_code"],
+            index_elements=["planfact_key_id", "project_id", "metric_code", "period_month"],
             set_={"target_pct": target_pct, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -111,11 +128,13 @@ async def upsert_target(
 async def delete_target(
     session: AsyncSession, planfact_key_id: int,
     project_id: str, metric_code: str,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = delete(Target).where(
         Target.planfact_key_id == planfact_key_id,
         Target.project_id == project_id,
         Target.metric_code == metric_code,
+        Target.period_month == period_month,
     )
     await session.execute(stmt)
 
@@ -123,10 +142,12 @@ async def delete_target(
 # ---------- Default targets (per planfact_key) ----------
 
 async def list_default_targets(
-    session: AsyncSession, planfact_key_id: int
+    session: AsyncSession, planfact_key_id: int,
+    period_month: str = DEFAULT_PERIOD,
 ) -> dict[str, float]:
     stmt = select(DefaultTarget).where(
-        DefaultTarget.planfact_key_id == planfact_key_id
+        DefaultTarget.planfact_key_id == planfact_key_id,
+        DefaultTarget.period_month == period_month,
     )
     result = await session.execute(stmt)
     return {dt.metric_code: dt.target_pct for dt in result.scalars()}
@@ -135,15 +156,17 @@ async def list_default_targets(
 async def upsert_default_target(
     session: AsyncSession, planfact_key_id: int,
     metric_code: str, target_pct: float,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = (
         pg_insert(DefaultTarget)
         .values(
             planfact_key_id=planfact_key_id,
             metric_code=metric_code, target_pct=target_pct,
+            period_month=period_month,
         )
         .on_conflict_do_update(
-            index_elements=["planfact_key_id", "metric_code"],
+            index_elements=["planfact_key_id", "metric_code", "period_month"],
             set_={"target_pct": target_pct, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -151,13 +174,62 @@ async def upsert_default_target(
 
 
 async def delete_default_target(
-    session: AsyncSession, planfact_key_id: int, metric_code: str
+    session: AsyncSession, planfact_key_id: int, metric_code: str,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = delete(DefaultTarget).where(
         DefaultTarget.planfact_key_id == planfact_key_id,
         DefaultTarget.metric_code == metric_code,
+        DefaultTarget.period_month == period_month,
     )
     await session.execute(stmt)
+
+
+# ---------- Effective targets с fallback (S14.3) ----------
+
+async def effective_targets_for_period(
+    session: AsyncSession, planfact_key_id: int, period_month: Optional[str],
+) -> tuple[list[dict], dict[str, float]]:
+    """Эффективные таргеты для конкретного месяца с fallback к __default__.
+
+    period_month=None или '__default__' → возвращаем только дефолтные таргеты.
+    period_month='YYYY-MM' → берём month-specific, для отсутствующих fallback
+    к default. Этот двухслойный merge нужен в /api/pnl, где юзер видит
+    «цель 32%» по UC: если на месяц задана своя — её показываем, иначе
+    дефолт ключа.
+
+    Возвращает кортеж:
+      (per_project_targets: list[{project_id, metric_code, target_pct}],
+       default_targets:     dict{metric_code: target_pct})
+    """
+    pm = period_month or DEFAULT_PERIOD
+
+    # 1) Defaults: month-specific перебивают __default__
+    defaults_default = await list_default_targets(
+        session, planfact_key_id, period_month=DEFAULT_PERIOD,
+    )
+    defaults: dict[str, float] = dict(defaults_default)
+    if pm != DEFAULT_PERIOD:
+        defaults_month = await list_default_targets(
+            session, planfact_key_id, period_month=pm,
+        )
+        defaults.update(defaults_month)
+
+    # 2) Per-project: month-specific перебивают __default__-rows
+    per_proj_default = await list_targets(
+        session, planfact_key_id, period_month=DEFAULT_PERIOD,
+    )
+    by_key: dict[tuple[str, str], dict] = {
+        (t["project_id"], t["metric_code"]): t for t in per_proj_default
+    }
+    if pm != DEFAULT_PERIOD:
+        per_proj_month = await list_targets(
+            session, planfact_key_id, period_month=pm,
+        )
+        for t in per_proj_month:
+            by_key[(t["project_id"], t["metric_code"])] = t
+
+    return list(by_key.values()), defaults
 
 
 # ---------- App settings (KV) ----------
@@ -457,9 +529,13 @@ async def list_ops_metrics_months(
 # ---------- Ops targets (per PF-key, S11.6) ----------
 
 async def list_ops_targets(
-    session: AsyncSession, planfact_key_id: int
+    session: AsyncSession, planfact_key_id: int,
+    period_month: str = DEFAULT_PERIOD,
 ) -> dict[str, float]:
-    stmt = select(OpsTarget).where(OpsTarget.planfact_key_id == planfact_key_id)
+    stmt = select(OpsTarget).where(
+        OpsTarget.planfact_key_id == planfact_key_id,
+        OpsTarget.period_month == period_month,
+    )
     result = await session.execute(stmt)
     return {t.metric_code: t.target_value for t in result.scalars()}
 
@@ -467,15 +543,17 @@ async def list_ops_targets(
 async def upsert_ops_target(
     session: AsyncSession, planfact_key_id: int,
     metric_code: str, target_value: float,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = (
         pg_insert(OpsTarget)
         .values(
             planfact_key_id=planfact_key_id,
             metric_code=metric_code, target_value=target_value,
+            period_month=period_month,
         )
         .on_conflict_do_update(
-            index_elements=["planfact_key_id", "metric_code"],
+            index_elements=["planfact_key_id", "metric_code", "period_month"],
             set_={"target_value": target_value, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -483,11 +561,13 @@ async def upsert_ops_target(
 
 
 async def delete_ops_target(
-    session: AsyncSession, planfact_key_id: int, metric_code: str
+    session: AsyncSession, planfact_key_id: int, metric_code: str,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = delete(OpsTarget).where(
         OpsTarget.planfact_key_id == planfact_key_id,
         OpsTarget.metric_code == metric_code,
+        OpsTarget.period_month == period_month,
     )
     await session.execute(stmt)
 
@@ -497,42 +577,60 @@ async def delete_ops_target(
 async def list_ops_project_targets(
     session: AsyncSession, planfact_key_id: int,
     project_id: Optional[str] = None,
+    period_month: str = DEFAULT_PERIOD,
 ) -> list[dict]:
     stmt = select(OpsProjectTarget).where(
-        OpsProjectTarget.planfact_key_id == planfact_key_id
+        OpsProjectTarget.planfact_key_id == planfact_key_id,
+        OpsProjectTarget.period_month == period_month,
     )
     if project_id:
         stmt = stmt.where(OpsProjectTarget.project_id == project_id)
     result = await session.execute(stmt)
     return [
         {"project_id": t.project_id, "metric_code": t.metric_code,
-         "target_value": t.target_value}
+         "target_value": t.target_value, "period_month": t.period_month}
         for t in result.scalars()
     ]
 
 
 async def ops_project_targets_map(
     session: AsyncSession, planfact_key_id: int,
+    period_month: str = DEFAULT_PERIOD,
 ) -> dict[str, dict[str, float]]:
-    rows = await list_ops_project_targets(session, planfact_key_id)
+    """Helper для build_pnl: project_id → {metric_code: target_value}.
+
+    period_month: если 'YYYY-MM', результат строится с fallback (month → default).
+    """
     out: dict[str, dict[str, float]] = {}
-    for r in rows:
+    # Сначала default-уровень, потом перетираем month-specific.
+    default_rows = await list_ops_project_targets(
+        session, planfact_key_id, period_month=DEFAULT_PERIOD,
+    )
+    for r in default_rows:
         out.setdefault(r["project_id"], {})[r["metric_code"]] = r["target_value"]
+    if period_month and period_month != DEFAULT_PERIOD:
+        month_rows = await list_ops_project_targets(
+            session, planfact_key_id, period_month=period_month,
+        )
+        for r in month_rows:
+            out.setdefault(r["project_id"], {})[r["metric_code"]] = r["target_value"]
     return out
 
 
 async def upsert_ops_project_target(
     session: AsyncSession, planfact_key_id: int, project_id: str,
     metric_code: str, target_value: float,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = (
         pg_insert(OpsProjectTarget)
         .values(
             planfact_key_id=planfact_key_id, project_id=project_id,
             metric_code=metric_code, target_value=target_value,
+            period_month=period_month,
         )
         .on_conflict_do_update(
-            index_elements=["planfact_key_id", "project_id", "metric_code"],
+            index_elements=["planfact_key_id", "project_id", "metric_code", "period_month"],
             set_={"target_value": target_value, "updated_at": datetime.now(timezone.utc)},
         )
     )
@@ -542,13 +640,39 @@ async def upsert_ops_project_target(
 async def delete_ops_project_target(
     session: AsyncSession, planfact_key_id: int,
     project_id: str, metric_code: str,
+    period_month: str = DEFAULT_PERIOD,
 ) -> None:
     stmt = delete(OpsProjectTarget).where(
         OpsProjectTarget.planfact_key_id == planfact_key_id,
         OpsProjectTarget.project_id == project_id,
         OpsProjectTarget.metric_code == metric_code,
+        OpsProjectTarget.period_month == period_month,
     )
     await session.execute(stmt)
+
+
+async def effective_ops_targets_for_period(
+    session: AsyncSession, planfact_key_id: int,
+    period_month: Optional[str],
+) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    """Эффективные ops-таргеты для конкретного месяца.
+
+    Возвращает (defaults_by_metric, by_project_by_metric) с fallback
+    month → default. Симметрично effective_targets_for_period для P&L.
+    """
+    pm = period_month or DEFAULT_PERIOD
+    defaults_def = await list_ops_targets(
+        session, planfact_key_id, period_month=DEFAULT_PERIOD,
+    )
+    defaults: dict[str, float] = dict(defaults_def)
+    if pm != DEFAULT_PERIOD:
+        defaults.update(
+            await list_ops_targets(session, planfact_key_id, period_month=pm)
+        )
+    proj_map = await ops_project_targets_map(
+        session, planfact_key_id, period_month=pm,
+    )
+    return defaults, proj_map
 
 
 def effective_ops_target(

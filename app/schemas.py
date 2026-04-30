@@ -12,11 +12,16 @@ class TargetIn(BaseModel):
     project_id: str
     metric_code: str = Field(..., description="UC | LC | DC | TC | RENT | MARKETING")
     target_pct: float = Field(..., description="Целевой % от выручки (0.35 = 35%)")
+    period_month: str = Field(
+        default="__default__",
+        description="'YYYY-MM' для месячного override или '__default__' для всех месяцев",
+    )
 
 
 class DefaultTargetIn(BaseModel):
     metric_code: str = Field(..., description="UC | LC | DC | TC | RENT | MARKETING")
     target_pct: float
+    period_month: str = Field(default="__default__")
 
 
 class MetricIn(BaseModel):
@@ -89,6 +94,7 @@ class OpsTargetIn(BaseModel):
     target_value: float = Field(
         ..., description="Целевое значение (floor, факт ≥ цели)"
     )
+    period_month: str = Field(default="__default__")
 
 
 class OpsProjectTargetIn(BaseModel):
@@ -98,6 +104,7 @@ class OpsProjectTargetIn(BaseModel):
         ..., description="ORD_PER_COURIER_H | PROD_PER_H | REV_PER_PERSON_H"
     )
     target_value: float
+    period_month: str = Field(default="__default__")
 
 
 class TemplateNodeCodeIn(BaseModel):
