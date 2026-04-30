@@ -146,7 +146,7 @@ class PlanFactClient:
         params["offset"] = offset
         params["limit"] = limit
         if project_ids:
-            params["filter.projectIds"] = project_ids
+            params["filter.projectId"] = project_ids
         if category_ids:
             params["filter.operationCategoryIds"] = category_ids
         data = await self._request("GET", "/operations", params=params)
@@ -252,7 +252,7 @@ class PlanFactClient:
                 "filter.operationDateEnd": date_end,
             }
         if project_ids:
-            params["filter.projectIds"] = project_ids
+            params["filter.projectId"] = project_ids
         params["limit"] = page_size
 
         async with sem:
