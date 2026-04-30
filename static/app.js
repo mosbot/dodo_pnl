@@ -467,6 +467,7 @@ function renderProjectsSidebar() {
     state.appliedSelection = new Set(state.selectedProjects);
     saveSelection(state.selectedProjects);
     refreshApplyBar();
+    updateOnboardingHints();
     loadPnl();
   });
   // Сбросить — откатить selected к applied (отказ от изменений)
@@ -593,25 +594,62 @@ function showRevHistoryLoading(on) {
 }
 
 // Дружелюбный empty-state — когда ни одной пиццерии не выбрано.
-// Показываем подсказку вместо пустых блоков и обрезанной таблицы.
+// 3-шаговая визуальная инструкция с пометкой «выполнен» для первого
+// шага (период всегда задан по умолчанию). Параллельно поднимаем
+// hint-пилюли в топбаре и сайдбаре через updateOnboardingHints().
 function renderEmptyState() {
   const cards = el('kpiCards');
   if (cards) {
+    const available = state.allProjects.filter(p => p.is_active).length;
+    const periodIsSet = state.mode === 'period'
+      ? !!(state.periodFrom && state.periodTo)
+      : !!state.currentMonth;
     cards.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">←</div>
-        <div class="empty-state-title">Выберите пиццерии</div>
+        <div class="empty-state-title">Дашборд P&amp;L · с чего начать</div>
         <div class="empty-state-sub">
-          В сайдбаре слева отметьте нужные проекты и нажмите «Применить».
-          ${state.allProjects.length
-            ? `Доступно: ${state.allProjects.filter(p => p.is_active).length}.`
-            : ''}
+          Чтобы увидеть отчёт, нужно выбрать период и хотя бы одну пиццерию.
+          ${available ? `В сайдбаре доступно <strong>${available}</strong> проект(ов).` : ''}
+        </div>
+        <div class="empty-state-steps">
+          <div class="empty-state-step ${periodIsSet ? 'is-done' : ''}">
+            <span class="empty-state-step-num">1</span>
+            <div>
+              <div class="empty-state-step-title">Сверху — выбери период</div>
+              <div class="empty-state-step-sub">Один месяц или диапазон. По умолчанию — текущий месяц.</div>
+            </div>
+          </div>
+          <div class="empty-state-step">
+            <span class="empty-state-step-num">2</span>
+            <div>
+              <div class="empty-state-step-title">Слева — отметь пиццерии</div>
+              <div class="empty-state-step-sub">Можно сразу несколько. Чекбоксы группируются по сети.</div>
+            </div>
+          </div>
+          <div class="empty-state-step">
+            <span class="empty-state-step-num">3</span>
+            <div>
+              <div class="empty-state-step-title">Нажми «Применить»</div>
+              <div class="empty-state-step-sub">P&amp;L и метрики появятся через секунду — данные кэшируются.</div>
+            </div>
+          </div>
         </div>
       </div>
     `;
   }
   const table = el('pnlTable');
   if (table) table.innerHTML = '';
+  updateOnboardingHints();
+}
+
+// Поднимает/прячет hint-пилюли в топбаре и сайдбаре. Видимость зависит
+// от того, есть ли применённый выбор пиццерий (state.selectedProjects).
+function updateOnboardingHints() {
+  const empty = state.selectedProjects.size === 0;
+  const periodHint = el('tbHintPeriod');
+  const sbHint = el('sbHintProjects');
+  if (periodHint) periodHint.classList.toggle('hidden', !empty);
+  if (sbHint) sbHint.classList.toggle('hidden', !empty);
 }
 
 // Заполняет блоки карточек и таблицы skeleton-плейсхолдерами
@@ -658,6 +696,7 @@ function render() {
   renderCards();
   renderCharts();
   renderTable();
+  updateOnboardingHints();
 }
 
 // S3.6: бейдж + кнопка «⟳ Метрики» рядом с пикером периода.

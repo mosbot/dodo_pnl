@@ -56,6 +56,11 @@
         </svg>Метрики
       </button>
       <span id="opsFreshness" class="ops-freshness hidden"></span>
+      <span class="tb-hint hidden" id="tbHintPeriod">
+        <span class="tb-hint-arrow">←</span>
+        <span class="tb-hint-num">1</span>
+        Выбери период
+      </span>
     </div>
     <!-- Правый кластер — только глобальная навигация: Настройки и юзер-меню.
          Они никогда не двигаются при смене режима. -->
@@ -70,7 +75,13 @@
 </header>
 
 <aside id="projectsPanel" class="panel">
-  <h3>Проекты</h3>
+  <h3>
+    Проекты
+    <span class="tb-hint tb-hint-inline hidden" id="sbHintProjects">
+      <span class="tb-hint-num">2</span>
+      Отметь нужные
+    </span>
+  </h3>
   <div id="projectsList" class="projects-list"></div>
 </aside>
 
