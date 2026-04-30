@@ -935,16 +935,20 @@ function renderChartsConfigList() {
   const box = el('chartsConfigList');
   if (!box) return;
   const hidden = loadChartsHidden();
+  // ВАЖНО: чекбокс не использует data-chart-id (он есть на самих
+  // chart-box'ах в #chartsGrid), иначе querySelector('[data-chart-id="X"]')
+  // находит чекбокс, а не блок графика — и всё переключение видимости
+  // ломается. Используем отдельное имя data-chart-cb.
   box.innerHTML = CHARTS.map(c => `
     <label class="charts-config-row">
-      <input type="checkbox" data-chart-id="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}>
+      <input type="checkbox" data-chart-cb="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}>
       <span>${esc(c.title)}</span>
     </label>
   `).join('');
   box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       const set = loadChartsHidden();
-      const id = cb.dataset.chartId;
+      const id = cb.dataset.chartCb;
       if (cb.checked) set.delete(id);
       else set.add(id);
       saveChartsHidden(set);
