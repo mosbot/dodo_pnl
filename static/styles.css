@@ -197,12 +197,12 @@ button:hover { background: var(--bg); }
 .ops-freshness {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; line-height: 1.4;
-  padding: 3px 9px;
-  border: 0.5px solid;
+  /* Унифицируем высоту с селектом и кнопкой Метрики (~30px) и
+   * выравниваем border-radius — раньше топбар выглядел как зоопарк
+   * из элементов разной формы и высоты (S3.6 + S12.2 + UX-5). */
+  padding: 5px 10px;
+  border: 1px solid;
   border-radius: 6px;
-  /* Фиксируем ширину чтобы соседи в топбаре (селектор месяца, LFL,
-   * кнопка ⟳ Метрики) не съезжали при смене текста бейджа.
-   * Длиннейший вариант — «не синхронизировано» ~135px + dot + paddings. */
   min-width: 168px;
   justify-content: center;
 }
@@ -217,11 +217,13 @@ button:hover { background: var(--bg); }
 }
 .lfl-pill {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px;
-  font-size: 12px; line-height: 1.3;
+  /* Подгоняем под высоту селекта/кнопки/бейджа (~30px) и выравниваем
+   * скругление с остальным топбаром (раньше было 999px — выбивалось). */
+  padding: 5px 12px;
+  font-size: 13px; line-height: 1.3;
   background: var(--bg, #f9fafb);
   border: 1px solid var(--border, #e5e7eb);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--muted, #6b7280);
   transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
