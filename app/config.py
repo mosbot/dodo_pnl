@@ -8,10 +8,12 @@ class Settings(BaseSettings):
     planfact_base_url: str = "https://api.planfact.io/api/v1"
     # SQLite-путь — legacy single-tenant хранилище. После S2.x уйдёт.
     database_path: str = "./data/pnl.db"
-    # TTL in-memory кэша PlanFact-клиента (LRU). Используется для лёгких
-    # списочных endpoint'ов (/projects, /operationcategories) — они меняются
-    # редко, поэтому 60 минут уместно. /operations кэшируется отдельно
-    # (NO_CACHE_PATHS) и через cache_history по полному месяцу.
+    # TTL in-memory кэша PlanFact-клиента (LRU). Покрывает /projects,
+    # /operationcategories и bulk /operations (тяжёлый — за месяц целиком).
+    # Drill-down list_operations явно идёт мимо кэша (use_cache=False),
+    # т.к. у него меняются offset/limit/category_ids на каждый клик.
+    # Закрытые месяцы дополнительно лежат в cache_history (S3.5) — там
+    # инвалидация ручная через админку «Переоткрыть».
     cache_ttl: int = 3600
     port: int = 8000
     basic_auth_user: str = ""

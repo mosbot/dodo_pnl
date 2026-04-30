@@ -35,10 +35,16 @@ def _unwrap(payload: Any) -> Any:
 class PlanFactClient:
     # LRU-bound: чтобы кэш не разрастался по памяти. operations за месяц могут
     # быть мегабайтами JSON, и без bound память течёт быстро.
-    CACHE_MAX_ENTRIES = 50
-    # Эндпоинты с большим payload не кэшируем вообще — на них короткий TTL
-    # бесполезен (даты/фильтры всегда меняются), а memory cost огромный.
-    NO_CACHE_PATHS = ("/operations",)
+    # Bumped 50→100 (S12.1) — bulk /operations теперь кэшируем, а с
+    # parallel-by-project (по одной записи на проект+период) старого потолка
+    # уже не хватало для типичной сессии.
+    CACHE_MAX_ENTRIES = 100
+    # Раньше тут был ("/operations",) — это ломало TTL для live-месяца
+    # (каждый перезаход в дашборд = повторный bulk-fetch). Сейчас
+    # bulk-fetch (`_fetch_ops_recursive`) кэшируется на общих условиях,
+    # а drill-down `list_operations` явно передаёт use_cache=False
+    # (там offset/limit меняются на каждый клик, кэш бесполезен).
+    NO_CACHE_PATHS: tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -132,6 +138,10 @@ class PlanFactClient:
 
         method="accrual" → фильтр по дате начисления (filter.calculationPeriodDateStart/End);
         method="cash"    → по дате движения денег (filter.operationDateStart/End).
+
+        use_cache=False: при раскрытии суммы юзеру нужны свежие данные, плюс
+        фильтр (offset/limit/category_ids) меняется почти на каждый клик и
+        кэш всё равно бесполезен.
         """
         if method == "accrual":
             params: dict[str, Any] = {
@@ -149,7 +159,9 @@ class PlanFactClient:
             params["filter.projectId"] = project_ids
         if category_ids:
             params["filter.operationCategoryIds"] = category_ids
-        data = await self._request("GET", "/operations", params=params)
+        data = await self._request(
+            "GET", "/operations", params=params, use_cache=False,
+        )
         if isinstance(data, dict):
             return data
         return {"items": data or [], "total": len(data or [])}
