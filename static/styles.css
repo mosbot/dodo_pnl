@@ -18,6 +18,12 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Резервируем место под вертикальный скроллбар всегда — иначе при
+ * переключении skeleton ↔ полный дашборд страница то умещается в
+ * viewport, то нет, scrollbar появляется/исчезает, и весь топбар
+ * (право-выровненный) дёргается на ~15px. */
+html { scrollbar-gutter: stable; }
+
 /* --- Loading: thin running bar at top + skeleton shimmer --- */
 .loading-bar {
   position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 9999;
