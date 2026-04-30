@@ -898,17 +898,22 @@ const CHARTS = [
 // Храним set СКРЫТЫХ id (а не видимых), чтобы при добавлении нового графика
 // он автоматически становился видимым у уже состоявшихся пользователей —
 // если их выбора скрытия в нём нет, то он показывается.
-const CHARTS_HIDDEN_KEY = 'pnlDashboard.chartsHidden';
+// Ключ — per-user, как и selectedProjects: на одном браузере могут логиниться
+// разные юзеры, и каждому удобно видеть свой набор графиков.
+function _chartsHiddenKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.chartsHidden.${u}`;
+}
 
 function loadChartsHidden() {
   try {
-    const raw = localStorage.getItem(CHARTS_HIDDEN_KEY);
+    const raw = localStorage.getItem(_chartsHiddenKey());
     return new Set(raw ? JSON.parse(raw) : []);
   } catch { return new Set(); }
 }
 
 function saveChartsHidden(set) {
-  try { localStorage.setItem(CHARTS_HIDDEN_KEY, JSON.stringify([...set])); } catch {}
+  try { localStorage.setItem(_chartsHiddenKey(), JSON.stringify([...set])); } catch {}
 }
 
 function isChartVisible(id) {
@@ -1084,15 +1089,20 @@ function renderCharts() {
     });
   }
 
-  // --- График 4: Выручка по месяцам · 13 мес (текущий + LY) ---
-  // Источник — /api/revenue-history (PlanFact). Парные стек-бары: для
-  // каждого месяца два столбика — текущий период (3 канала + LY его же
-  // соседним более бледным стеком). Над парой — общий YoY-дельта-бейдж.
-  // В tooltip — % сегмента от суммы месяца, абс. сумма месяца и YoY
-  // дельта самого сегмента (канала).
+  // --- График 4: Выручка по месяцам · 12 мес ---
+  // С LFL: парные стек-бары (текущий + LY) с YoY-аннотациями над парой
+  // и расширенным tooltip (% сегмента, итог месяца, YoY канала).
+  // Без LFL: одиночный стек по каналам, без процентов.
   if (isChartVisible('revHistory12m') && state.revHistory && state.revHistory.months) {
     const hist = state.revHistory;
     const histLabels = hist.months.map(m => monthLabel(m));
+    // Динамический заголовок — отражает режим: при LFL добавляем «· YoY».
+    const histTitleEl = document.querySelector('[data-chart-id="revHistory12m"] h3');
+    if (histTitleEl) {
+      histTitleEl.textContent = (hist.ly && hist.ly.by_channel)
+        ? 'Выручка по месяцам · YoY (текущий + год назад)'
+        : 'Выручка по месяцам · 12 мес';
+    }
     const channelMeta = [
       // Доставка/Ресторан/Самовывоз/Прочее. Для LY используем тот же hue,
       // но более бледный (40% opacity) — так глаз сразу понимает «это год
