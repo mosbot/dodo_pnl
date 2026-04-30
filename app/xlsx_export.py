@@ -286,9 +286,25 @@ def render_operations_xlsx(
         ws.column_dimensions[get_column_letter(i)].width = w
 
     # Данные
+    from datetime import date as _date, datetime as _datetime
     row = header_row + 1
     for op in items:
-        ws.cell(row=row, column=1, value=op.get("date"))
+        # Дату пишем как настоящий date-объект с форматом dd.mm.yyyy —
+        # Excel/Numbers увидят это как дату и смогут сортировать.
+        date_cell = ws.cell(row=row, column=1)
+        raw = op.get("date")
+        parsed: _date | None = None
+        if raw:
+            try:
+                # PlanFact отдаёт 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:MM:SS'.
+                parsed = _datetime.fromisoformat(str(raw)).date()
+            except ValueError:
+                parsed = None
+        if parsed is not None:
+            date_cell.value = parsed
+            date_cell.number_format = "DD.MM.YYYY"
+        else:
+            date_cell.value = raw or ""
         ws.cell(row=row, column=2, value=op.get("category") or "")
         ws.cell(row=row, column=3, value=op.get("project") or "")
         ws.cell(row=row, column=4, value=op.get("contrAgent") or "")

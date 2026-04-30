@@ -55,6 +55,14 @@ const fmtNum = (n, digits = 2) => {
   });
 };
 
+// PlanFact возвращает дату как ISO 'YYYY-MM-DD' или ISO datetime
+// 'YYYY-MM-DDTHH:MM:SS'. Превращаем в человеческий 'dd.mm.yyyy' для drill-in.
+const fmtDateRu = (s) => {
+  if (!s) return '';
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(s);
+};
+
 // --- Month picker ---
 function initMonthSelect() {
   const now = new Date();
@@ -1931,7 +1939,7 @@ async function openDrillDown(code, label, projectId = null, projectName = '', ca
       const comm = op.comment || '';
       // title-tooltip с полным текстом — чтобы клиппинг ellipsis не терял инфу
       html += `<tr>
-        <td>${esc(op.date || '')}</td>
+        <td>${esc(fmtDateRu(op.date))}</td>
         <td title="${esc(cat)}">${esc(cat)}</td>
         <td title="${esc(proj)}">${esc(proj)}</td>
         <td title="${esc(ca)}">${esc(ca)}</td>
