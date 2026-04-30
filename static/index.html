@@ -20,9 +20,12 @@
     <label>Месяц
       <select id="monthSelect" class="month-select"></select>
     </label>
-    <label class="inline">
+    <label class="lfl-toggle" title="Сравнить с тем же месяцем годом ранее">
       <input type="checkbox" id="compareToggle">
-      Сравнить с прошлым годом (LFL)
+      <span class="lfl-pill">
+        <span class="lfl-pill-label">LFL</span>
+        <span class="lfl-pill-state">выкл</span>
+      </span>
     </label>
     <button id="opsRefreshBtn" class="btn-secondary ops-refresh-btn hidden"
             title="Перетянуть ops-метрики из Dodo IS за выбранный месяц">

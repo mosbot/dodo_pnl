@@ -1340,13 +1340,28 @@ function initPfKeysCatalog() {
 
   renderPfKeysTable();
 }
+// UX-3: маппинг visibility_level → человекочитаемая должность.
+// Должно совпадать с пресетами в openEditUserModal/openCreateUserModal.
+const VISIBILITY_LABEL = {
+  10: 'Менеджер пиццерии',
+  30: 'Территориальный',
+  60: 'Директор',
+  100: 'Партнёр',
+};
+function visibilityLabel(level) {
+  if (level == null) return '—';
+  if (VISIBILITY_LABEL[level]) return VISIBILITY_LABEL[level];
+  // нестандартный уровень — отображаем число
+  return String(level);
+}
+
 async function renderUsersTable() {
   const tbody = document.querySelector('#usersTable tbody');
   if (!tbody) return;
   try {
     const users = await api('/api/admin/users');
     if (!users.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="muted">Пользователей нет.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="muted">Пользователей нет.</td></tr>';
       return;
     }
     const fmtDt = (s) => {
@@ -1359,6 +1374,7 @@ async function renderUsersTable() {
         <td><strong>${esc(u.username)}</strong></td>
         <td>${esc(u.display_name || '—')}</td>
         <td>${u.is_admin ? '★ да' : 'нет'}</td>
+        <td>${esc(visibilityLabel(u.visibility_level))}</td>
         <td>${esc(u.dodois_credentials_name || '—')}</td>
         <td>${u.planfact_key_name ? esc(u.planfact_key_name) : '<span class="muted">— не назначен —</span>'}</td>
         <td>${fmtDt(u.created_at)}</td>

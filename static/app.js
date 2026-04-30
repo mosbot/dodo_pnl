@@ -637,8 +637,11 @@ function pctTile(label, proj, target, opts = {}) {
     deltaRow = `<div class="tile-hint"><span class="tile-delta ${cls}">Δ ${sign}${ppStr}пп</span></div>`;
   }
   const hint = opts.hint ? ` <span class="tile-sublabel">${opts.hint}</span>` : '';
+  // UX-4: tile-label обрезается ellipsis на узких плитках («ВЫРУЧКА НА Ч…»);
+  // даём нативный tooltip с полным текстом.
+  const fullLabel = opts.hint ? `${label} ${opts.hint}` : label;
   return `
-    <div class="tile tile-metric ${stateCls}">
+    <div class="tile tile-metric ${stateCls}" title="${esc(fullLabel)}">
       <div class="tile-label">${label}${hint}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">%</span></div>
       <div class="tile-hint">${targetStr}</div>
@@ -665,8 +668,10 @@ function opsTile(meta, val, target, opsRow) {
     countStr = ` <span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
   }
   const targetStr = target != null ? `цель ${fmtNum(target, digits)} ${meta.unit}` : '&nbsp;';
+  // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
+  // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).
   return `
-    <div class="tile tile-metric ${stateCls}">
+    <div class="tile tile-metric ${stateCls}" title="${esc(meta.label)}">
       <div class="tile-label">${meta.label}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span>${countStr}</div>
       <div class="tile-hint">${targetStr}</div>
@@ -683,20 +688,35 @@ function finTile(label, proj, opts = {}) {
     (hasVal && amt < 0 ? 'tile-neg' : (hasVal && amt > 0 ? 'tile-pos' : ''));
 
   let hintHTML;
-  if (typeof proj?.delta_pct === 'number' && proj?.previous_amount != null) {
-    const d = proj.delta_pct * 100;
-    const dCls = d >= 0 ? 'pos' : 'neg';
-    const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
-    const dStr = `<span class="tile-delta ${dCls}">Δ ${sign}${Math.abs(d).toFixed(1).replace('.', ',')}%</span>`;
-    const lyStr = `<span class="tile-ly muted">LY ${fmt(proj.previous_amount)} ₽</span>`;
-    hintHTML = `${dStr} · ${lyStr}`;
+  if (proj?.previous_amount != null && typeof proj.amount === 'number') {
+    // S12.3: % от отрицательной базы вводит в заблуждение
+    // («рост от убытка не есть рост»). Если прошлый период был ≤ 0 —
+    // показываем абсолютную дельту в ₽ вместо процента.
+    const prevAmt = proj.previous_amount;
+    const curAmt = proj.amount;
+    const lyStr = `<span class="tile-ly muted">LY ${fmt(prevAmt)} ₽</span>`;
+    if (prevAmt <= 0) {
+      const absDelta = curAmt - prevAmt;
+      const dCls = absDelta >= 0 ? 'pos' : 'neg';
+      const sign = absDelta > 0 ? '+' : (absDelta < 0 ? '−' : '');
+      const dStr = `<span class="tile-delta ${dCls}">Δ ${sign}${fmt(Math.abs(absDelta))} ₽</span>`;
+      hintHTML = `${dStr} · ${lyStr}`;
+    } else if (typeof proj.delta_pct === 'number') {
+      const d = proj.delta_pct * 100;
+      const dCls = d >= 0 ? 'pos' : 'neg';
+      const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+      const dStr = `<span class="tile-delta ${dCls}">Δ ${sign}${Math.abs(d).toFixed(1).replace('.', ',')}%</span>`;
+      hintHTML = `${dStr} · ${lyStr}`;
+    } else {
+      hintHTML = lyStr;
+    }
   } else if (typeof pct === 'number' && !isNaN(pct)) {
     hintHTML = `${(pct * 100).toFixed(1).replace('.', ',')}% от выручки`;
   } else {
     hintHTML = '&nbsp;';
   }
   return `
-    <div class="tile tile-fin ${cls}">
+    <div class="tile tile-fin ${cls}" title="${esc(label)}">
       <div class="tile-label">${label}</div>
       <div class="tile-value">${fmt(amt)}<span class="tile-unit">₽</span></div>
       <div class="tile-hint">${opts.hideSub && !proj?.previous_amount ? '&nbsp;' : hintHTML}</div>
@@ -1440,7 +1460,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   el('chartsConfigShowAll')?.addEventListener('click', () => setAllChartsVisible(true));
   el('chartsConfigHideAll')?.addEventListener('click', () => setAllChartsVisible(false));
 
-  el('compareToggle').addEventListener('change', loadPnl);
+  // UX-5: обновляем подпись «вкл/выкл» внутри pill — JS-handler рядом
+  // с триггером загрузки данных, чтобы было одно место истины.
+  const _updateLflPill = () => {
+    const stateEl = document.querySelector('.lfl-pill-state');
+    if (stateEl) {
+      stateEl.textContent = el('compareToggle').checked ? 'вкл' : 'выкл';
+    }
+  };
+  el('compareToggle').addEventListener('change', () => {
+    _updateLflPill();
+    loadPnl();
+  });
+  _updateLflPill();
 
   // S3.6/S11.9: «⟳ Метрики» — стартует фоновый синк ops из Dodo IS.
   // POST возвращается мгновенно (202 scheduled), не блокируя UI. Прогресс

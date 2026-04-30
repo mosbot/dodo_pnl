@@ -200,6 +200,45 @@ button:hover { background: var(--bg); }
   min-width: 168px;
   justify-content: center;
 }
+
+/* UX-5: LFL-toggle как сегментная кнопка-pill вместо мелкого чекбокса. */
+.lfl-toggle {
+  display: inline-flex; align-items: center;
+  cursor: pointer; user-select: none;
+}
+.lfl-toggle input[type="checkbox"] {
+  position: absolute; opacity: 0; pointer-events: none;
+}
+.lfl-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px; line-height: 1.3;
+  background: var(--bg, #f9fafb);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 999px;
+  color: var(--muted, #6b7280);
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.lfl-pill-label { font-weight: 600; letter-spacing: .3px; }
+.lfl-pill-state { font-weight: 500; }
+.lfl-pill-state::before {
+  content: ""; display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; opacity: .35;
+  margin-right: 5px; vertical-align: middle;
+}
+.lfl-toggle input:checked + .lfl-pill {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+.lfl-toggle input:checked + .lfl-pill .lfl-pill-state::before { opacity: 1; }
+.lfl-toggle:hover .lfl-pill {
+  border-color: #cbd5e1;
+}
+.lfl-toggle input:focus-visible + .lfl-pill {
+  outline: 2px solid #93c5fd; outline-offset: 2px;
+}
 .ops-freshness::before {
   content: ""; width: 6px; height: 6px; border-radius: 50%;
   display: inline-block; background: currentColor;
