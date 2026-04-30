@@ -134,21 +134,24 @@ async function loadProjects() {
     project_group_title: p.project_group_title ?? null,
     project_group_is_undistributed: !!p.project_group_is_undistributed,
   }));
-  // S10.2: восстанавливаем выбор пользователя из localStorage. Если
-  // сохранённых проектов больше нет в списке (например, кого-то удалили)
-  // — берём пересечение. Если пересечение пустое или сохранённого выбора
-  // нет — falback на «все активные».
+  // S10.2 + S10.3: восстанавливаем выбор пользователя из localStorage.
+  // По умолчанию — пусто (юзер сам выбирает что смотреть). У франчайзи
+  // с 30+ пиццериями включать всё разом — это десятки секунд PF-запроса
+  // на каждом первом открытии. Пусть лучше юзер один раз выберет нужное,
+  // дальше его выбор будет помниться.
   const activeIds = state.allProjects.filter(p => p.is_active).map(p => p.id);
   const saved = loadSavedSelection();
   let initial;
   if (saved !== null) {
     const activeSet = new Set(activeIds);
     initial = saved.filter(id => activeSet.has(id));
-    if (initial.length === 0) initial = activeIds;
+    // Если все сохранённые проекты пропали (редко) — оставляем пусто,
+    // юзер видит подсказку выбрать.
   } else {
-    initial = activeIds;
+    initial = [];
   }
   state.selectedProjects = new Set(initial);
+  state.appliedSelection = new Set(initial);
   renderProjectsSidebar();
 }
 
@@ -353,9 +356,9 @@ function refreshApplyBar() {
 
 async function loadPnl() {
   if (state.selectedProjects.size === 0) {
-    el('pnlTable').innerHTML = '<tr><td style="padding:20px;color:#9ca3af">Выберите хотя бы один проект</td></tr>';
-    el('kpiCards').innerHTML = '';
+    renderEmptyState();
     destroyCharts();
+    showLoading(false);
     return;
   }
   const ds = el('dateStart').value;
@@ -394,6 +397,28 @@ async function loadPnl() {
 function showLoading(on) {
   const bar = el('loadingBar');
   if (bar) bar.hidden = !on;
+}
+
+// Дружелюбный empty-state — когда ни одной пиццерии не выбрано.
+// Показываем подсказку вместо пустых блоков и обрезанной таблицы.
+function renderEmptyState() {
+  const cards = el('kpiCards');
+  if (cards) {
+    cards.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">←</div>
+        <div class="empty-state-title">Выберите пиццерии</div>
+        <div class="empty-state-sub">
+          В сайдбаре слева отметьте нужные проекты и нажмите «Применить».
+          ${state.allProjects.length
+            ? `Доступно: ${state.allProjects.filter(p => p.is_active).length}.`
+            : ''}
+        </div>
+      </div>
+    `;
+  }
+  const table = el('pnlTable');
+  if (table) table.innerHTML = '';
 }
 
 // Заполняет блоки карточек и таблицы skeleton-плейсхолдерами
