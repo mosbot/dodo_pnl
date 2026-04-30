@@ -194,6 +194,11 @@ button:hover { background: var(--bg); }
   padding: 3px 9px;
   border: 0.5px solid;
   border-radius: 6px;
+  /* Фиксируем ширину чтобы соседи в топбаре (селектор месяца, LFL,
+   * кнопка ⟳ Метрики) не съезжали при смене текста бейджа.
+   * Длиннейший вариант — «не синхронизировано» ~135px + dot + paddings. */
+  min-width: 168px;
+  justify-content: center;
 }
 .ops-freshness::before {
   content: ""; width: 6px; height: 6px; border-radius: 50%;
