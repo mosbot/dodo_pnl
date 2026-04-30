@@ -409,9 +409,8 @@ async function loadPnl() {
   // Фон: тянем revenue-history, по приходу — только перерисовываем графики.
   const histParams = new URLSearchParams();
   histParams.set('anchor', state.currentMonth);
-  // 13 месяцев — чтобы график начинался с того же месяца прошлого года
-  // что и сейчас (например, текущий апр'26 → окно апр'25..апр'26).
-  histParams.set('months', '13');
+  // 12 месяцев заканчивая текущим (например, май'25..апр'26).
+  histParams.set('months', '12');
   state.selectedProjects.forEach(p => histParams.append('project_ids', p));
   // ВСЕГДА просим LY-разбивку: новая ветка рендера revHistory12m строит
   // парные бары (текущий+LY) и YoY-аннотации, без LY график бесполезен.
