@@ -13,6 +13,10 @@
       const r = await fetch('/auth/me', { credentials: 'same-origin' });
       if (!r.ok) return;
       const me = await r.json();
+      // Сохраняем username глобально — используется как ключ для per-user
+      // настроек в localStorage (например, выбор пиццерий, S10.2).
+      window.__currentUsername = me.username || null;
+      window.dispatchEvent(new CustomEvent('user-loaded', { detail: me }));
       nameEl.textContent = me.display_name || me.username || '—';
       // Тонкий индикатор админа — звёздочка перед именем
       if (me.is_admin) nameEl.textContent = '★ ' + nameEl.textContent;

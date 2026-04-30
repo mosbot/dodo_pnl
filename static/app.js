@@ -134,11 +134,42 @@ async function loadProjects() {
     project_group_title: p.project_group_title ?? null,
     project_group_is_undistributed: !!p.project_group_is_undistributed,
   }));
-  // По умолчанию в сайдбаре отмечены все активные проекты.
-  state.selectedProjects = new Set(
-    state.allProjects.filter(p => p.is_active).map(p => p.id)
-  );
+  // S10.2: восстанавливаем выбор пользователя из localStorage. Если
+  // сохранённых проектов больше нет в списке (например, кого-то удалили)
+  // — берём пересечение. Если пересечение пустое или сохранённого выбора
+  // нет — falback на «все активные».
+  const activeIds = state.allProjects.filter(p => p.is_active).map(p => p.id);
+  const saved = loadSavedSelection();
+  let initial;
+  if (saved !== null) {
+    const activeSet = new Set(activeIds);
+    initial = saved.filter(id => activeSet.has(id));
+    if (initial.length === 0) initial = activeIds;
+  } else {
+    initial = activeIds;
+  }
+  state.selectedProjects = new Set(initial);
   renderProjectsSidebar();
+}
+
+// Per-user ключ — на одном браузере могут логиниться разные юзеры.
+// state.user.username проставляется в topbar.js через /auth/me.
+function _selectionKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.selectedProjects.${u}`;
+}
+function loadSavedSelection() {
+  try {
+    const raw = localStorage.getItem(_selectionKey());
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map(String) : null;
+  } catch { return null; }
+}
+function saveSelection(set) {
+  try {
+    localStorage.setItem(_selectionKey(), JSON.stringify([...set]));
+  } catch {}
 }
 
 // Состояние свёрнутости групп — сохраняем в localStorage чтобы не сбрасывалось
@@ -298,9 +329,11 @@ function renderProjectsSidebar() {
     });
   });
 
-  // Применить — подтянуть applied к selected, загрузить P&L
+  // Применить — подтянуть applied к selected, сохранить выбор в
+  // localStorage (S10.2) и загрузить P&L.
   document.getElementById('projApplyBtn')?.addEventListener('click', () => {
     state.appliedSelection = new Set(state.selectedProjects);
+    saveSelection(state.selectedProjects);
     refreshApplyBar();
     loadPnl();
   });
@@ -342,11 +375,62 @@ async function loadPnl() {
     params.set('compare_mode', 'lfl');
   }
 
+  // S10.1: skeleton + прогресс-бар. Skeleton рисуется ДО запроса —
+  // юзер сразу видит структуру дашборда, не пустую страницу. После
+  // получения данных render() заменяет skeleton реальным контентом.
+  showLoading(true);
+  renderSkeleton();
+
   try {
     state.pnl = await api('/api/pnl?' + params.toString());
     render();
   } catch (e) {
     toast('Ошибка загрузки: ' + e.message, 'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+function showLoading(on) {
+  const bar = el('loadingBar');
+  if (bar) bar.hidden = !on;
+}
+
+// Заполняет блоки карточек и таблицы skeleton-плейсхолдерами
+// в форме реального контента. Вызывается перед запросом /api/pnl.
+function renderSkeleton() {
+  const cards = el('kpiCards');
+  if (cards) {
+    // Сколько проектов выбрано — столько и карточек-плейсхолдеров.
+    const n = Math.max(1, state.selectedProjects.size);
+    cards.innerHTML = Array.from({length: n}, () => `
+      <div class="card-skel">
+        <span class="skel skel-title"></span>
+        <span class="skel skel-section"></span>
+        <div class="skel-fin">
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+        </div>
+        <span class="skel skel-section"></span>
+        <div class="skel-tiles">
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
+        </div>
+      </div>
+    `).join('');
+  }
+  const table = el('pnlTable');
+  if (table) {
+    // 8 пустых строк имитируют будущую детализацию.
+    const cols = Math.max(2, state.selectedProjects.size + 2);
+    const cells = Array.from({length: cols}, () =>
+      '<td><span class="skel-cell" style="width:80%;"></span></td>').join('');
+    table.innerHTML = Array.from({length: 8}, () =>
+      `<tr class="table-skel-row">${cells}</tr>`).join('');
   }
 }
 
@@ -1324,6 +1408,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   try {
+    // Дождёмся загрузки профиля юзера, чтобы _selectionKey() ключевался
+    // именно по нему (S10.2). Если /auth/me долго отвечает — стартуем
+    // через 800мс по таймауту чтобы не блокировать дашборд.
+    await Promise.race([
+      new Promise(r => window.addEventListener('user-loaded', r, { once: true })),
+      new Promise(r => setTimeout(r, 800)),
+    ]);
     await loadProjects();
     await loadPnl();
   } catch (e) {

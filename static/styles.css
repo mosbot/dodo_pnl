@@ -18,6 +18,58 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* --- Loading: thin running bar at top + skeleton shimmer --- */
+.loading-bar {
+  position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 9999;
+  background: linear-gradient(90deg, transparent 0%, var(--success) 50%, transparent 100%);
+  background-size: 50% 100%; background-repeat: no-repeat;
+  animation: loading-bar-slide 1.2s linear infinite;
+  pointer-events: none;
+}
+@keyframes loading-bar-slide {
+  0%   { background-position: -50% 0; }
+  100% { background-position: 150% 0; }
+}
+
+@keyframes skel-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skel {
+  background: linear-gradient(90deg, #ecedef 25%, #f5f6f7 50%, #ecedef 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* Skeleton-карточка: повторяет структуру реальной (см. .card) */
+.card-skel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid #d1d5db;
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-height: 220px;
+}
+.card-skel .skel-title { width: 50%; height: 14px; margin-bottom: 14px; display: block; }
+.card-skel .skel-section { width: 40%; height: 10px; margin: 8px 0 10px; display: block; }
+.card-skel .skel-fin { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.card-skel .skel-fin > div { background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+.card-skel .skel-fin .skel-l { width: 40%; height: 9px; margin-bottom: 8px; display: block; }
+.card-skel .skel-fin .skel-v { width: 70%; height: 18px; display: block; }
+.card-skel .skel-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.card-skel .skel-tiles > div { background: var(--bg); border-radius: 6px; padding: 6px 8px; }
+.card-skel .skel-tiles .skel-l { width: 40%; height: 8px; margin-bottom: 5px; display: block; }
+.card-skel .skel-tiles .skel-v { width: 60%; height: 14px; display: block; }
+
+/* Skeleton-таблица детализации */
+.table-skel-row td { padding: 6px 10px; border-bottom: 1px solid var(--border-light); }
+.table-skel-row .skel-cell { display: block; height: 10px; border-radius: 3px;
+  background: linear-gradient(90deg, #ecedef 25%, #f5f6f7 50%, #ecedef 75%);
+  background-size: 200% 100%; animation: skel-shimmer 1.4s ease-in-out infinite; }
+
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
