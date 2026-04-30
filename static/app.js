@@ -503,6 +503,10 @@ async function loadPnl() {
   // (cache_history, ops_freshness и т.п.).
   if (state.mode === 'month') {
     params.set('period_month', state.currentMonth);
+  } else {
+    // S13.2/S13.4: в Период просим помесячный breakdown — детализация
+    // по статьям отрисуется с колонками-месяцами.
+    params.set('group_by', 'month');
   }
   state.selectedProjects.forEach(p => params.append('project_ids', p));
 
@@ -1030,7 +1034,9 @@ function renderCards() {
       return pctTile(m.label, ln.projects[p.id], targetFor(p.id, m.code), opts);
     }).filter(Boolean).join('');
 
-    const opsTiles = opsMeta
+    // S13.3: ops-метрики берутся из Dodo IS per period_month и не имеют
+    // смысла за многомесячный период — прячем плитки целиком в Период-режиме.
+    const opsTiles = (state.mode === 'period') ? '' : opsMeta
       .map(om => opsTile(om, ops[om.field], opsTargets[om.code], ops))
       .join('');
 
@@ -1618,10 +1624,23 @@ function renderTemplateTable(nodes) {
   const hideZerosBtn = `<label class="tree-toolbtn-check"><input type="checkbox" id="tplHideZeros" ${hideZeros ? 'checked' : ''}> скрыть нули</label>`;
   const toolbar = `<div class="tree-toolbar">${expandAllBtn}${collapseAllBtn}${hideZerosBtn}</div>`;
 
+  // S13.4: в Период детализация группируется по месяцам, а не по проектам.
+  // Колонки = месяцы из state.pnl.months_in_range + Итого. Per-project
+  // breakdown в Период не отображается (юзер так попросил).
+  const periodView = state.mode === 'period' && Array.isArray(state.pnl?.months_in_range);
+  const periodMonths = periodView ? state.pnl.months_in_range : [];
+  const monthlyData = periodView ? (state.pnl.monthly || {}) : {};
+
   let thead = '<thead><tr>';
   thead += `<th class="tree-col-head">Статья${toolbar}</th>`;
-  projects.forEach(p => thead += `<th title="${esc(p.name)}">${esc(p.name)}</th>`);
-  thead += '<th title="Сумма по выбранным пиццериям">Итого</th></tr></thead>';
+  if (periodView) {
+    periodMonths.forEach(m => {
+      thead += `<th title="${esc(monthLabel(m))}">${esc(monthLabel(m))}</th>`;
+    });
+  } else {
+    projects.forEach(p => thead += `<th title="${esc(p.name)}">${esc(p.name)}</th>`);
+  }
+  thead += '<th title="Сумма за весь период">Итого</th></tr></thead>';
 
   // Видимость строки = все её предки в expanded.
   const nodeById = new Map(nodes.map(n => [n.id, n]));
@@ -1687,28 +1706,54 @@ function renderTemplateTable(nodes) {
     const catIds = Array.isArray(n.category_ids) ? n.category_ids : [];
     const catIdsJson = esc(JSON.stringify(catIds));
 
-    projects.forEach(p => {
-      const proj = (n.projects || {})[p.id] || {};
-      const amt = proj.amount;
-      const pct = proj.pct_of_revenue;
-      let cell;
-      if (isPctRow) {
-        const valCls = (pct != null && pct < 0) ? 'neg' : '';
-        cell = `<span class="${valCls}">${fmtPctAbs(pct)}</span>`;
-      } else {
-        const valCls = (amt != null && amt < 0) ? 'neg' : '';
-        cell = `<span class="${valCls}">${fmt(amt)}</span>`;
-        // % показываем для расходных строк (не выручки), и не для calc-итогов «без формулы»
-        if (pct != null && n.pnl_code !== 'REVENUE') {
-          cell += `<span class="pct">${fmtPctAbs(pct)}</span>`;
+    if (periodView) {
+      // S13.4: одна колонка на каждый месяц периода. Значения берём из
+      // monthly[m].by_node[n.id]. Per-project breakdown в Период не показываем.
+      // Для calc-pct-строк (Маржинальность %, Рентабельность %) у нас
+      // нет помесячного процента — пишем «—», т.к. среднее % за месяц
+      // не совпадает с месячным фактом.
+      periodMonths.forEach(m => {
+        const byNode = (monthlyData[m] && monthlyData[m].by_node) || {};
+        const amt = byNode[String(n.id)];
+        let cell;
+        if (isPctRow) {
+          cell = `<span>—</span>`;
+        } else {
+          const valCls = (amt != null && amt < 0) ? 'neg' : '';
+          cell = `<span class="${valCls}">${fmt(amt)}</span>`;
         }
-      }
-      const cellCls = isDrillable ? 'cell-clickable' : '';
-      const cellAttrs = isDrillable
-        ? ` data-pid="${p.id}" data-pname="${esc(p.name)}" data-amt="${amt ?? ''}" data-cat-ids="${catIdsJson}"`
-        : '';
-      tbody += `<td class="${cellCls}"${cellAttrs}>${cell}</td>`;
-    });
+        // Drill за этот месяц: data-month=YYYY-MM, dates переопределим
+        // в обработчике клика. data-pid пуст — period-режим без проектной разбивки.
+        const cellCls = isDrillable ? 'cell-clickable' : '';
+        const cellAttrs = isDrillable
+          ? ` data-month="${m}" data-pid="" data-pname="Итого · ${esc(monthLabel(m))}" data-amt="${amt ?? ''}" data-cat-ids="${catIdsJson}"`
+          : '';
+        tbody += `<td class="${cellCls}"${cellAttrs}>${cell}</td>`;
+      });
+    } else {
+      projects.forEach(p => {
+        const proj = (n.projects || {})[p.id] || {};
+        const amt = proj.amount;
+        const pct = proj.pct_of_revenue;
+        let cell;
+        if (isPctRow) {
+          const valCls = (pct != null && pct < 0) ? 'neg' : '';
+          cell = `<span class="${valCls}">${fmtPctAbs(pct)}</span>`;
+        } else {
+          const valCls = (amt != null && amt < 0) ? 'neg' : '';
+          cell = `<span class="${valCls}">${fmt(amt)}</span>`;
+          // % показываем для расходных строк (не выручки), и не для calc-итогов «без формулы»
+          if (pct != null && n.pnl_code !== 'REVENUE') {
+            cell += `<span class="pct">${fmtPctAbs(pct)}</span>`;
+          }
+        }
+        const cellCls = isDrillable ? 'cell-clickable' : '';
+        const cellAttrs = isDrillable
+          ? ` data-pid="${p.id}" data-pname="${esc(p.name)}" data-amt="${amt ?? ''}" data-cat-ids="${catIdsJson}"`
+          : '';
+        tbody += `<td class="${cellCls}"${cellAttrs}>${cell}</td>`;
+      });
+    }
 
     const tot = n.total || {};
     let totalCell;
@@ -1762,6 +1807,8 @@ function renderTemplateTable(nodes) {
   // === wire drill on leaf-cells ===
   // Кликабельны отдельные ячейки, а не вся строка — чтобы фильтр по проекту
   // совпадал с колонкой, по которой кликнули. Ячейка «Итого» — без фильтра по проекту.
+  // S13.4: в Период колонки = месяцы, drill ограничивается этим месяцем
+  // (data-month). Клик на «Итого» → drill за весь период.
   table.querySelectorAll('td.cell-clickable').forEach(td => {
     td.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1772,7 +1819,18 @@ function renderTemplateTable(nodes) {
       try { catIds = JSON.parse(td.dataset.catIds || '[]') || []; } catch {}
       const rawAmt = td.dataset.amt;
       const expectedAmt = rawAmt !== '' && rawAmt != null ? Number(rawAmt) : null;
-      openDrillDown(code, title, td.dataset.pid || null, td.dataset.pname || '', catIds, expectedAmt);
+      // Если ячейка из колонки месяца (Period mode) — переопределяем диапазон.
+      let dateOverride = null;
+      const cellMonth = td.dataset.month;
+      if (cellMonth) {
+        const [y, m] = cellMonth.split('-').map(Number);
+        const last = new Date(y, m, 0).getDate();
+        dateOverride = {
+          start: `${cellMonth}-01`,
+          end: `${cellMonth}-${String(last).padStart(2, '0')}`,
+        };
+      }
+      openDrillDown(code, title, td.dataset.pid || null, td.dataset.pname || '', catIds, expectedAmt, dateOverride);
     });
   });
 }
@@ -1789,14 +1847,17 @@ function esc(s) {
 // categoryIds — конкретные id статей PlanFact, по которым фильтруем операции.
 //   Если пусто — фильтра по статье нет (fallback для агрегатной таблицы).
 // expectedAmount — сумма из таблицы P&L (для подсветки расхождения с операциями).
-async function openDrillDown(code, label, projectId = null, projectName = '', categoryIds = [], expectedAmount = null) {
+async function openDrillDown(code, label, projectId = null, projectName = '', categoryIds = [], expectedAmount = null, dateOverride = null) {
   const prefix = projectName ? `${projectName} · ` : '';
   el('drillTitle').textContent = `Операции · ${prefix}${label}`;
   el('drillBody').innerHTML = '<p class="muted">Загрузка…</p>';
   el('drillModal').classList.remove('hidden');
 
-  const ds = el('dateStart').value;
-  const de = el('dateEnd').value;
+  // S13.4: dateOverride переопределяет период drill — клик на ячейку
+  // конкретного месяца в Период-режиме открывает только этот месяц,
+  // а не весь диапазон.
+  const ds = dateOverride?.start || el('dateStart').value;
+  const de = dateOverride?.end || el('dateEnd').value;
   const params = new URLSearchParams({ date_start: ds, date_end: de, limit: '500' });
   if (projectId) {
     params.set('project_id', projectId);

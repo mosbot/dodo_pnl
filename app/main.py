@@ -632,6 +632,35 @@ async def _resolve_project_filter(
     return sorted(active) if active else []
 
 
+def _months_between(date_start: str, date_end: str) -> list[str]:
+    """Список 'YYYY-MM' для всех ПОЛНЫХ календарных месяцев в [date_start..date_end].
+
+    Период «март-апрель 2026» (2026-03-01..2026-04-30) → ['2026-03', '2026-04'].
+    Частичные месяцы по краям не включаются — фронт всегда передаёт
+    full-month диапазоны через monthSelectFrom/To.
+    """
+    from datetime import date
+    from calendar import monthrange
+    try:
+        d1 = date.fromisoformat(date_start)
+        d2 = date.fromisoformat(date_end)
+    except ValueError:
+        return []
+    out: list[str] = []
+    y, m = d1.year, d1.month
+    while date(y, m, 1) <= d2:
+        last_day = monthrange(y, m)[1]
+        m_end = date(y, m, last_day)
+        m_start = date(y, m, 1)
+        if m_start >= d1 and m_end <= d2:
+            out.append(f"{y:04d}-{m:02d}")
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+    return out
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -642,6 +671,8 @@ async def get_pnl(
     compare_mode: str = Query("lfl", regex="^(lfl|mom)$"),
     method: str = Query("accrual", regex="^(accrual|cash)$"),
     period_month: str | None = Query(None, description="'YYYY-MM'. Если не задан — выводится из дат."),
+    group_by: str | None = Query(None, regex="^(month)$",
+        description="Если 'month' — добавляет помесячный breakdown в response.monthly."),
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -711,7 +742,52 @@ async def get_pnl(
         and is_ops_sync_running(user.planfact_key_id, pm)
     ):
         result["ops_freshness"]["is_syncing"] = True
+
+    # S13.2: помесячный breakdown. Запрашивается фронтом в режиме «Период»
+    # (group_by=month). Каждый месяц считается отдельным вызовом
+    # _build_pnl_for_period — он уже умеет читать cache_history для
+    # замороженных и держит result-LRU, поэтому повторные запросы быстры.
+    if group_by == "month":
+        try:
+            months_in_range = _months_between(date_start, date_end)
+        except Exception:
+            months_in_range = []
+        # Собираем {month: {by_node: {nodeId: amount}, by_code: {code: amount}}};
+        # project breakdown в Period не показываем — на фронте детализация
+        # группируется по месяцам. by_node нужен для template-tree (узлы без
+        # pnl_code), by_code — для агрегатной таблицы.
+        monthly_map: dict[str, dict] = {}
+        for m in months_in_range:
+            ms, me = _month_range_dates(m)
+            try:
+                month_result = await _build_pnl_for_period(
+                    session=session, user=user, pf=pf,
+                    date_start=ms, date_end=me, period_month=m,
+                    project_filter=effective_projects, method=method,
+                )
+            except PlanFactError as e:
+                raise HTTPException(502, str(e))
+            by_node: dict[str, float | None] = {}
+            for tn in month_result.get("template_lines", []) or []:
+                nid = tn.get("id")
+                if nid is not None:
+                    by_node[str(nid)] = (tn.get("total") or {}).get("amount")
+            by_code: dict[str, float | None] = {
+                ln["code"]: (ln.get("total") or {}).get("amount")
+                for ln in month_result.get("lines", []) or []
+            }
+            monthly_map[m] = {"by_node": by_node, "by_code": by_code}
+        result["monthly"] = monthly_map
+        result["months_in_range"] = months_in_range
+
     return result
+
+
+def _month_range_dates(month_key: str) -> tuple[str, str]:
+    """'YYYY-MM' → ('YYYY-MM-01', 'YYYY-MM-<last>')."""
+    from calendar import monthrange
+    y, m = int(month_key[:4]), int(month_key[5:7])
+    return f"{month_key}-01", f"{month_key}-{monthrange(y, m)[1]:02d}"
 
 
 @app.get("/api/revenue-history")
