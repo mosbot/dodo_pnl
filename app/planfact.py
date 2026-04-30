@@ -154,6 +154,11 @@ class PlanFactClient:
             return data
         return {"items": data or [], "total": len(data or [])}
 
+    # Сколько одновременных запросов в PF /operations — общий потолок,
+    # включая parallel-split и parallel-by-project. PF не публикует rate-
+    # limit, но эмпирически 8 параллельных вызовов проходят без 429.
+    MAX_OPS_PARALLEL = 8
+
     async def fetch_all_operations(
         self,
         *,
@@ -166,46 +171,73 @@ class PlanFactClient:
     ) -> list[dict]:
         """Все операции за период — для сборки P&L.
 
-        ВАЖНО (S11.1): PlanFact API игнорирует offset/page — параметры есть
-        в URL, но ответ на любой странице ОДИНАКОВЫЙ. Hard-cap = 10000
-        записей на один вызов. Старая реализация крутила «пагинацию» в
-        цикле и каждый раз получала тот же набор — суммы инфлейтились
-        в N раз, где N = hard_limit/page_size = 20.
+        S11.1: PF API игнорирует offset/page — поэтому если ответ ≥ page_size,
+        режем диапазон дат рекурсивно пополам и тянем половины.
 
-        Чтобы получать честные данные при больших объёмах (>10k операций),
-        режем диапазон рекурсивно пополам по датам. operationId
-        дедуплицируем — на стыках суток PF может вернуть одну операцию
-        в обоих под-диапазонах.
+        S11.2: оптимизация скорости двумя параллелизмами:
+          1. Внутри split — left и right вызовы идут через asyncio.gather
+             (раньше было последовательно).
+          2. При нескольких project_ids — каждый проект тянется
+             отдельным вызовом параллельно. Это резко уменьшает объём
+             данных в каждом запросе (нет cross-project операций) и
+             позволяет складывать ответы быстрее.
 
-        По умолчанию — метод начисления: фильтр filter.calculationPeriodDateStart/End.
-        Возвращаем всё, что сервер согласился отдать под этот период;
-        на клиенте потом будем фильтровать по operationPart.calculationDate,
-        чтобы отнести суммы строго к нужному месяцу.
+        Общий потолок на одновременные PF-запросы — semaphore(MAX_OPS_PARALLEL),
+        чтобы не нарваться на rate-limit.
         """
-        seen_ids: set[Any] = set()
-        all_items: list[dict] = []
-        await self._fetch_ops_recursive(
-            date_start=date_start, date_end=date_end,
-            project_ids=project_ids, method=method,
-            page_size=page_size, hard_limit=hard_limit,
-            seen=seen_ids, out=all_items,
-        )
-        return all_items
+        sem = asyncio.Semaphore(self.MAX_OPS_PARALLEL)
+
+        if not project_ids or len(project_ids) <= 1:
+            return await self._fetch_ops_recursive(
+                sem=sem,
+                date_start=date_start, date_end=date_end,
+                project_ids=project_ids, method=method,
+                page_size=page_size, hard_limit=hard_limit,
+            )
+
+        # Несколько проектов — параллелим по одному PF-вызову на проект.
+        # PF возвращает операцию, если хотя бы одна часть привязана к
+        # запрошенному проекту, значит cross-project операция придёт во
+        # все запросы где она задействована — дедуплицируем по operationId.
+        async def per_project(pid: str) -> list[dict]:
+            return await self._fetch_ops_recursive(
+                sem=sem,
+                date_start=date_start, date_end=date_end,
+                project_ids=[pid], method=method,
+                page_size=page_size, hard_limit=hard_limit,
+            )
+
+        chunks = await asyncio.gather(*[per_project(p) for p in project_ids])
+
+        seen: set[Any] = set()
+        out: list[dict] = []
+        for batch in chunks:
+            for op in batch:
+                oid = op.get("operationId")
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                out.append(op)
+                if len(out) >= hard_limit:
+                    return out
+        return out
 
     async def _fetch_ops_recursive(
         self,
         *,
+        sem: asyncio.Semaphore,
         date_start: str,
         date_end: str,
         project_ids: list[str] | None,
         method: str,
         page_size: int,
         hard_limit: int,
-        seen: set,
-        out: list[dict],
-    ) -> None:
-        """Рекурсивно тянет операции, делит диапазон если PF вернул
-        ровно page_size (значит мог отсечь хвост)."""
+    ) -> list[dict]:
+        """Рекурсивно тянет операции за диапазон. Если PF отдал ровно
+        page_size — режем пополам и тянем half'ы параллельно через gather.
+
+        Возвращает список уникальных (по operationId) операций.
+        """
         import logging
         log = logging.getLogger("uvicorn.error")
 
@@ -223,25 +255,20 @@ class PlanFactClient:
             params["filter.projectIds"] = project_ids
         params["limit"] = page_size
 
-        data = await self._request("GET", "/operations", params=params)
+        async with sem:
+            data = await self._request("GET", "/operations", params=params)
         items = data.get("items") if isinstance(data, dict) else (data or [])
         if not items:
-            return
+            return []
 
-        appended = 0
-        for op in items:
-            oid = op.get("operationId")
-            if oid in seen:
-                continue
-            seen.add(oid)
-            out.append(op)
-            appended += 1
+        # Если PF отдал < page_size — это полный набор за диапазон, можно
+        # возвращать как есть (дедуп не нужен — внутри одного PF-ответа
+        # operationId уникальны).
+        if len(items) < page_size:
+            return list(items)
 
-        # Если PF отдал ровно лимит — диапазон, скорее всего, обрезан.
-        # Делим пополам и рекурсивно фетчим. Стоп-условие: 1 день, делить
-        # уже некуда (>10k операций за один день в одном проекте — крайне
-        # маловероятно; если случилось — собрали что собрали + warning).
-        if len(items) >= page_size and date_start < date_end:
+        # Получили ровно лимит → возможно хвост обрезан. Делим пополам.
+        if date_start < date_end:
             from datetime import date, timedelta
             try:
                 d1 = date.fromisoformat(date_start)
@@ -249,40 +276,51 @@ class PlanFactClient:
             except ValueError:
                 log.warning("PF ops range %s..%s невалидный — split не делаем",
                             date_start, date_end)
-                return
+                return list(items)
             mid = d1 + (d2 - d1) // 2
             mid_next = mid + timedelta(days=1)
             log.info(
-                "PF /operations вернул %s≥page_size=%s, делю %s..%s на %s..%s + %s..%s",
+                "PF /operations: %s≥page_size=%s, parallel-split %s..%s → %s..%s ‖ %s..%s",
                 len(items), page_size, date_start, date_end,
                 date_start, mid.isoformat(), mid_next.isoformat(), date_end,
             )
-            # Удаляем кэш-ключ исходного диапазона из LRU не нужно —
-            # для /operations кэш отключён (NO_CACHE_PATHS).
-            await self._fetch_ops_recursive(
-                date_start=date_start, date_end=mid.isoformat(),
-                project_ids=project_ids, method=method,
-                page_size=page_size, hard_limit=hard_limit,
-                seen=seen, out=out,
+            left, right = await asyncio.gather(
+                self._fetch_ops_recursive(
+                    sem=sem,
+                    date_start=date_start, date_end=mid.isoformat(),
+                    project_ids=project_ids, method=method,
+                    page_size=page_size, hard_limit=hard_limit,
+                ),
+                self._fetch_ops_recursive(
+                    sem=sem,
+                    date_start=mid_next.isoformat(), date_end=date_end,
+                    project_ids=project_ids, method=method,
+                    page_size=page_size, hard_limit=hard_limit,
+                ),
             )
-            await self._fetch_ops_recursive(
-                date_start=mid_next.isoformat(), date_end=date_end,
-                project_ids=project_ids, method=method,
-                page_size=page_size, hard_limit=hard_limit,
-                seen=seen, out=out,
-            )
-        elif len(items) >= page_size:
-            log.warning(
-                "PF /operations: один день %s вернул %s операций — "
-                "возможно усечение (PF лимит %s).",
-                date_start, len(items), page_size,
-            )
+            # Дедуп union — на стыке суток одна операция может попасть в обе.
+            seen: set[Any] = set()
+            out: list[dict] = []
+            for op in left:
+                oid = op.get("operationId")
+                if oid in seen:
+                    continue
+                seen.add(oid); out.append(op)
+            for op in right:
+                oid = op.get("operationId")
+                if oid in seen:
+                    continue
+                seen.add(oid); out.append(op)
+            return out
 
-        if len(out) >= hard_limit:
-            log.warning(
-                "PF fetch_all_operations упёрся в hard_limit=%s, останавливаюсь",
-                hard_limit,
-            )
+        # date_start == date_end и всё ещё ≥ page_size: один день, делить
+        # уже некуда. Логируем warning, отдаём что есть.
+        log.warning(
+            "PF /operations: один день %s вернул %s операций — возможно "
+            "усечение (PF лимит %s).",
+            date_start, len(items), page_size,
+        )
+        return list(items)
 
     async def _fetch_all_pages(self, path: str, page_size: int = 1000) -> list[dict]:
         """Перебор страниц для /projects, /operationcategories и т.п."""
