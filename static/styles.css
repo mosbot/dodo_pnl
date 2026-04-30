@@ -109,6 +109,9 @@ html { scrollbar-gutter: stable; }
   border: 1px solid #93c5fd;
   border-radius: 999px;
   white-space: nowrap;
+  /* Внутри .panel h3 наследовалось text-transform: uppercase — гасим, чтобы
+     обе подсказки выглядели одинаково (sentence-case). */
+  text-transform: none; letter-spacing: 0;
   animation: tb-hint-bob 1.8s ease-in-out infinite;
 }
 .tb-hint-arrow { font-size: 14px; line-height: 1; }
@@ -180,6 +183,11 @@ body {
 }
 .controls-left, .controls-right {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  /* Safari иначе растягивал .controls-left, и подсказка «Выбери»
+   * улетала к правому краю кластера (в Chrome packing flex-start работал).
+   * Явный flex: 0 0 auto — гарантия, что блок занимает только содержимое. */
+  flex: 0 0 auto;
+  justify-content: flex-start;
 }
 
 /* Топбар: блок текущего пользователя справа.
