@@ -17,8 +17,11 @@
     <span class="muted">· PlanFact</span>
   </div>
   <div class="controls">
-    <!-- Левый кластер — фиксирован относительно brand: переключатель режима
-         и поля выбора периода. Не двигается при скрытии правого кластера. -->
+    <!-- Левый кластер — фиксирован относительно brand. Содержит весь
+         «функциональный» контент: переключатель режима, поля выбора
+         периода и (только в режиме Месяц) контролы LFL / ⟳ Метрики /
+         freshness. Они появляются справа от пикера и «раскрывают»
+         левый кластер. -->
     <div class="controls-left">
       <div class="mode-toggle" id="periodModeToggle" role="tablist" aria-label="Режим выбора периода">
         <button type="button" class="mode-toggle-btn is-active" data-mode="month" role="tab" aria-selected="true">Месяц</button>
@@ -36,11 +39,6 @@
         <span>по</span>
         <select id="monthSelectTo" class="month-select"></select>
       </label>
-    </div>
-    <!-- Правый кластер — прижат к правому краю topbar. Когда LFL/⟳/freshness
-         скрываются (Период), Настройки и юзер-меню остаются на месте,
-         а между левым и правым кластером появляется пустое flex-пространство. -->
-    <div class="controls-right">
       <label class="lfl-toggle" id="lflToggleWrap" title="Сравнить с тем же месяцем годом ранее">
         <input type="checkbox" id="compareToggle">
         <span class="lfl-pill">
@@ -58,6 +56,10 @@
         </svg>Метрики
       </button>
       <span id="opsFreshness" class="ops-freshness hidden"></span>
+    </div>
+    <!-- Правый кластер — только глобальная навигация: Настройки и юзер-меню.
+         Они никогда не двигаются при смене режима. -->
+    <div class="controls-right">
       <a href="/settings" class="btn-secondary" style="text-decoration:none;" title="Настройки">⚙ Настройки</a>
       <div id="userMenu" class="user-menu hidden">
         <span class="user-menu-name" id="userMenuName">…</span>
