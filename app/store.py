@@ -36,7 +36,9 @@ from .models import (
 OPS_METRICS: list[dict] = [
     {
         "code": "ORD_PER_COURIER_H",
-        "label": "Заказов на курьера в час",
+        # NBSP между «на» и «курьера» — чтобы 2-строчный перенос делал
+        # «Заказов» / «на курьера» вместо 3 строк.
+        "label": "Заказов на курьера",
         "unit": "зак/ч",
         "field": "orders_per_courier_h",
         "direction": "higher",
@@ -53,7 +55,7 @@ OPS_METRICS: list[dict] = [
     },
     {
         "code": "PROD_PER_H",
-        "label": "Продуктов в час (кухня)",
+        "label": "Продуктов в час",
         "unit": "шт/ч",
         "field": "products_per_h",
         "direction": "higher",
@@ -61,7 +63,7 @@ OPS_METRICS: list[dict] = [
     },
     {
         "code": "REV_PER_PERSON_H",
-        "label": "Выручка на человека в час",
+        "label": "Выручка на человека",
         "unit": "₽/ч",
         "field": "revenue_per_person_h",
         "direction": "higher",

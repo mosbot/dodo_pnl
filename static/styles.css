@@ -526,10 +526,14 @@ button:hover { background: var(--bg); }
   font-size: 10px; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .3px;
   /* Длинные подписи (напр. «ЗАКАЗОВ НА КУРЬЕРА В ЧАС») переносим целиком,
-   * без обрезки. Слова не ломаем посреди — переносим по пробелам.
-   * Плитки в одной строке выравниваются по высоте самой высокой —
-   * визуально это плотнее, чем эллипсис «…». */
+   * без обрезки. Слова не ломаем посреди — переносим по пробелам. */
   white-space: normal;
+  /* flex: 1 0 auto — растягиваем подпись на всё доступное сверху, чтобы
+   * значение прижималось к фиксированной нижней области. В результате
+   * все .tile-value в одной строке плиток оказываются на одной
+   * горизонтали независимо от высоты подписи (тайлы grid-stretched
+   * имеют одинаковую высоту). */
+  flex: 1 0 auto;
 }
 .tile-sublabel {
   font-weight: 400; color: #9ca3af;
@@ -550,6 +554,10 @@ button:hover { background: var(--bg); }
   white-space: normal;
   word-break: keep-all;
   overflow-wrap: normal;
+  /* flex-shrink: 0 — значение не сжимается, его высота фиксирована.
+   * Вместе с flex:1 0 auto на .tile-label это даёт выравнивание
+   * значений по одной горизонтали в строке плиток. */
+  flex-shrink: 0;
 }
 .tile-unit {
   font-size: 11px; font-weight: 500; color: var(--muted);
@@ -568,6 +576,8 @@ button:hover { background: var(--bg); }
   white-space: normal;
   word-break: keep-all;
   min-height: 12px;
+  /* Не сжимается — для выравнивания значений в строке (см. .tile-label). */
+  flex-shrink: 0;
 }
 /* Утилита: запрещает перенос строки внутри куска (для единиц
  * с слешами «₽/ч», «зак/ч», «шт/ч» в .tile-hint). */

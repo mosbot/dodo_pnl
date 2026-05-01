@@ -918,9 +918,13 @@ function opsTile(meta, val, target, opsRow) {
     : '&nbsp;';
   // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
   // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).
+  // Связываем «на» неразрывным пробелом со следующим словом — чтобы
+  // «Заказов на курьера» / «Выручка на человека» переносилось как
+  // «Заказов» / «на курьера», а не «Заказов» / «на» / «курьера» (3 строки).
+  const labelDisplay = meta.label.replace(/ на /g, ' на ');
   return `
     <div class="tile tile-metric ${stateCls}" title="${esc(meta.label)}">
-      <div class="tile-label">${meta.label}</div>
+      <div class="tile-label">${labelDisplay}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span>${countStr}</div>
       <div class="tile-hint">${targetStr}</div>
     </div>`;
