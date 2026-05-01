@@ -906,14 +906,13 @@ function opsTile(meta, val, target, opsRow) {
     stateCls = ok ? 'tile-ok' : 'tile-bad';
   }
   const valueStr = hasVal ? fmtNum(val, digits) : '—';
-  // Абсолютное количество (для сертификатов — N штук). Раньше клеили
-  // рядом со значением как «11,2% (309)», что заставляло auto-fit
-  // ужимать шрифт значения и оно выглядело мельче, чем у соседей.
-  // Теперь показываем отдельной мелкой строкой ПОД значением — основное
-  // число всегда того же размера, что у соседних плиток.
-  let countLine = '';
+  // Абсолютное количество (для сертификатов — N штук). Рендерим инлайн
+  // справа от значения. NBSP перед скобкой, чтобы не разъезжалось на 2
+  // строки. При overflow JS-auto-fit ужмёт ТОЛЬКО шрифт .tile-sub —
+  // основное значение «11,2%» останется того же размера, что у соседей.
+  let countStr = '';
   if (meta.count_field && opsRow && opsRow[meta.count_field] != null) {
-    countLine = `<div class="tile-sub-line">${fmtNum(opsRow[meta.count_field], 0)} шт</div>`;
+    countStr = `&nbsp;<span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
   }
   // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
   // чтобы браузер не ломал её на «₽/» + «ч» при узкой плитке.
@@ -932,8 +931,7 @@ function opsTile(meta, val, target, opsRow) {
   return `
     <div class="tile tile-metric ${stateCls}" title="${esc(meta.label)}">
       <div class="tile-label">${labelDisplay}</div>
-      <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span></div>
-      ${countLine}
+      <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span>${countStr}</div>
       <div class="tile-hint">${targetStr}</div>
     </div>`;
 }
@@ -1082,18 +1080,28 @@ function renderCards() {
     box.appendChild(div);
   });
 
-  // Авто-fit шрифта: на узких плитках (1280-1366) длинные значения
-  // вроде «11,2% (309)» или «3 564 ₽/ч», и подписи типа «СЕРТИФИКАТЫ»
-  // могут вылезать за пределы. Уменьшаем шрифт пошагово, пока влезает.
-  // Свой минимум для каждого селектора (label мельче 8 — нечитаемо).
-  // requestAnimationFrame — чтобы layout успел применить размеры после
-  // innerHTML, иначе scrollWidth/clientWidth = 0.
+  // Auto-fit плиток после рендера. Стратегии:
+  // - .tile-value: если в нём есть .tile-sub (например «11,2 % (309)»),
+  //   ужимаем ТОЛЬКО шрифт .tile-sub, чтобы основное значение оставалось
+  //   того же размера, что у соседей. Если .tile-sub нет — ужимаем
+  //   значение целиком (запасной случай для очень длинных значений).
+  // - .tile-hint: ужимаем целиком, минимум 9px.
+  // - .tile-label: НЕ ужимаем шрифт. Если не влезает — заменяем
+  //   текст на короткий вариант из LABEL_ABBR (см. ниже).
+  // requestAnimationFrame — чтобы layout успел применить размеры.
   requestAnimationFrame(() => {
-    box.querySelectorAll('.tile-value').forEach(e => fitTextInTile(e, 9));
+    box.querySelectorAll('.tile-value').forEach(fitTileValue);
     box.querySelectorAll('.tile-hint').forEach(e => fitTextInTile(e, 9));
-    box.querySelectorAll('.tile-label').forEach(e => fitTextInTile(e, 8));
+    box.querySelectorAll('.tile-label').forEach(fitTileLabel);
   });
 }
+
+// Сокращения для подписей плиток. Применяются, если оригинал не
+// влезает в ширину (используем визуально вместо «…», чтобы значение
+// и текст оставались читаемыми, без уменьшения шрифта).
+const LABEL_ABBR = {
+  'Сертификаты': 'Сер-ты',
+};
 
 // Уменьшает font-size элемента, пока scrollWidth > clientWidth.
 // minPx — нижняя граница шрифта, чтобы не падало в нечитаемое.
@@ -1107,6 +1115,43 @@ function fitTextInTile(elem, minPx = 9) {
     size -= 0.5;
     elem.style.fontSize = size + 'px';
   }
+}
+
+// Если значение не влезает в плитку и в нём есть .tile-sub
+// («11,2 % (309)»), ужимаем шрифт ТОЛЬКО у .tile-sub. Иначе
+// ужимаем шрифт всего значения (запасной случай).
+function fitTileValue(elem) {
+  if (!elem) return;
+  const sub = elem.querySelector('.tile-sub');
+  // Сбрасываем — на случай повторного рендера.
+  elem.style.fontSize = '';
+  if (sub) sub.style.fontSize = '';
+
+  if (elem.scrollWidth <= elem.clientWidth + 1) return;  // всё ок
+
+  if (sub) {
+    let size = parseFloat(getComputedStyle(sub).fontSize);
+    let guard = 24;
+    while (elem.scrollWidth > elem.clientWidth + 1 && size > 7 && guard-- > 0) {
+      size -= 0.5;
+      sub.style.fontSize = size + 'px';
+    }
+    if (elem.scrollWidth <= elem.clientWidth + 1) return;
+  }
+  // Sub-only не помог (или sub нет) — fallback: ужимаем значение
+  // целиком, минимум 11px чтобы не превратилось в нечитаемое.
+  fitTextInTile(elem, 11);
+}
+
+// Если подпись не влезает в плитку, пробуем заменить на сокращённый
+// вариант из LABEL_ABBR. Шрифт не уменьшаем — иначе значение и
+// заголовок выглядели бы разнокалиберно по сравнению с соседями.
+function fitTileLabel(elem) {
+  if (!elem) return;
+  if (elem.scrollWidth <= elem.clientWidth + 1) return;
+  const original = elem.textContent.trim();
+  const abbr = LABEL_ABBR[original];
+  if (abbr) elem.textContent = abbr;
 }
 
 function destroyCharts() {
