@@ -907,9 +907,11 @@ function opsTile(meta, val, target, opsRow) {
   }
   const valueStr = hasVal ? fmtNum(val, digits) : '—';
   // Скобка с абсолютным количеством — рядом со значением, в более мелком шрифте.
+  // NBSP между единицей и (count) — чтобы «11,2% (309)» не разъезжалось
+  // на 2 строки на узких плитках.
   let countStr = '';
   if (meta.count_field && opsRow && opsRow[meta.count_field] != null) {
-    countStr = ` <span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
+    countStr = `&nbsp;<span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
   }
   // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
   // чтобы браузер не ломал её на «₽/» + «ч» при узкой плитке.
@@ -1078,24 +1080,27 @@ function renderCards() {
   });
 
   // Авто-fit шрифта: на узких плитках (1280-1366) длинные значения
-  // вроде «11,2% (309)» или «3 564 ₽/ч» иначе вылезают за пределы.
-  // Уменьшаем шрифт пошагово до 9px до тех пор, пока контент влезает.
-  // requestAnimationFrame — чтобы Chart/layout успел применить размеры.
+  // вроде «11,2% (309)» или «3 564 ₽/ч», и подписи типа «СЕРТИФИКАТЫ»
+  // могут вылезать за пределы. Уменьшаем шрифт пошагово, пока влезает.
+  // Свой минимум для каждого селектора (label мельче 8 — нечитаемо).
+  // requestAnimationFrame — чтобы layout успел применить размеры после
+  // innerHTML, иначе scrollWidth/clientWidth = 0.
   requestAnimationFrame(() => {
-    box.querySelectorAll('.tile-value, .tile-hint').forEach(fitTextInTile);
+    box.querySelectorAll('.tile-value').forEach(e => fitTextInTile(e, 9));
+    box.querySelectorAll('.tile-hint').forEach(e => fitTextInTile(e, 9));
+    box.querySelectorAll('.tile-label').forEach(e => fitTextInTile(e, 8));
   });
 }
 
 // Уменьшает font-size элемента, пока scrollWidth > clientWidth.
-// Минимум — 9px, чтобы не падало в нечитаемое.
-function fitTextInTile(elem) {
+// minPx — нижняя граница шрифта, чтобы не падало в нечитаемое.
+function fitTextInTile(elem, minPx = 9) {
   if (!elem) return;
   // Сбрасываем кастомный размер (на случай повторного рендера).
   elem.style.fontSize = '';
   let size = parseFloat(getComputedStyle(elem).fontSize);
-  const min = 9;
-  let guard = 24;  // защита от бесконечного цикла
-  while (elem.scrollWidth > elem.clientWidth + 1 && size > min && guard-- > 0) {
+  let guard = 32;  // защита от бесконечного цикла
+  while (elem.scrollWidth > elem.clientWidth + 1 && size > minPx && guard-- > 0) {
     size -= 0.5;
     elem.style.fontSize = size + 'px';
   }
