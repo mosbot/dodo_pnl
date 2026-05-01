@@ -913,8 +913,11 @@ function opsTile(meta, val, target, opsRow) {
   }
   // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
   // чтобы браузер не ломал её на «₽/» + «ч» при узкой плитке.
+  // NBSP между «цель» и значением + nowrap-обёртка — чтобы вся подпись
+  // «цель 3 500 ₽/ч» влезала ровно в одну строку (раньше переносилась
+  // на 2 на узких плитках 1280px).
   const targetStr = target != null
-    ? `цель ${fmtNum(target, digits)}&nbsp;<span class="nb">${meta.unit}</span>`
+    ? `<span class="nb">цель&nbsp;${fmtNum(target, digits)}&nbsp;${meta.unit}</span>`
     : '&nbsp;';
   // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
   // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).
@@ -1073,6 +1076,29 @@ function renderCards() {
     `;
     box.appendChild(div);
   });
+
+  // Авто-fit шрифта: на узких плитках (1280-1366) длинные значения
+  // вроде «11,2% (309)» или «3 564 ₽/ч» иначе вылезают за пределы.
+  // Уменьшаем шрифт пошагово до 9px до тех пор, пока контент влезает.
+  // requestAnimationFrame — чтобы Chart/layout успел применить размеры.
+  requestAnimationFrame(() => {
+    box.querySelectorAll('.tile-value, .tile-hint').forEach(fitTextInTile);
+  });
+}
+
+// Уменьшает font-size элемента, пока scrollWidth > clientWidth.
+// Минимум — 9px, чтобы не падало в нечитаемое.
+function fitTextInTile(elem) {
+  if (!elem) return;
+  // Сбрасываем кастомный размер (на случай повторного рендера).
+  elem.style.fontSize = '';
+  let size = parseFloat(getComputedStyle(elem).fontSize);
+  const min = 9;
+  let guard = 24;  // защита от бесконечного цикла
+  while (elem.scrollWidth > elem.clientWidth + 1 && size > min && guard-- > 0) {
+    size -= 0.5;
+    elem.style.fontSize = size + 'px';
+  }
 }
 
 function destroyCharts() {
