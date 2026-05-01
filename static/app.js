@@ -1082,10 +1082,11 @@ function destroyCharts() {
 //   3) добавить ветку рендера в renderCharts(), обёрнутую в isChartVisible(id).
 // Тогда чекбокс в попапе «⚙ Графики» появится автоматически.
 const CHARTS = [
-  { id: 'revProfit',     title: 'Выручка vs Чистая прибыль',          defaultVisible: true },
-  { id: 'margins',       title: 'Маржинальность по уровням, %',       defaultVisible: true },
-  { id: 'costShare',     title: 'Структура затрат, % от выручки',     defaultVisible: true },
-  { id: 'revHistory12m', title: 'Выручка по месяцам · YoY',           defaultVisible: true },
+  { id: 'revProfit',       title: 'Выручка vs Чистая прибыль',        defaultVisible: true },
+  { id: 'margins',         title: 'Маржинальность по уровням, %',     defaultVisible: true },
+  { id: 'costShare',       title: 'Структура затрат, % от выручки',   defaultVisible: true },
+  { id: 'revHistory12m',   title: 'Выручка по месяцам · YoY',         defaultVisible: true },
+  { id: 'revHistoryLines', title: 'Выручка · линии год к году',       defaultVisible: true },
 ];
 
 // Храним set СКРЫТЫХ id (а не видимых), чтобы при добавлении нового графика
@@ -1128,7 +1129,7 @@ function applyChartsVisibility() {
     if (!box) continue;
     // S13.1: график 12 мес имеет смысл только в режиме «Месяц» — в Период
     // его принудительно прячем независимо от пользовательского set'а.
-    const forcedHidden = (state.mode === 'period' && c.id === 'revHistory12m');
+    const forcedHidden = (state.mode === 'period' && (c.id === 'revHistory12m' || c.id === 'revHistoryLines'));
     box.style.display = (hidden.has(c.id) || forcedHidden) ? 'none' : '';
   }
 }
@@ -1463,6 +1464,103 @@ function renderCharts() {
         },
       },
       plugins: [yoyTotalPlugin],
+    });
+  }
+
+  // --- График 5: Выручка · линии год к году (Dodo IS-style) ---
+  // Две гладкие линии (текущий / прошлый год), 12 месяцев. Использует те же
+  // hist данные, что и revHistory12m: суммируем по каналам, чтобы получить
+  // месячный итог. Скрывается в режиме «Период» вместе с revHistory12m.
+  if (isChartVisible('revHistoryLines') && state.revHistory && state.revHistory.months) {
+    const hist = state.revHistory;
+    const histLabels = hist.months.map(m => monthLabel(m));
+    const hasLy = !!(hist.ly && hist.ly.by_channel);
+
+    const sumChannels = (byCh) => {
+      if (!byCh) return 0;
+      return (byCh.delivery || 0) + (byCh.restaurant || 0)
+           + (byCh.takeaway || 0) + (byCh.other || 0);
+    };
+    const curMonthly = hist.months.map(m => sumChannels(hist.by_channel?.[m]));
+    const lyMonthly  = hist.months.map((_, i) => {
+      if (!hasLy || !hist.ly.months || !hist.ly.months[i]) return null;
+      return sumChannels(hist.ly.by_channel?.[hist.ly.months[i]]);
+    });
+
+    const fmtRubLine = v => Number(v).toLocaleString('ru-RU');
+    // Год берём из 'YYYY-MM' первого месяца. Текущая линия идёт в одном
+    // календарном году не всегда (например 12-мес окно май 2025 → апр 2026
+    // охватывает 2025 и 2026). Для точечного тултипа берём год именно того
+    // месяца, на который наведён курсор.
+    const yearOf = (ym) => (ym && /^\d{4}/.test(ym)) ? ym.slice(0, 4) : '';
+    const curYears = hist.months.map(yearOf);
+    const lyYears  = (hasLy ? (hist.ly.months || []) : []).map(yearOf);
+
+    const lineDatasets = [
+      {
+        label: 'Текущий год',
+        data: curMonthly,
+        borderColor: '#60a5fa', backgroundColor: '#60a5fa',
+        pointBackgroundColor: '#60a5fa', pointRadius: 4, pointHoverRadius: 6,
+        tension: 0.4, borderWidth: 2, fill: false,
+        _years: curYears, _periodKey: 'cur',
+      },
+    ];
+    if (hasLy) {
+      lineDatasets.push({
+        label: 'Прошлый год',
+        data: lyMonthly,
+        borderColor: '#9b8cc7', backgroundColor: '#9b8cc7',
+        pointBackgroundColor: '#9b8cc7', pointRadius: 4, pointHoverRadius: 6,
+        tension: 0.4, borderWidth: 2, fill: false,
+        _years: lyYears, _periodKey: 'ly',
+      });
+    }
+
+    state.charts.revHistoryLines = new Chart(el('revHistoryLines'), {
+      type: 'line',
+      data: { labels: histLabels, datasets: lineDatasets },
+      options: {
+        ...baseOpts,
+        // hover-режим index — показываем в тултипе обе линии при наведении
+        // на любую точку месяца (как в Dodo IS).
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          ...baseOpts.scales,
+          x: { ...baseOpts.scales.x, ticks: { ...baseOpts.scales.x.ticks, autoSkip: false } },
+          y: { ...baseOpts.scales.y, beginAtZero: true,
+               ticks: { ...baseOpts.scales.y.ticks,
+                        callback: v => Number(v).toLocaleString('ru-RU') } },
+        },
+        plugins: {
+          ...baseOpts.plugins,
+          tooltip: {
+            // Цветной квадратик слева от строки — как на скрине Dodo IS.
+            usePointStyle: false, boxWidth: 12, boxHeight: 12,
+            padding: 10,
+            callbacks: {
+              // Заголовок — полное русское название месяца (без года), как
+              // на референсе Dodo IS. Год показывается в каждой строке.
+              title: (items) => {
+                if (!items.length) return '';
+                const ym = hist.months[items[0].dataIndex] || '';
+                const m = parseInt(ym.slice(5, 7), 10);
+                const names = ['январь','февраль','март','апрель','май','июнь',
+                               'июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+                return names[m - 1] || '';
+              },
+              // Каждая строка: «{год} — {сумма}», без подписи серии.
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                if (v == null) return null;
+                const yr = ctx.dataset._years?.[ctx.dataIndex] || '';
+                return `${yr} — ${fmtRubLine(v)}`;
+              },
+            },
+          },
+          legend: { position: 'bottom', labels: { font: { size: 12 } } },
+        },
+      },
     });
   }
 }
