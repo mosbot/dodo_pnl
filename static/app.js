@@ -906,12 +906,14 @@ function opsTile(meta, val, target, opsRow) {
     stateCls = ok ? 'tile-ok' : 'tile-bad';
   }
   const valueStr = hasVal ? fmtNum(val, digits) : '—';
-  // Скобка с абсолютным количеством — рядом со значением, в более мелком шрифте.
-  // NBSP между единицей и (count) — чтобы «11,2% (309)» не разъезжалось
-  // на 2 строки на узких плитках.
-  let countStr = '';
+  // Абсолютное количество (для сертификатов — N штук). Раньше клеили
+  // рядом со значением как «11,2% (309)», что заставляло auto-fit
+  // ужимать шрифт значения и оно выглядело мельче, чем у соседей.
+  // Теперь показываем отдельной мелкой строкой ПОД значением — основное
+  // число всегда того же размера, что у соседних плиток.
+  let countLine = '';
   if (meta.count_field && opsRow && opsRow[meta.count_field] != null) {
-    countStr = `&nbsp;<span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
+    countLine = `<div class="tile-sub-line">${fmtNum(opsRow[meta.count_field], 0)} шт</div>`;
   }
   // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
   // чтобы браузер не ломал её на «₽/» + «ч» при узкой плитке.
@@ -930,7 +932,8 @@ function opsTile(meta, val, target, opsRow) {
   return `
     <div class="tile tile-metric ${stateCls}" title="${esc(meta.label)}">
       <div class="tile-label">${labelDisplay}</div>
-      <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span>${countStr}</div>
+      <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span></div>
+      ${countLine}
       <div class="tile-hint">${targetStr}</div>
     </div>`;
 }

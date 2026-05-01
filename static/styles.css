@@ -569,6 +569,15 @@ button:hover { background: var(--bg); }
   font-size: 11px; font-weight: 500; color: var(--muted);
   margin-left: 4px;
 }
+.tile-sub-line {
+  /* Мелкая строка под значением — для абсолютного количества (например
+   * «309 шт» под «11,2 %» в Сертификатах). Не сжимается. */
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
 .tile-hint {
   font-size: 10px; color: var(--muted);
   /* Целевые значения «цель 3 500 ₽/ч» / «цель 1,8 зак/ч» не должны
