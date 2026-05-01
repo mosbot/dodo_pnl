@@ -911,7 +911,11 @@ function opsTile(meta, val, target, opsRow) {
   if (meta.count_field && opsRow && opsRow[meta.count_field] != null) {
     countStr = ` <span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
   }
-  const targetStr = target != null ? `цель ${fmtNum(target, digits)} ${meta.unit}` : '&nbsp;';
+  // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
+  // чтобы браузер не ломал её на «₽/» + «ч» при узкой плитке.
+  const targetStr = target != null
+    ? `цель ${fmtNum(target, digits)}&nbsp;<span class="nb">${meta.unit}</span>`
+    : '&nbsp;';
   // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
   // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).
   return `

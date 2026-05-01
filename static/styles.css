@@ -525,22 +525,37 @@ button:hover { background: var(--bg); }
 .tile-label {
   font-size: 10px; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .3px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Длинные подписи (напр. «ЗАКАЗОВ НА КУРЬЕРА В ЧАС») переносим целиком,
+   * без обрезки. Слова не ломаем посреди — переносим по пробелам.
+   * Плитки в одной строке выравниваются по высоте самой высокой —
+   * визуально это плотнее, чем эллипсис «…». */
+  white-space: normal;
 }
 .tile-sublabel {
   font-weight: 400; color: #9ca3af;
   text-transform: none; letter-spacing: 0;
 }
 .tile-value {
-  font-size: 20px; font-weight: 700;
-  line-height: 1.1;
+  /* Auto-scale: на узких плитках (1280-1366) шрифт уменьшается до 14px,
+   * чтобы значения «3 251 ₽/ч» / «11,2 (309)» / «1,75 зак/ч» помещались
+   * целиком, без эллипсиса. На широких — стандартные 20px. */
+  font-size: clamp(14px, 0.9vw + 3px, 20px);
+  font-weight: 700;
+  line-height: 1.2;
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Не ломаем строки внутри слов (иначе «зак/ч» рвётся на «зак/» + «ч»).
+   * При необходимости перенос произойдёт по пробелу между числом и
+   * единицей. */
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 .tile-unit {
   font-size: 11px; font-weight: 500; color: var(--muted);
   margin-left: 2px;
+  /* Единицу всегда держим целиком («₽/ч», «зак/ч», «шт/ч»). */
+  white-space: nowrap;
 }
 .tile-sub {
   font-size: 11px; font-weight: 500; color: var(--muted);
@@ -548,9 +563,16 @@ button:hover { background: var(--bg); }
 }
 .tile-hint {
   font-size: 10px; color: var(--muted);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Целевые значения «цель 3 500 ₽/ч» / «цель 1,8 зак/ч» не должны
+   * обрезаться эллипсисом — переносим целиком, не ломая слова. */
+  white-space: normal;
+  word-break: keep-all;
   min-height: 12px;
 }
+/* Утилита: запрещает перенос строки внутри куска (для единиц
+ * с слешами «₽/ч», «зак/ч», «шт/ч» в .tile-hint). */
+.tile-hint .nb,
+.tile .nb { white-space: nowrap; }
 /* LFL-дельта на плитках (компонент строки .tile-hint) */
 .tile-delta { font-weight: 500; }
 .tile-delta.pos { color: var(--success); }
@@ -567,8 +589,8 @@ button:hover { background: var(--bg); }
 }
 .tile.tile-bad .tile-value { color: #b91c1c; }
 
-/* Фин-плитки — крупнее, чем метрики */
-.tile-fin .tile-value { font-size: 22px; }
+/* Фин-плитки — крупнее, чем метрики (тоже clamp, но с большим потолком) */
+.tile-fin .tile-value { font-size: clamp(16px, 1.0vw + 4px, 22px); }
 .tile-fin.tile-pos .tile-value { color: var(--success); }
 .tile-fin.tile-neg .tile-value { color: var(--danger); }
 
@@ -647,7 +669,9 @@ button:hover { background: var(--bg); }
 
 .charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  /* 320px (раньше 400) — гарантирует 3 в ряд начиная с 1280px (sidebar
+   * ~240px, main ~1040px ≥ 3·320 + 2·12 = 984px). На 1920 запас большой. */
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
