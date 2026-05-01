@@ -36,6 +36,7 @@ PNL_CODES = {
     "FRANCHISE": "Расходы на франшизу",
     "OTHER_OPEX": "Прочие операционные расходы",
     "OTHER_INCOME": "Прочие доходы",
+    "NON_OPER_EXPENSE": "Прочие расходы",
     "MGMT": "Административный персонал",
     "INTEREST": "Проценты по кредитам",
     "TAX": "Налог на прибыль",
@@ -217,13 +218,14 @@ def classify_category(info: dict) -> str | None:
 
     # «Прочие расходы» как отдельный сегмент пути — это PlanFact-овский bucket
     # ВНЕ «Операционные расходы» (НДС к уплате, курсовая разница, капвложения,
-    # инкассация, паушальный взнос). В выгрузке PlanFact xlsx эти суммы НЕ
-    # включаются в OPEX и не учитываются в Op.Profit/EBITDA. Возвращаем None
-    # → не попадает в P&L-агрегаты, цифры сходятся с PlanFact.
+    # инкассация, паушальный взнос). В P&L PlanFact эти суммы стоят НИЖЕ
+    # «Операционная прибыль» — между ней и EBITDA, как non-operating expense.
+    # Маркируем отдельным кодом NON_OPER_EXPENSE: не попадают в OPEX, но
+    # вычитаются при расчёте EBITDA → цифры сходятся с PlanFact.
     # Важно: «Прочие операционные расходы» (под ОПЕРАЦИОННЫЕ РАСХОДЫ) — это
     # отдельный сегмент и здесь не матчится (другая строка пути).
     if "прочие расходы" in path_str.split(" / "):
-        return None
+        return "NON_OPER_EXPENSE"
 
     # Всё остальное операционное — прочие opex
     if activity == "Operating":
@@ -279,7 +281,7 @@ LINE_CODE_DEFAULT_MIN_LEVEL: dict[str, int] = {
     "RENT": 10, "MARKETING": 10, "FRANCHISE": 10, "OTHER_OPEX": 10,
     "MARGIN": 10,
     "MGMT": 30, "OPERATING_PROFIT": 30,
-    "OTHER_INCOME": 30, "EBITDA": 30,
+    "OTHER_INCOME": 30, "NON_OPER_EXPENSE": 30, "EBITDA": 30,
     "INTEREST": 60, "TAX": 60, "NET_PROFIT": 60,
     "DIVIDENDS": 100,
 }
@@ -745,8 +747,14 @@ async def build_pnl(
         return margin(pid) - totals.get((pid, "MGMT"), 0.0)
 
     def ebitda(pid: str) -> float:
-        # EBITDA = Operating Profit + Прочие доходы.
-        return operating_profit(pid) + totals.get((pid, "OTHER_INCOME"), 0.0)
+        # EBITDA = Operating Profit + Прочие доходы − Прочие расходы (не-опер.).
+        # NON_OPER_EXPENSE — bucket PlanFact-а с НДС к уплате, курсовой
+        # разницей, капвложениями и т.п. Стоит между Op.Profit и EBITDA.
+        return (
+            operating_profit(pid)
+            + totals.get((pid, "OTHER_INCOME"), 0.0)
+            - totals.get((pid, "NON_OPER_EXPENSE"), 0.0)
+        )
 
     def net_profit(pid: str) -> float:
         return ebitda(pid) - totals.get((pid, "INTEREST"), 0.0) - totals.get((pid, "TAX"), 0.0)
@@ -765,6 +773,7 @@ async def build_pnl(
         row("MGMT", "Административный персонал", 2),
         computed_row("OPERATING_PROFIT", "Операционная прибыль", operating_profit, 1, "summary"),
         row("OTHER_INCOME", "Прочие доходы", 2),
+        row("NON_OPER_EXPENSE", "Прочие расходы", 2),
         computed_row("EBITDA", "EBITDA", ebitda, 1, "summary"),
         row("INTEREST", "Проценты по кредитам", 2),
         row("TAX", "Налог на прибыль", 2),
