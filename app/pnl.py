@@ -747,20 +747,24 @@ async def build_pnl(
         return margin(pid) - totals.get((pid, "MGMT"), 0.0)
 
     def ebitda(pid: str) -> float:
-        # EBITDA = Operating Profit (для наших пиццерий Аморт=0,
-        # поэтому EBITDA численно равен Op.Profit). Прочие доходы /
-        # Прочие расходы НЕ включаются в EBITDA — отображаются
-        # отдельными строками ниже и учитываются в Чистой прибыли.
-        # Это гарантирует, что Маржинальная прибыль > EBITDA всегда
-        # (раньше из-за добавления Прочих доходов EBITDA мог визуально
-        # превышать Маржин у некоторых пиццерий).
-        return operating_profit(pid)
-
-    def net_profit(pid: str) -> float:
+        # PlanFact-логика P&L (см. их UI):
+        #   EBITDA = Op.Profit + Прочие доходы − Прочие расходы
+        # Прочие расходы (НДС к уплате, расходы на управление под
+        # «Прочие расходы», курсовая разница) ВКЛЮЧЕНЫ в EBITDA.
+        # Это даёт корректную иерархию: Маржин > Op.Profit > EBITDA
+        # (когда есть постоянные расходы или Прочие расходы > Доходы).
         return (
-            ebitda(pid)
+            operating_profit(pid)
             + totals.get((pid, "OTHER_INCOME"), 0.0)
             - totals.get((pid, "NON_OPER_EXPENSE"), 0.0)
+        )
+
+    def net_profit(pid: str) -> float:
+        # Net = EBITDA − Амортизация (=0 у наших пиццерий)
+        #             − Проценты по кредитам
+        #             − Налог на прибыль
+        return (
+            ebitda(pid)
             - totals.get((pid, "INTEREST"), 0.0)
             - totals.get((pid, "TAX"), 0.0)
         )
@@ -776,13 +780,13 @@ async def build_pnl(
         row("FRANCHISE", "Расходы на франшизу", 2),
         row("OTHER_OPEX", "Прочие операционные расходы", 2),
         computed_row("MARGIN", "Маржинальная прибыль", margin, 1, "summary"),
-        row("MGMT", "Административный персонал", 2),
+        row("MGMT", "Постоянные расходы", 2),
         computed_row("OPERATING_PROFIT", "Операционная прибыль", operating_profit, 1, "summary"),
-        computed_row("EBITDA", "EBITDA", ebitda, 1, "summary"),
-        # Все «не-операционные» статьи и налоги — НИЖЕ EBITDA. EBITDA
-        # численно равна Op.Profit (Аморт=0); Маржинальная > EBITDA.
+        # PlanFact: EBITDA = Op.Profit + Прочие доходы − Прочие расходы.
+        # Прочие доходы/расходы стоят МЕЖДУ Op.Profit и EBITDA.
         row("OTHER_INCOME", "Прочие доходы", 2),
         row("NON_OPER_EXPENSE", "Прочие расходы", 2),
+        computed_row("EBITDA", "EBITDA", ebitda, 1, "summary"),
         row("INTEREST", "Проценты по кредитам", 2),
         row("TAX", "Налог на прибыль", 2),
         computed_row("NET_PROFIT", "Чистая прибыль", net_profit, 1, "final"),
