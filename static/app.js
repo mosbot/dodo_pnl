@@ -1965,8 +1965,10 @@ function renderTemplateTable(nodes) {
         } else {
           const valCls = (amt != null && amt < 0) ? 'neg' : '';
           cell = `<span class="${valCls}">${fmt(amt)}</span>`;
-          // % показываем для расходных строк (не выручки), и не для calc-итогов «без формулы»
-          if (pct != null && n.pnl_code !== 'REVENUE') {
+          // % показываем для расходных строк (не выручки), и НЕ для
+          // расчётных итогов (Маржин/Op.Profit/EBITDA/Чистая прибыль) —
+          // у них % дублируется в следующей строке «Рентабельность».
+          if (pct != null && n.pnl_code !== 'REVENUE' && !n.is_calc) {
             cell += `<span class="pct">${fmtPctAbs(pct)}</span>`;
           }
         }
@@ -1985,7 +1987,9 @@ function renderTemplateTable(nodes) {
       totalCell = `<strong class="${valCls}">${fmtPctAbs(tot.pct_of_revenue)}</strong>`;
     } else {
       totalCell = `<strong>${fmt(tot.amount)}</strong>`;
-      if (tot.pct_of_revenue != null && n.pnl_code !== 'REVENUE') {
+      // Без % для calc-итогов (Маржин/EBITDA/Op.Profit/Чистая прибыль):
+      // % уже есть в следующей строке «Рентабельность».
+      if (tot.pct_of_revenue != null && n.pnl_code !== 'REVENUE' && !n.is_calc) {
         totalCell += `<span class="pct">${fmtPctAbs(tot.pct_of_revenue)}</span>`;
       }
     }
