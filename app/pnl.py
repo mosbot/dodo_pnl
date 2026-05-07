@@ -747,17 +747,23 @@ async def build_pnl(
         return margin(pid) - totals.get((pid, "MGMT"), 0.0)
 
     def ebitda(pid: str) -> float:
-        # EBITDA = Operating Profit + Прочие доходы − Прочие расходы (не-опер.).
-        # NON_OPER_EXPENSE — bucket PlanFact-а с НДС к уплате, курсовой
-        # разницей, капвложениями и т.п. Стоит между Op.Profit и EBITDA.
-        return (
-            operating_profit(pid)
-            + totals.get((pid, "OTHER_INCOME"), 0.0)
-            - totals.get((pid, "NON_OPER_EXPENSE"), 0.0)
-        )
+        # EBITDA = Operating Profit (для наших пиццерий Аморт=0,
+        # поэтому EBITDA численно равен Op.Profit). Прочие доходы /
+        # Прочие расходы НЕ включаются в EBITDA — отображаются
+        # отдельными строками ниже и учитываются в Чистой прибыли.
+        # Это гарантирует, что Маржинальная прибыль > EBITDA всегда
+        # (раньше из-за добавления Прочих доходов EBITDA мог визуально
+        # превышать Маржин у некоторых пиццерий).
+        return operating_profit(pid)
 
     def net_profit(pid: str) -> float:
-        return ebitda(pid) - totals.get((pid, "INTEREST"), 0.0) - totals.get((pid, "TAX"), 0.0)
+        return (
+            ebitda(pid)
+            + totals.get((pid, "OTHER_INCOME"), 0.0)
+            - totals.get((pid, "NON_OPER_EXPENSE"), 0.0)
+            - totals.get((pid, "INTEREST"), 0.0)
+            - totals.get((pid, "TAX"), 0.0)
+        )
 
     lines = [
         row("REVENUE", "Выручка", 1, "header"),
@@ -772,9 +778,11 @@ async def build_pnl(
         computed_row("MARGIN", "Маржинальная прибыль", margin, 1, "summary"),
         row("MGMT", "Административный персонал", 2),
         computed_row("OPERATING_PROFIT", "Операционная прибыль", operating_profit, 1, "summary"),
+        computed_row("EBITDA", "EBITDA", ebitda, 1, "summary"),
+        # Все «не-операционные» статьи и налоги — НИЖЕ EBITDA. EBITDA
+        # численно равна Op.Profit (Аморт=0); Маржинальная > EBITDA.
         row("OTHER_INCOME", "Прочие доходы", 2),
         row("NON_OPER_EXPENSE", "Прочие расходы", 2),
-        computed_row("EBITDA", "EBITDA", ebitda, 1, "summary"),
         row("INTEREST", "Проценты по кредитам", 2),
         row("TAX", "Налог на прибыль", 2),
         computed_row("NET_PROFIT", "Чистая прибыль", net_profit, 1, "final"),
