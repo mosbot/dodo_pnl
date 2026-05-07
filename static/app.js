@@ -1168,13 +1168,34 @@ function destroyCharts() {
 //      index.html с canvas внутри;
 //   3) добавить ветку рендера в renderCharts(), обёрнутую в isChartVisible(id).
 // Тогда чекбокс в попапе «⚙ Графики» появится автоматически.
+// requires — список pnl_code, без которых график не имеет смысла.
+// Если у юзера visibility_level не пускает к этим кодам, бэкенд не
+// присылает их в state.pnl.lines → график автоматически прячется
+// (см. chartHasAccess + applyChartsVisibility).
 const CHARTS = [
-  { id: 'revProfit',       title: 'Выручка vs Чистая прибыль',        defaultVisible: true },
-  { id: 'margins',         title: 'Маржинальность по уровням, %',     defaultVisible: true },
-  { id: 'costShare',       title: 'Структура затрат, % от выручки',   defaultVisible: true },
-  { id: 'revHistory12m',   title: 'Выручка по месяцам · YoY',         defaultVisible: true },
-  { id: 'revHistoryLines', title: 'Выручка · линии год к году',       defaultVisible: true },
+  { id: 'revProfit',       title: 'Выручка vs Чистая прибыль',        defaultVisible: true,
+    requires: ['REVENUE', 'NET_PROFIT'] },
+  { id: 'margins',         title: 'Маржинальность по уровням, %',     defaultVisible: true,
+    requires: ['MARGIN', 'EBITDA', 'NET_PROFIT'] },
+  { id: 'costShare',       title: 'Структура затрат, % от выручки',   defaultVisible: true,
+    requires: ['UC'] },
+  { id: 'revHistory12m',   title: 'Выручка по месяцам · YoY',         defaultVisible: true,
+    requires: ['REVENUE'] },
+  { id: 'revHistoryLines', title: 'Выручка · линии год к году',       defaultVisible: true,
+    requires: ['REVENUE'] },
 ];
+
+// Проверяем, есть ли у юзера доступ к данным для графика. Бэкенд
+// фильтрует state.pnl.lines по visibility_level — если требуемого
+// pnl_code нет в lines, значит юзер его не видит.
+function chartHasAccess(chartId) {
+  const meta = CHARTS.find(c => c.id === chartId);
+  if (!meta || !meta.requires || !meta.requires.length) return true;
+  const lines = state.pnl?.lines || [];
+  if (!lines.length) return true;  // ещё не загружено — не прячем заранее
+  const codes = new Set(lines.map(l => l.code));
+  return meta.requires.every(c => codes.has(c));
+}
 
 // Храним set СКРЫТЫХ id (а не видимых), чтобы при добавлении нового графика
 // он автоматически становился видимым у уже состоявшихся пользователей —
@@ -1199,7 +1220,9 @@ function saveChartsHidden(set) {
 
 function isChartVisible(id) {
   // Дефолт — defaultVisible из каталога. Если пользователь добавил id в
-  // hidden-set — скрываем.
+  // hidden-set — скрываем. Также прячем, если у юзера нет доступа
+  // к нужным метрикам (visibility_level).
+  if (!chartHasAccess(id)) return false;
   const hidden = loadChartsHidden();
   if (hidden.has(id)) return false;
   const meta = CHARTS.find(c => c.id === id);
@@ -1217,7 +1240,10 @@ function applyChartsVisibility() {
     // S13.1: график 12 мес имеет смысл только в режиме «Месяц» — в Период
     // его принудительно прячем независимо от пользовательского set'а.
     const forcedHidden = (state.mode === 'period' && (c.id === 'revHistory12m' || c.id === 'revHistoryLines'));
-    box.style.display = (hidden.has(c.id) || forcedHidden) ? 'none' : '';
+    // Прячем график, если у юзера нет доступа к нужным метрикам
+    // (visibility_level не пускает к коду из requires).
+    const noAccess = !chartHasAccess(c.id);
+    box.style.display = (hidden.has(c.id) || forcedHidden || noAccess) ? 'none' : '';
   }
 }
 
@@ -1229,12 +1255,16 @@ function renderChartsConfigList() {
   // chart-box'ах в #chartsGrid), иначе querySelector('[data-chart-id="X"]')
   // находит чекбокс, а не блок графика — и всё переключение видимости
   // ломается. Используем отдельное имя data-chart-cb.
-  box.innerHTML = CHARTS.map(c => `
-    <label class="charts-config-row">
-      <input type="checkbox" data-chart-cb="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}>
-      <span>${esc(c.title)}</span>
-    </label>
-  `).join('');
+  // Графики, к которым у юзера нет доступа, в попапе не показываем —
+  // нет смысла предлагать включить то, что всё равно скроется.
+  box.innerHTML = CHARTS
+    .filter(c => chartHasAccess(c.id))
+    .map(c => `
+      <label class="charts-config-row">
+        <input type="checkbox" data-chart-cb="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}>
+        <span>${esc(c.title)}</span>
+      </label>
+    `).join('');
   box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       const set = loadChartsHidden();
