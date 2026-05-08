@@ -624,6 +624,10 @@ button:hover { background: var(--bg); }
   margin-bottom: 8px;
   position: relative; z-index: 5;
 }
+/* Когда попап в тулбаре открыт — поднимаем его z-index, чтобы panel
+ * перекрывал соседний тулбар (например попап «⚙ Метрики» не должен
+ * прятаться за кнопкой «⚙ Графики» ниже на странице). */
+.charts-toolbar:has(details[open]) { z-index: 20; }
 /* Тулбар над блоком карточек — то же оформление, ниже отступ. */
 .kpi-toolbar { margin-bottom: 4px; }
 
