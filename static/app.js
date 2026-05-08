@@ -669,6 +669,9 @@ function renderEmptyState() {
   const table = el('pnlTable');
   if (table) table.innerHTML = '';
   updateOnboardingHints();
+  // На пустом state скрываем тулбары попапов и сами графики/таблицу —
+  // они без данных бесполезны и крадут вертикальное место.
+  document.body.classList.toggle('is-empty-state', state.selectedProjects.size === 0);
 }
 
 // Поднимает/прячет hint-пилюли в топбаре и сайдбаре. Видимость зависит
@@ -721,6 +724,9 @@ function renderSkeleton() {
 
 // --- Rendering ---
 function render() {
+  // Сошли с empty-state — снимаем флаг (CSS прячет тулбары/графики/таблицу
+  // когда .is-empty-state на body).
+  document.body.classList.remove('is-empty-state');
   renderOpsFreshness();
   // Список метрик в попапе строится из state.pnl — обновляем после
   // каждой загрузки данных (могут добавиться/убраться доступные коды).

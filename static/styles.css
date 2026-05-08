@@ -1262,12 +1262,20 @@ body.drawer-open .drawer-backdrop {
   .ops-refresh-btn { font-size: 0; padding: 6px 8px; }
   .ops-refresh-btn .ic-refresh { width: 16px; height: 16px; }
 
-  /* Onboarding-подсказка «Выбери» в топбаре на мобиле прячется:
-   * она не помещается в 500px-ширину, а сам empty-state в основной
-   * области уже подсказывает «Выбери период». Остаётся только
-   * inline-подсказка «Отметь» в заголовке сайдбара (drawer 280px,
-   * там места ей хватает). */
-  .tb-hint:not(.tb-hint-inline) { display: none !important; }
+  /* Onboarding-подсказки на мобиле прячем целиком: empty-state в основной
+   * области уже подсказывает «Выбери период» и «Открой ☰ — отметь
+   * пиццерии», поэтому пилюли «Выбери» / «Отметь» избыточны. */
+  .tb-hint { display: none !important; }
+}
+
+/* Empty-state (нет выбранных пиццерий): прячем все тулбары/графики/
+ * таблицу, чтобы основная карточка «с чего начать» занимала всё
+ * пространство и не выглядывали пустые рамки. На мобиле особенно
+ * экономит ~150px и убирает лишнюю прокрутку. */
+body.is-empty-state .charts-toolbar,
+body.is-empty-state .charts,
+body.is-empty-state .table-wrap {
+  display: none !important;
 }
 
 /* ========================================================================
