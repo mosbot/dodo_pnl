@@ -12,3 +12,6 @@ SQLAlchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 argon2-cffi==23.1.0
+# AES-128-CBC + HMAC через Fernet — для шифрования чувствительных
+# полей в БД (PlanFact api_key). Ключ выводится из settings.secret_key.
+cryptography==43.0.1

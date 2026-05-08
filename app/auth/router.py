@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
+from ..planfact import invalidate_planfact_for
 from . import audit
 from .dependencies import SESSION_COOKIE, require_user
 from .models import User
@@ -139,11 +140,18 @@ async def logout(
     """Удалить серверную сессию + очистить cookie. 204 No Content."""
     token = request.cookies.get(SESSION_COOKIE)
     if token:
+        # Получим user_id до удаления сессии — нужен, чтобы выкинуть
+        # PlanFact-клиента (с его HTTP-коннектами и кэшем) из памяти.
+        from .sessions import get_session_with_user
+        pair = await get_session_with_user(db, token)
+        user_id = pair[1].id if pair else None
         await delete_session(db, token)
         await audit.log_audit(
             db, audit.ACTION_LOGOUT,
             request=request,
         )
+        if user_id is not None:
+            invalidate_planfact_for(user_id)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

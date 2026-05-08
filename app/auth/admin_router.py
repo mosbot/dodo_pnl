@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import store
+from ..crypto import decrypt_secret, encrypt_secret
 from ..db import get_session
 from . import audit
 from .dependencies import require_admin
@@ -329,7 +330,7 @@ async def _legacy_admin_user_projects(
     if u.planfact_key_id:
         pk = await session.get(PlanfactKey, u.planfact_key_id)
         if pk:
-            pf_key = (pk.api_key or "").strip()
+            pf_key = decrypt_secret((pk.api_key or "").strip())
     if not pf_key:
         return {
             "projects": [],
@@ -434,7 +435,7 @@ async def admin_user_visibility(
         }
 
     pk = await session.get(PlanfactKey, u.planfact_key_id)
-    pf_key = (pk.api_key or "").strip() if pk else ""
+    pf_key = decrypt_secret((pk.api_key or "").strip()) if pk else ""
     if not pf_key:
         return {"projects": [], "message": "PF-ключ пустой."}
 
@@ -496,7 +497,7 @@ async def admin_key_projects(
     pk = await session.get(PlanfactKey, key_id)
     if pk is None:
         raise HTTPException(404, "Ключ не найден")
-    pf_key = (pk.api_key or "").strip()
+    pf_key = decrypt_secret((pk.api_key or "").strip())
     if not pf_key:
         return {"projects": [], "message": "PF-ключ пустой."}
 
@@ -625,7 +626,9 @@ class PlanfactKeyUpdate(BaseModel):
 
 
 def _mask_key(s: str) -> str:
-    s = (s or "").strip()
+    """Маска для отображения api_key в админке. Принимает как зашифрованное
+    значение (enc:...), так и legacy plain — расшифровывает через crypto."""
+    s = decrypt_secret((s or "").strip())
     return (s[:4] + "..." + s[-4:]) if len(s) > 12 else "***"
 
 
@@ -669,7 +672,7 @@ async def admin_create_planfact_key(
 ):
     pk = PlanfactKey(
         name=body.name.strip(),
-        api_key=body.api_key.strip(),
+        api_key=encrypt_secret(body.api_key.strip()),
         note=(body.note or "").strip() or None,
     )
     session.add(pk)
@@ -702,7 +705,7 @@ async def admin_update_planfact_key(
     if body.api_key is not None:
         if not body.api_key.strip():
             raise HTTPException(400, "api_key не может быть пустым")
-        pk.api_key = body.api_key.strip()
+        pk.api_key = encrypt_secret(body.api_key.strip())
     if body.note is not None:
         pk.note = body.note.strip() or None
     pk.updated_at = datetime.now(timezone.utc)

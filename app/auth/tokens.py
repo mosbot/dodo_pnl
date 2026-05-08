@@ -33,12 +33,19 @@ class NoTokenError(Exception):
 async def get_planfact_key(session: AsyncSession, user: User) -> str:
     """PlanFact api key пользователя через каталог planfact_keys. Если у юзера
     не привязан ключ — env-fallback (для transition period). Бросает
-    NoTokenError если совсем ничего нет."""
+    NoTokenError если совсем ничего нет.
+
+    Расшифровывает api_key через app.crypto.decrypt_secret — legacy
+    plain-значения проходят без изменений.
+    """
+    from ..crypto import decrypt_secret
     if user.planfact_key_id:
         from .models import PlanfactKey
         pk = await session.get(PlanfactKey, user.planfact_key_id)
         if pk and pk.api_key:
-            return pk.api_key
+            decrypted = decrypt_secret(pk.api_key)
+            if decrypted:
+                return decrypted
     fallback = (settings.planfact_api_key or "").strip()
     if fallback:
         return fallback

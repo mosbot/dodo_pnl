@@ -6,6 +6,7 @@ Multi-tenant: каждый запрос несёт user (из require_user depen
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -792,17 +793,20 @@ async def get_pnl(
         # project breakdown в Period не показываем — на фронте детализация
         # группируется по месяцам. by_node нужен для template-tree (узлы без
         # pnl_code), by_code — для агрегатной таблицы.
-        monthly_map: dict[str, dict] = {}
-        for m in months_in_range:
+        #
+        # Параллелим месяцы через gather + Semaphore(3): PF-API чувствителен
+        # к нагрузке (rate-limit), 3 одновременных запроса — компромисс между
+        # latency и риском быть забаненным. Для 6 месяцев это ~2x ускорение.
+        sem = asyncio.Semaphore(3)
+
+        async def _fetch_month(m: str) -> tuple[str, dict]:
             ms, me = _month_range_dates(m)
-            try:
+            async with sem:
                 month_result = await _build_pnl_for_period(
                     session=session, user=user, pf=pf,
                     date_start=ms, date_end=me, period_month=m,
                     project_filter=effective_projects, method=method,
                 )
-            except PlanFactError as e:
-                raise HTTPException(502, str(e))
             by_node: dict[str, float | None] = {}
             for tn in month_result.get("template_lines", []) or []:
                 nid = tn.get("id")
@@ -812,7 +816,15 @@ async def get_pnl(
                 ln["code"]: (ln.get("total") or {}).get("amount")
                 for ln in month_result.get("lines", []) or []
             }
-            monthly_map[m] = {"by_node": by_node, "by_code": by_code}
+            return m, {"by_node": by_node, "by_code": by_code}
+
+        try:
+            month_results = await asyncio.gather(
+                *(_fetch_month(m) for m in months_in_range)
+            )
+        except PlanFactError as e:
+            raise HTTPException(502, str(e))
+        monthly_map: dict[str, dict] = {m: data for (m, data) in month_results}
         result["monthly"] = monthly_map
         result["months_in_range"] = months_in_range
 

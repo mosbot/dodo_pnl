@@ -60,6 +60,23 @@ class PlanFactClient:
         from collections import OrderedDict
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = asyncio.Lock()
+        # Долгоживущий HTTP-клиент: один TLS handshake на инстанс, потом
+        # keep-alive. Иначе каждый GET /operations делал бы новый
+        # connect+TLS к api.planfact.ru — на «Период» (12 fetch'ей)
+        # это +1-6 сек на ровном месте.
+        # connect/read/write/pool — все 60s (как было). limits — щадящие
+        # к PF API: max 10 keep-alive, max 20 одновременных коннектов.
+        self._http: httpx.AsyncClient = httpx.AsyncClient(
+            timeout=60.0,
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+        )
+
+    async def aclose(self) -> None:
+        """Корректно закрыть HTTP-коннекты. Вызывается при invalidate."""
+        try:
+            await self._http.aclose()
+        except Exception:
+            pass
 
     @property
     def headers(self) -> dict[str, str]:
@@ -101,12 +118,13 @@ class PlanFactClient:
                 # Expired — удалить чтобы не накапливать
                 self._cache.pop(ck, None)
 
-        async with httpx.AsyncClient(timeout=60.0) as http:
-            url = f"{self.base_url}{path}"
-            r = await http.request(method, url, headers=self.headers, params=params, json=json)
-            if r.status_code >= 400:
-                raise PlanFactError(r.status_code, r.text)
-            raw = r.json() if r.content else {}
+        url = f"{self.base_url}{path}"
+        r = await self._http.request(
+            method, url, headers=self.headers, params=params, json=json,
+        )
+        if r.status_code >= 400:
+            raise PlanFactError(r.status_code, r.text)
+        raw = r.json() if r.content else {}
 
         data = _unwrap(raw)
         if use_cache and method == "GET":
@@ -371,24 +389,58 @@ class PlanFactClient:
         return results
 
 
-# Per-user instance pool. Сохраняем кэш PlanFact-ответов между запросами
-# одного пользователя (внутри инстанса есть TTL-cache по cache_key).
-# При смене API-ключа у юзера старый инстанс протухает — пересоздаём.
-_clients: dict[int, PlanFactClient] = {}
+# Per-user instance pool с LRU-эвикцией.
+#
+# Каждый PlanFactClient держит:
+#   - долгоживущий httpx.AsyncClient (≈10 keep-alive коннектов)
+#   - LRU-кэш до 30 ответов PF API (до ~30-50 МБ каждый для /operations)
+#
+# Без bound'а словарь рос без удержания — наблюдали OOM на VPS.
+# Теперь храним не более CLIENTS_MAX живых инстансов, при переполнении
+# выкидываем самый старый по last_used_at (popitem(last=False) на
+# OrderedDict).
+from collections import OrderedDict
+
+CLIENTS_MAX = 50  # разумный лимит для VPS на ~30 пользователей
+
+_clients: OrderedDict[int, PlanFactClient] = OrderedDict()
+
+
+def _evict_lru_clients() -> None:
+    """Удалить старейшие клиенты, пока размер не вернётся в пределы."""
+    while len(_clients) > CLIENTS_MAX:
+        _, victim = _clients.popitem(last=False)
+        # Не ждём aclose — fire-and-forget, чтобы не блокировать caller.
+        try:
+            asyncio.get_event_loop().create_task(victim.aclose())
+        except Exception:
+            pass
+        victim.invalidate_cache()
 
 
 def get_planfact_client(user_id: int, api_key: str) -> PlanFactClient:
     """Получить (или создать) PlanFact-клиент для конкретного пользователя.
 
-    Реюзаем инстанс, чтобы между запросами не терялся локальный TTL-cache.
-    Если api_key поменялся — выбрасываем старый инстанс целиком (включая
-    кэш — он построен под другой ключ и может содержать чужие проекты).
+    Реюзаем инстанс, чтобы между запросами не терялся локальный TTL-cache
+    и переиспользовались HTTP-коннекты. При hit двигаем в конец (LRU
+    touch). При смене api_key у юзера старый инстанс выбрасываем
+    (кэш построен под другой ключ).
     """
     existing = _clients.get(user_id)
     if existing is not None and existing.api_key == api_key:
+        # LRU touch — этот юзер «свежий».
+        _clients.move_to_end(user_id)
         return existing
+    if existing is not None:
+        # api_key сменился — закрываем старый клиент целиком.
+        try:
+            asyncio.get_event_loop().create_task(existing.aclose())
+        except Exception:
+            pass
+        existing.invalidate_cache()
     new_client = PlanFactClient(api_key=api_key)
     _clients[user_id] = new_client
+    _evict_lru_clients()
     return new_client
 
 
@@ -396,6 +448,10 @@ def invalidate_planfact_for(user_id: int) -> None:
     """Сбросить инстанс/кэш для юзера. Использовать при logout / смене ключа."""
     c = _clients.pop(user_id, None)
     if c is not None:
+        try:
+            asyncio.get_event_loop().create_task(c.aclose())
+        except Exception:
+            pass
         c.invalidate_cache()
 
 
