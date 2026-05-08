@@ -101,7 +101,7 @@ class DefaultTarget(Base):
 # ---------- App settings (KV) ----------
 
 class AppSetting(Base):
-    """KV-настройки на пользователя: include_manager_in_lc, и т.д."""
+    """KV-настройки на пользователя (произвольные ключи)."""
     __tablename__ = "app_settings"
 
     owner_id: Mapped[int] = mapped_column(

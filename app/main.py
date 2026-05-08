@@ -688,11 +688,6 @@ async def get_pnl(
             "computed_targetable_metrics": sorted(pnl_module.COMPUTED_TARGETABLE_METRICS),
             "denominators": pnl_module.DENOMINATOR,
             "method": method, "period_month": period_month, "stats": {},
-            "settings": {
-                "include_manager_in_lc": await store.get_bool_setting(
-                    session, user.id, "include_manager_in_lc", True
-                )
-            },
             "default_targets": (
                 # S14.3: учитываем period_month для эффективных таргетов.
                 (await store.effective_targets_for_period(

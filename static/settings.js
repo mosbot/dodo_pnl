@@ -185,7 +185,6 @@ async function loadAll() {
   state.template.preview = null;
   state.template.warnings = [];
 
-  initMethodology();
   initMonthSelect();
   initDodoSync();
   await loadOpsMetrics();
@@ -273,21 +272,6 @@ function dodoUnitName(uuid) {
   if (!uuid) return '';
   const u = state.dodoUnits.find(x => (x.id || '').toLowerCase() === uuid.toLowerCase());
   return u ? u.name : '';
-}
-
-// ---------- Methodology checkbox ----------
-function initMethodology() {
-  const chk = el('chkIncludeMgr');
-  const on = (state.settings.include_manager_in_lc ?? 'true').toLowerCase() === 'true';
-  chk.checked = on;
-  chk.addEventListener('change', async () => {
-    await post('/api/settings', {
-      key: 'include_manager_in_lc',
-      value: chk.checked ? 'true' : 'false',
-    });
-    state.settings.include_manager_in_lc = chk.checked ? 'true' : 'false';
-    toast('Сохранено');
-  });
 }
 
 // ---------- Month picker ----------

@@ -111,9 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_template_parent ON pnl_template(parent_id);
 """
 
 # Дефолты при первом старте (только если ключ отсутствует — не перезатираем)
-INITIAL_SETTINGS: dict[str, str] = {
-    "include_manager_in_lc": "true",
-}
+INITIAL_SETTINGS: dict[str, str] = {}
 INITIAL_DEFAULT_TARGETS: dict[str, float] = {
     "TC": 0.60,
 }

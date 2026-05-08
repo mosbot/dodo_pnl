@@ -134,14 +134,6 @@ async def _build_category_index(
             _detect_revenue_channel(info["path_str"])
             if info["pnl_code"] == "REVENUE" else None
         )
-        # Метка «зарплата управляющего» — в ветке LC в пути есть «управляющ»
-        # ИЛИ последний сегмент пути содержит «управляющ». Нужна, чтобы по
-        # настройке include_manager_in_lc переносить такие суммы в MGMT.
-        path_str = info.get("path_str", "")
-        leaf = (info.get("path") or [""])[-1].lower()
-        info["is_manager_pay"] = (
-            info["pnl_code"] == "LC" and ("управляющ" in path_str or "управляющ" in leaf)
-        )
     return by_id
 
 
@@ -530,11 +522,6 @@ async def build_pnl(
     # --- категории ---
     cat_index = await _build_category_index(session, owner_id, planfact_key_id, categories)
 
-    # --- настройки ---
-    include_manager_in_lc = await store.get_bool_setting(
-        session, owner_id, "include_manager_in_lc", True
-    )
-
     # --- агрегируем суммы по (project_id, pnl_code) и по (project_id, category_id) ---
     totals: dict[tuple[str, str], float] = defaultdict(float)
     cat_totals: dict[tuple[str, str], float] = defaultdict(float)
@@ -632,11 +619,6 @@ async def build_pnl(
                 # для Capital продолжаем — они нужны в cat_totals для template_lines
                 if info_op_type != "Capital":
                     continue
-
-            # Настройка «не включать управляющего в LC» — перекидываем такие
-            # части в административный персонал.
-            if code and not include_manager_in_lc and info.get("is_manager_pay"):
-                code = "MGMT"
 
             # Знак.
             #   Income/Outcome категории: знак по совпадению op_type vs cat_type
@@ -1007,9 +989,6 @@ async def build_pnl(
         "method": method,
         "period_month": period_month,
         "stats": stats,
-        "settings": {
-            "include_manager_in_lc": include_manager_in_lc,
-        },
         "default_targets": default_targets,
         "ops_targets": ops_targets,
         "ops_project_targets": ops_overrides,     # {pid: {code: value}} — per-project override
