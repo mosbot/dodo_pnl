@@ -1148,6 +1148,63 @@ body.drawer-open .drawer-backdrop {
   body.drawer-open .panel { transform: translateX(0); }
   /* На узких экранах workspace получает меньше padding */
   .workspace { padding: 12px; }
+  /* Топбар компактный: меньше gap, padding */
+  .topbar { padding: 0 10px; gap: 8px; }
+  .controls { gap: 8px; }
+  .controls-left, .controls-right { gap: 8px; }
+}
+
+/* На мобиле — детализация имеет горизонтальный скролл (много колонок
+ * проектов невозможно влезть). Минимальная ширина первой колонки. */
+@media (max-width: 800px) {
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 100%; }
+  /* Drill-down модалка на мобиле — full-screen */
+  .modal-content {
+    max-width: 100%; width: 100%;
+    max-height: 100vh; height: 100vh;
+    border-radius: 0;
+  }
+  /* Попапы конфига (Метрики/Графики) — bottom-sheet на мобиле:
+   * прижаты к низу экрана на всю ширину, легко скроллить пальцем. */
+  .charts-config-popover {
+    position: fixed !important;
+    left: 0; right: 0; bottom: 0; top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 12px 12px 0 0;
+    max-height: 70vh;
+    overflow-y: auto;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.15);
+  }
+  /* Стрелки ↑↓ крупнее под палец на мобиле */
+  .cfg-arrow { width: 32px; height: 32px; font-size: 12px; }
+}
+
+/* Очень узкие экраны (телефон) — освобождаем место в топбаре */
+@media (max-width: 600px) {
+  /* В brand оставляем только «P&L», без подписи `· PlanFact` */
+  .brand .muted { display: none; }
+  .brand strong { font-size: 14px; }
+  /* «не синхронизировано» badge на мобиле скрываем — не критично,
+   * пользователь увидит его на десктопе. Освобождает 150+ px. */
+  .ops-freshness { display: none !important; }
+  /* «⚙ Настройки» — оставляем только иконку без подписи. */
+  .controls-right .btn-secondary {
+    font-size: 0;  /* скрыть текст */
+    padding: 6px 8px;
+  }
+  .controls-right .btn-secondary::before {
+    content: '⚙'; font-size: 14px;
+  }
+  /* User-меню: скрываем имя, оставляем «★ Выйти» */
+  .user-menu-name { display: none; }
+  /* LFL pill — не подписываем «выкл/вкл», только цветная точка */
+  .lfl-pill-state { display: none; }
+  /* «⟳ Метрики» — только иконка-стрелка */
+  .ops-refresh-btn span,
+  .ops-refresh-btn { font-size: 0; padding: 6px 8px; }
+  .ops-refresh-btn .ic-refresh { width: 16px; height: 16px; }
 }
 
 /* ========================================================================
