@@ -1097,9 +1097,57 @@ tr.tpl-calc.tpl-final .neg { color: #fca5a5; }
 .toast.error { background: var(--danger); }
 .toast.success { background: var(--success); }
 
+/* ========================================================================
+ * Drawer (мобильный сайдбар проектов).
+ * На десктопе hamburger скрыт, .panel в гриде. На мобиле hamburger в
+ * топбаре, .panel становится off-canvas drawer'ом, выезжает по тапу.
+ * ======================================================================== */
+.drawer-toggle {
+  display: none;  /* скрыта на десктопе */
+  width: 36px; height: 36px; padding: 0;
+  background: transparent; border: 1px solid var(--border-light);
+  border-radius: 6px;
+  align-items: center; justify-content: center;
+  cursor: pointer; color: var(--text);
+  flex-shrink: 0;
+}
+.drawer-toggle:hover { background: var(--bg); }
+.drawer-toggle:active { transform: scale(0.96); }
+.drawer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 99;  /* под топбаром (z=100), но над контентом */
+  opacity: 0; transition: opacity 0.2s;
+  pointer-events: none;
+}
+body.drawer-open .drawer-backdrop {
+  opacity: 1; pointer-events: auto;
+}
+
 @media (max-width: 800px) {
+  /* Только одна колонка контента; sidebar — оверлей */
   body { grid-template-columns: 1fr; grid-template-areas: "top" "main"; }
-  .panel { display: none; }
+  /* Hamburger в топбаре */
+  .drawer-toggle { display: inline-flex; }
+  /* Сайдбар — фиксированная панель слева, по умолчанию за экраном */
+  .panel {
+    display: block;
+    position: fixed;
+    top: 56px;  /* под топбаром */
+    left: 0;
+    width: min(280px, 80vw);
+    height: calc(100vh - 56px);
+    overflow-y: auto;
+    background: white;
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+    z-index: 100;  /* над основным контентом */
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+  body.drawer-open .panel { transform: translateX(0); }
+  /* На узких экранах workspace получает меньше padding */
+  .workspace { padding: 12px; }
 }
 
 /* ========================================================================

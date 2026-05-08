@@ -12,6 +12,13 @@
 <div id="loadingBar" class="loading-bar" hidden></div>
 
 <header class="topbar">
+  <button id="drawerToggle" class="drawer-toggle" type="button" aria-label="Открыть проекты"
+          title="Проекты">
+    <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+      <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" fill="none"/>
+    </svg>
+  </button>
   <div class="brand">
     <strong>P&L Dashboard</strong>
     <span class="muted">· PlanFact</span>
@@ -74,6 +81,7 @@
   </div>
 </header>
 
+<div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 <aside id="projectsPanel" class="panel">
   <h3>
     Проекты

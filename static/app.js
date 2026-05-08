@@ -477,6 +477,13 @@ function renderProjectsSidebar() {
     refreshApplyBar();
     updateOnboardingHints();
     loadPnl();
+    // На мобиле — после «Применить» закрываем drawer, чтобы юзер увидел
+    // дашборд. На десктопе drawer-open не выставляется, no-op.
+    if (document.body.classList.contains('drawer-open')) {
+      document.body.classList.remove('drawer-open');
+      const bd = document.getElementById('drawerBackdrop');
+      if (bd) bd.hidden = true;
+    }
   });
   // Сбросить — откатить selected к applied (отказ от изменений)
   document.getElementById('projApplyReset')?.addEventListener('click', () => {
@@ -2432,6 +2439,20 @@ async function openDrillDown(code, label, projectId = null, projectName = '', ca
 // --- Wire up events ---
 document.addEventListener('DOMContentLoaded', async () => {
   initMonthSelect();
+
+  // Drawer (мобильный сайдбар проектов) — открывается hamburger-ом,
+  // закрывается по клику на backdrop или по Escape.
+  const _toggleDrawer = (open) => {
+    document.body.classList.toggle('drawer-open',
+      typeof open === 'boolean' ? open : !document.body.classList.contains('drawer-open'));
+    const bd = el('drawerBackdrop');
+    if (bd) bd.hidden = !document.body.classList.contains('drawer-open');
+  };
+  el('drawerToggle')?.addEventListener('click', () => _toggleDrawer());
+  el('drawerBackdrop')?.addEventListener('click', () => _toggleDrawer(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) _toggleDrawer(false);
+  });
 
   // Попап «⚙ Графики» — список + кнопки «Показать все / Скрыть все».
   // Применяем visibility сразу, чтобы скрытые графики не мелькали при первом
