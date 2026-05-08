@@ -100,8 +100,13 @@ html { scrollbar-gutter: stable; }
 .empty-state-step-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .empty-state-step-sub { font-size: 12px; color: var(--muted); line-height: 1.4; }
 
-/* Подсказки в топбаре и сайдбаре, видимые только в начальном состоянии. */
-.tb-hint {
+/* Подсказки в топбаре и сайдбаре, видимые только в начальном состоянии.
+ * С момента появления самодостаточного empty-state («Дашборд P&L · с
+ * чего начать» с тремя пронумерованными шагами) пилюли стали избыточны
+ * и в Safari/Chrome выглядели громоздко. Скрыты глобально — оставлены
+ * стили на случай, если решим вернуть. */
+.tb-hint { display: none !important; }
+.tb-hint.__keep-styles {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px;
   font-size: 12px; font-weight: 500;
@@ -1262,10 +1267,9 @@ body.drawer-open .drawer-backdrop {
   .ops-refresh-btn { font-size: 0; padding: 6px 8px; }
   .ops-refresh-btn .ic-refresh { width: 16px; height: 16px; }
 
-  /* Onboarding-подсказки на мобиле прячем целиком: empty-state в основной
-   * области уже подсказывает «Выбери период» и «Открой ☰ — отметь
-   * пиццерии», поэтому пилюли «Выбери» / «Отметь» избыточны. */
-  .tb-hint { display: none !important; }
+  /* Onboarding-подсказки скрыты глобально (см. .tb-hint выше) — empty-state
+   * сам всё рассказывает. Здесь оставляем пустое место под потенциальные
+   * мобильные правки. */
 }
 
 /* Empty-state (нет выбранных пиццерий): прячем все тулбары/графики/
