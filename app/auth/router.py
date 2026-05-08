@@ -117,10 +117,15 @@ async def login(
         user_id=u.id, request=request,
     )
 
+    # samesite=strict — защищает от CSRF (cookie не отправляется при
+    # cross-site навигации, в т.ч. <form method=POST>). Минус — переход
+    # из внешнего письма/чата на /api/* теряет cookie, но для внутреннего
+    # дашборда это приемлемо: пользователь начинает с /login и получает
+    # cookie заново.
     response.set_cookie(
         key=SESSION_COOKIE, value=s.token,
         max_age=SESSION_TTL_DAYS * 24 * 3600,
-        httponly=True, secure=True, samesite="lax", path="/",
+        httponly=True, secure=True, samesite="strict", path="/",
     )
     return UserPublic.from_user(u)
 

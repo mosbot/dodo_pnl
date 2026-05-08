@@ -44,6 +44,42 @@ from .schemas import (
 
 app = FastAPI(title="PnL Dashboard")
 
+
+# --- security headers ---
+# CSP: разрешаем self + cdn.jsdelivr.net (Chart.js загружается оттуда),
+# inline-стили (некоторые модалки используют style=...). Ужесточить можно
+# после того как все inline-style вынесены в CSS.
+_SEC_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Добавляем security-заголовки ко всем ответам."""
+    resp = await call_next(request)
+    for k, v in _SEC_HEADERS.items():
+        # Не перезаписываем, если кто-то выше уже выставил (например,
+        # /static может иметь свой CSP).
+        if k not in resp.headers:
+            resp.headers[k] = v
+    return resp
+
+
 # --- auth ---
 # Подключаем /auth/login, /auth/logout, /auth/me + /api/me/* + /api/admin/*
 app.include_router(auth_router)

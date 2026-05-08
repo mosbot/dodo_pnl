@@ -1108,7 +1108,7 @@ function renderCards() {
     const div = document.createElement('div');
     div.className = 'card ' + cls;
     div.innerHTML = `
-      <div class="card-title">${p.name}</div>
+      <div class="card-title">${esc(p.name)}</div>
       <div class="card-block">
         <div class="card-block-head">Финансовые показатели</div>
         <div class="tile-grid tile-grid-fin">${finTiles}</div>
@@ -1978,7 +1978,7 @@ function renderAggregateTable() {
   const projects = state.pnl.projects;
 
   let thead = '<thead><tr><th>Статья</th>';
-  projects.forEach(p => thead += `<th>${p.name}</th>`);
+  projects.forEach(p => thead += `<th>${esc(p.name)}</th>`);
   thead += '<th>Итого</th></tr></thead>';
 
   let tbody = '<tbody>';
@@ -2448,7 +2448,7 @@ async function openDrillDown(code, label, projectId = null, projectName = '', ca
     html += '</tbody></table>';
     el('drillBody').innerHTML = html;
   } catch (e) {
-    el('drillBody').innerHTML = `<p class="neg">Ошибка: ${e.message}</p>`;
+    el('drillBody').innerHTML = `<p class="neg">Ошибка: ${esc(e.message)}</p>`;
   }
 }
 
