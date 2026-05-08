@@ -134,6 +134,13 @@ class ProjectConfig(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
+    # S15: Whitelist для network_admin. Если False — проект «выключен на
+    # уровне сети» супер-админом, network_admin не видит его в админке
+    # и не может включить is_active. Юзеры тоже не видят такой проект
+    # на дашборде. Для super_admin виден всегда.
+    is_admin_managed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     display_name: Mapped[Optional[str]] = mapped_column(String(255))
     sort_order: Mapped[Optional[int]] = mapped_column(Integer)
     dodo_unit_uuid: Mapped[Optional[str]] = mapped_column(String(64))

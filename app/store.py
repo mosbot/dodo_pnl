@@ -289,6 +289,7 @@ async def list_projects_config(
     return {
         p.project_id: {
             "is_active": p.is_active,
+            "is_admin_managed": p.is_admin_managed,
             "display_name": p.display_name,
             "sort_order": p.sort_order,
             "dodo_unit_uuid": p.dodo_unit_uuid,
@@ -306,11 +307,12 @@ async def upsert_project_config(
     project_id: str,
     *,
     is_active: Optional[bool] = None,
+    is_admin_managed: Optional[bool] = None,
     display_name: Optional[str] = None,
     sort_order: Optional[int] = None,
     dodo_unit_uuid: Any = _UNSET,
 ) -> None:
-    """None у is_active/sort_order — не менять. Для display_name/dodo_unit_uuid:
+    """None у bool/sort_order — не менять. Для display_name/dodo_unit_uuid:
     None или '' = очистить, отсутствие = не менять (через _UNSET)."""
     stmt = select(ProjectConfig).where(
         ProjectConfig.planfact_key_id == planfact_key_id,
@@ -321,17 +323,21 @@ async def upsert_project_config(
     if existing is None:
         # Create new
         new_active = True if is_active is None else bool(is_active)
+        new_admin_managed = True if is_admin_managed is None else bool(is_admin_managed)
         new_name = display_name or None
         new_order = sort_order
         new_uuid = (dodo_unit_uuid or None) if dodo_unit_uuid is not _UNSET else None
         session.add(ProjectConfig(
             planfact_key_id=planfact_key_id, project_id=project_id,
-            is_active=new_active, display_name=new_name,
+            is_active=new_active, is_admin_managed=new_admin_managed,
+            display_name=new_name,
             sort_order=new_order, dodo_unit_uuid=new_uuid,
         ))
     else:
         if is_active is not None:
             existing.is_active = bool(is_active)
+        if is_admin_managed is not None:
+            existing.is_admin_managed = bool(is_admin_managed)
         if display_name is not None:
             existing.display_name = display_name or None
         if sort_order is not None:

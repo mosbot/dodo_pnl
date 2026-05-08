@@ -292,6 +292,7 @@ async def admin_delete_user(
 class AdminProjectConfigUpdate(BaseModel):
     """Подмножество полей projects_config для админ-обновления чужого юзера."""
     is_active: Optional[bool] = None
+    is_admin_managed: Optional[bool] = None  # super_admin only
     display_name: Optional[str] = None
     sort_order: Optional[int] = None
     dodo_unit_uuid: Optional[str] = None
@@ -543,11 +544,17 @@ async def admin_key_projects(
         if not pid:
             continue
         c = cfg.get(pid) or {}
+        is_admin_managed = bool(c.get("is_admin_managed", True))
+        # network_admin не видит проекты, выключенные super-админом из
+        # whitelist'а сети. super_admin видит всё (включая управление флагом).
+        if admin.is_network_admin and not is_admin_managed:
+            continue
         pg = p.get("projectGroup") or {}
         out.append({
             "id": pid,
             "planfact_name": p.get("title") or p.get("name") or "",
             "is_active": bool(c.get("is_active", True)),
+            "is_admin_managed": is_admin_managed,
             "display_name": c.get("display_name"),
             "sort_order": c.get("sort_order"),
             "dodo_unit_uuid": c.get("dodo_unit_uuid"),
@@ -556,7 +563,7 @@ async def admin_key_projects(
             "project_group_title": pg.get("title"),
             "project_group_is_undistributed": bool(pg.get("isUndistributed", False)),
         })
-    return {"projects": out}
+    return {"projects": out, "viewer_role": admin.role}
 
 
 @admin_router.patch(
@@ -565,16 +572,31 @@ async def admin_key_projects(
 async def admin_patch_key_project_config(
     key_id: int, project_id: str,
     body: AdminProjectConfigUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_key("key_id")),
     session: AsyncSession = Depends(get_session),
 ):
     pk = await session.get(PlanfactKey, key_id)
     if pk is None:
         raise HTTPException(404, "Ключ не найден")
 
+    # Network admin не может менять is_admin_managed (whitelist уровня сети).
+    if body.is_admin_managed is not None and not admin.is_super_admin:
+        raise HTTPException(
+            403, "Только super-админ может менять «Доступ для сети»",
+        )
+    # Network admin: проверим что проект в whitelist'е (нельзя менять
+    # is_active или другие поля у проекта который супер-админ скрыл).
+    if admin.is_network_admin:
+        cfg = await store.list_projects_config(session, key_id)
+        c = cfg.get(project_id) or {}
+        if not c.get("is_admin_managed", True):
+            raise HTTPException(403, "Этот проект скрыт супер-админом сети")
+
     kwargs: dict = {}
     if body.is_active is not None:
         kwargs["is_active"] = bool(body.is_active)
+    if body.is_admin_managed is not None:
+        kwargs["is_admin_managed"] = bool(body.is_admin_managed)
     if body.display_name is not None:
         kwargs["display_name"] = body.display_name
     if body.sort_order is not None:

@@ -362,12 +362,19 @@ async def get_projects(
     )
     # Личный фильтр видимости: то, что админ выключил конкретно этому юзеру.
     hidden = await store.get_user_hidden_projects(session, user.id)
+    # super_admin видит ВСЕ проекты (включая выключенные whitelist'ом),
+    # network_admin и user — только те где is_admin_managed=True.
+    # Это первый слой видимости: «доступен ли проект сети вообще».
+    show_admin_unmanaged = user.is_super_admin
     norm = []
     for p in projects:
         pid = str(p.get("projectId") or p.get("id") or "")
         if not pid:
             continue
         c = cfg.get(pid) or {}
+        is_admin_managed = bool(c.get("is_admin_managed", True))
+        if not is_admin_managed and not show_admin_unmanaged:
+            continue
         # is_active = «архивация на ключ» AND «не скрыт лично у юзера».
         # Юзер увидит проект на главной только когда оба true.
         key_active = bool(c.get("is_active", True))

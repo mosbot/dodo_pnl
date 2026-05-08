@@ -1786,6 +1786,22 @@ async function openKeyProjectsModal(keyId, keyName) {
     : `<p class="muted" style="font-size:11px;margin-bottom:8px;">Снятый тумблер «Вкл» = проект архивирован для всех юзеров под этим ключом. Привязка к Dodo IS — выберите юнит из списка.</p>`;
 
   const groups = _groupProjectsForModal(projects, p => p.is_active);
+  // Колонка «Доступен сети» (is_admin_managed) — управляется только
+  // super_admin'ом. Для network'а её не показываем (он и так видит только
+  // managed-проекты, бэк фильтрует).
+  const isSuper = !!(state.me && state.me.role === 'super_admin');
+  const adminColTh = isSuper
+    ? `<th style="width:90px;text-align:center;" title="Whitelist: проект доступен сетевому админу для управления">Доступен&nbsp;сети</th>`
+    : '';
+  const adminColTd = (p) => isSuper
+    ? `<td style="text-align:center;">
+        <label class="row-toggle" style="margin:0 auto;">
+          <input type="checkbox" class="js-up-managed"
+            ${p.is_admin_managed ? 'checked' : ''}>
+          <span class="row-toggle-track"></span>
+        </label>
+      </td>`
+    : '';
 
   wrap.innerHTML = `
     ${dodoisHint}
@@ -1798,12 +1814,13 @@ async function openKeyProjectsModal(keyId, keyName) {
         <th style="width:200px;">Отображаемое имя</th>
         <th style="width:90px;text-align:center;">Порядок</th>
         <th style="width:280px;">Dodo IS юнит</th>
+        ${adminColTh}
       </tr></thead>
       <tbody>
         ${groups.map(g => _renderGroupRows(
           g,
           p => ({ rowClass: p.is_active ? '' : 'row-off', checked: p.is_active }),
-          4,
+          isSuper ? 5 : 4,
           p => `
             <td>
               <input type="text" class="js-up-display inp-flush"
@@ -1822,6 +1839,7 @@ async function openKeyProjectsModal(keyId, keyName) {
                 title="${esc(unitName(p.dodo_unit_uuid))}">
               <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
             </td>
+            ${adminColTd(p)}
           `,
         )).join('')}
       </tbody>
@@ -1865,6 +1883,15 @@ async function openKeyProjectsModal(keyId, keyName) {
         const name = unitName(v);
         un.textContent = name; uu.title = name;
       } catch (e) {}
+    });
+    // is_admin_managed toggle (super_admin only)
+    const mg = tr.querySelector('.js-up-managed');
+    if (mg) mg.addEventListener('change', async () => {
+      try {
+        await patchField(pid, { is_admin_managed: mg.checked }, mg);
+      } catch (e) {
+        mg.checked = !mg.checked;  // откат UI при ошибке
+      }
     });
   });
 
