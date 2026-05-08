@@ -623,6 +623,16 @@ function renderEmptyState() {
     const periodIsSet = state.mode === 'period'
       ? !!(state.periodFrom && state.periodTo)
       : !!state.currentMonth;
+    // На мобиле сайдбар прячется за hamburger — текст шага 2 адаптируем,
+    // а текст шага 1 не упоминает «сверху», т.к. селект периода переехал
+    // во вторую строку топбара (но всё ещё «выше всего»).
+    const isMobile = matchMedia('(max-width: 800px)').matches;
+    const step2Title = isMobile
+      ? 'Открой ☰ — отметь пиццерии'
+      : 'Слева — отметь пиццерии';
+    const step1Title = isMobile
+      ? 'Выбери период'
+      : 'Сверху — выбери период';
     cards.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-title">Дашборд P&amp;L · с чего начать</div>
@@ -634,14 +644,14 @@ function renderEmptyState() {
           <div class="empty-state-step ${periodIsSet ? 'is-done' : ''}">
             <span class="empty-state-step-num">1</span>
             <div>
-              <div class="empty-state-step-title">Сверху — выбери период</div>
+              <div class="empty-state-step-title">${step1Title}</div>
               <div class="empty-state-step-sub">Один месяц или диапазон. По умолчанию — текущий месяц.</div>
             </div>
           </div>
           <div class="empty-state-step">
             <span class="empty-state-step-num">2</span>
             <div>
-              <div class="empty-state-step-title">Слева — отметь пиццерии</div>
+              <div class="empty-state-step-title">${step2Title}</div>
               <div class="empty-state-step-sub">Можно сразу несколько. Чекбоксы группируются по сети.</div>
             </div>
           </div>

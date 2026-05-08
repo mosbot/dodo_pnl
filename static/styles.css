@@ -1188,6 +1188,15 @@ body.drawer-open .drawer-backdrop {
   }
   /* Стрелки ↑↓ крупнее под палец на мобиле */
   .cfg-arrow { width: 32px; height: 32px; font-size: 12px; }
+
+  /* Empty-state «с чего начать» — 1 колонка вместо 3, плотнее padding.
+   * 3 колонки в 500px дают по 130px на шаг — текст обрезается.
+   * Один столбец читается естественно, картинка не теряет смысл. */
+  .empty-state { padding: 18px 16px; gap: 14px; }
+  .empty-state-title { font-size: 16px; }
+  .empty-state-sub { font-size: 13px; }
+  .empty-state-steps { grid-template-columns: 1fr; gap: 10px; }
+  .empty-state-step { padding: 12px 14px; }
 }
 
 /* Очень узкие экраны (телефон) — освобождаем место в топбаре.
@@ -1252,6 +1261,13 @@ body.drawer-open .drawer-backdrop {
   .ops-refresh-btn span,
   .ops-refresh-btn { font-size: 0; padding: 6px 8px; }
   .ops-refresh-btn .ic-refresh { width: 16px; height: 16px; }
+
+  /* Onboarding-подсказка «Выбери» в топбаре на мобиле прячется:
+   * она не помещается в 500px-ширину, а сам empty-state в основной
+   * области уже подсказывает «Выбери период». Остаётся только
+   * inline-подсказка «Отметь» в заголовке сайдбара (drawer 280px,
+   * там места ей хватает). */
+  .tb-hint:not(.tb-hint-inline) { display: none !important; }
 }
 
 /* ========================================================================
