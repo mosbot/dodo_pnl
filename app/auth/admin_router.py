@@ -21,7 +21,10 @@ from .. import store
 from ..crypto import decrypt_secret, encrypt_secret
 from ..db import get_session
 from . import audit
-from .dependencies import require_admin
+from .dependencies import (
+    require_admin, require_super_admin,
+    require_admin_for_key, require_admin_for_user,
+)
 from .models import PlanfactKey, User
 from .users import (
     create_user,
@@ -117,6 +120,9 @@ async def admin_list_users(
     session: AsyncSession = Depends(get_session),
 ):
     users = await list_users(session)
+    # network_admin видит только юзеров своего PF-ключа.
+    if admin.is_network_admin:
+        users = [u for u in users if u.planfact_key_id == admin.planfact_key_id]
     keys = await _key_names_map(session)
     return [
         AdminUserPublic.from_user(u, key_name=keys.get(u.planfact_key_id))
@@ -132,10 +138,14 @@ async def admin_create_user(
     session: AsyncSession = Depends(get_session),
 ):
     # Network admin не может создать super_admin (privilege escalation).
-    # Также network admin форсит planfact_key_id = self.planfact_key_id —
-    # эту логику включим в Phase 2 (require_admin_for_user). Пока — pass.
     if body.role == "super_admin" and not admin.is_super_admin:
         raise HTTPException(403, "Только super-админ может создавать super-админов")
+    # Network admin форсит planfact_key_id = self.planfact_key_id (создавать
+    # юзеров может только в своей сети). Игнорируем body.planfact_key_id.
+    if admin.is_network_admin:
+        if body.planfact_key_id is not None and body.planfact_key_id != admin.planfact_key_id:
+            raise HTTPException(403, "Можно создавать юзеров только в своей сети")
+        body.planfact_key_id = admin.planfact_key_id
     try:
         u = await create_user(
             session,
@@ -168,7 +178,7 @@ async def admin_update_user(
     user_id: int,
     body: AdminUserUpdate,
     request: Request,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     u = await get_user_by_id(session, user_id)
@@ -183,6 +193,12 @@ async def admin_update_user(
             raise HTTPException(400, "Нельзя снять super-admin с самого себя")
         if body.role == "super_admin" and not admin.is_super_admin:
             raise HTTPException(403, "Только super-админ может назначать super-админов")
+    # Network admin не может перевести юзера в другую сеть.
+    if admin.is_network_admin:
+        if body.planfact_key_id is not None and body.planfact_key_id != admin.planfact_key_id:
+            raise HTTPException(403, "Нельзя переназначить юзера в другую сеть")
+        if body.clear_planfact_key:
+            raise HTTPException(403, "Нельзя отвязать юзера от своей сети")
 
     fields_changed: list[str] = []
     if body.display_name is not None:
@@ -251,7 +267,7 @@ async def admin_reset_password(
 async def admin_delete_user(
     user_id: int,
     request: Request,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     if user_id == admin.id:
@@ -284,7 +300,7 @@ class AdminProjectConfigUpdate(BaseModel):
 @admin_router.get("/api/admin/users/{user_id}/projects-config")
 async def admin_user_projects_config(
     user_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Текущая конфигурация проектов под ключом этого юзера.
@@ -309,7 +325,7 @@ async def admin_user_projects_config(
 @admin_router.get("/api/admin/users/{user_id}/projects")
 async def admin_user_projects_deprecated(
     user_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     return {
@@ -398,7 +414,7 @@ async def _legacy_admin_user_projects(
 @admin_router.get("/api/admin/users/{user_id}/dodois-units")
 async def admin_user_dodois_units(
     user_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Список юнитов Dodo IS под токеном целевого юзера. Нужно админу для
@@ -431,7 +447,7 @@ class VisibilityUpdate(BaseModel):
 @admin_router.get("/api/admin/users/{user_id}/visibility")
 async def admin_user_visibility(
     user_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Список проектов под ключом юзера + персональная видимость.
@@ -501,7 +517,7 @@ async def admin_set_user_visibility(
 @admin_router.get("/api/admin/planfact-keys/{key_id}/projects")
 async def admin_key_projects(
     key_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_key("key_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Структура проектов под ключом PlanFact (общая для всех юзеров ключа):
@@ -574,7 +590,7 @@ async def admin_patch_key_project_config(
 @admin_router.get("/api/admin/planfact-keys/{key_id}/dodois-units")
 async def admin_key_dodois_units(
     key_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_key("key_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Список Dodo IS юнитов под токеном первого юзера, у которого есть
@@ -655,10 +671,11 @@ async def _key_usage_count(session: AsyncSession, key_id: int) -> int:
 
 @admin_router.get("/api/admin/planfact-keys", response_model=list[PlanfactKeyPublic])
 async def admin_list_planfact_keys(
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Все ключи в каталоге."""
+    """Каталог PF-ключей. Только super_admin — network видит только свой
+    ключ через /api/admin/planfact-keys/{key_id}/* эндпойнты."""
     from sqlalchemy import select
     res = await session.execute(
         select(PlanfactKey).order_by(PlanfactKey.name)
@@ -680,7 +697,7 @@ async def admin_list_planfact_keys(
 @admin_router.post("/api/admin/planfact-keys", response_model=PlanfactKeyPublic)
 async def admin_create_planfact_key(
     body: PlanfactKeyCreate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pk = PlanfactKey(
@@ -707,7 +724,7 @@ async def admin_create_planfact_key(
 async def admin_update_planfact_key(
     key_id: int,
     body: PlanfactKeyUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pk = await session.get(PlanfactKey, key_id)
@@ -740,7 +757,7 @@ async def admin_update_planfact_key(
 @admin_router.delete("/api/admin/planfact-keys/{key_id}")
 async def admin_delete_planfact_key(
     key_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pk = await session.get(PlanfactKey, key_id)
@@ -858,7 +875,7 @@ class DodoisCredential(BaseModel):
 
 @admin_router.get("/api/admin/dodois-credentials", response_model=list[DodoisCredential])
 async def admin_list_dodois_credentials(
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Список доступных Dodo IS логинов из public.dodois_credentials.
@@ -885,7 +902,7 @@ class AdminAuditEntry(BaseModel):
 
 @admin_router.get("/api/admin/audit", response_model=list[AdminAuditEntry])
 async def admin_list_audit(
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
     limit: int = 100,
     user_id: Optional[int] = None,

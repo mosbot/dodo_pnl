@@ -228,7 +228,9 @@
 
   <!-- ============ TAB: ПОЛЬЗОВАТЕЛИ (admin only) ============ -->
   <section class="tab-pane admin-only hidden" data-pane="users" role="tabpanel">
-    <div class="dense-block">
+    <!-- Каталог PF-ключей — только super_admin (network видит свой ключ
+         через интеграции). Скрывается JS'ом для role=network_admin. -->
+    <div class="dense-block super-only hidden" id="pfKeysCatalog">
       <div class="block-head">
         <h2>Каталог PlanFact-ключей</h2>
         <span class="block-sub muted">Именованные ключи для назначения пользователям.</span>
@@ -288,7 +290,7 @@
       <label>Отображаемое имя (опционально)
         <input type="text" id="cuDisplayName" maxlength="128">
       </label>
-      <label class="checkbox-row">
+      <label class="checkbox-row super-only hidden">
         <input type="checkbox" id="cuIsAdmin">
         <span>Сделать администратором</span>
       </label>
@@ -332,7 +334,7 @@
       <label>Отображаемое имя
         <input type="text" id="ueDisplayName" maxlength="128">
       </label>
-      <label class="checkbox-row">
+      <label class="checkbox-row super-only hidden">
         <input type="checkbox" id="ueIsAdmin">
         <span>Администратор</span>
       </label>

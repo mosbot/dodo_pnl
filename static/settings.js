@@ -1519,6 +1519,7 @@ function openEditUserModal(u) {
   document.getElementById('ueUsername').value = u.username;
   document.getElementById('ueDisplayName').value = u.display_name || '';
   document.getElementById('ueIsAdmin').checked = !!u.is_admin;
+  document.getElementById('ueIsAdmin').dataset.currentRole = u.role || 'user';
   // visibility_level — приведение к ближайшему пресету (10/30/60/100)
   const lvl = u.visibility_level ?? 100;
   document.getElementById('ueVisibilityLevel').value = String(lvl);
@@ -1899,16 +1900,27 @@ async function openKeyProjectsModal(keyId, keyName) {
 
 async function initUsersTab() {
   // Скрываем admin-only элементы для не-админов; показываем для админов.
+  // Дополнительно: super-only элементы (например «Каталог PF-ключей»)
+  // показываются только super_admin'у. network_admin админит юзеров
+  // в рамках своего ключа, но не управляет каталогом ключей.
   const isAdmin = !!(state.me && state.me.is_admin);
+  const isSuper = !!(state.me && state.me.role === 'super_admin');
   document.querySelectorAll('.admin-only').forEach(e => {
     e.classList.toggle('hidden', !isAdmin);
   });
+  document.querySelectorAll('.super-only').forEach(e => {
+    e.classList.toggle('hidden', !isSuper);
+  });
   if (!isAdmin) return;
 
-  // Подгружаем каталоги (PF-ключи + Dodo IS логины) для селектов
+  // Подгружаем каталоги (PF-ключи + Dodo IS логины) для селектов.
+  // network_admin тоже зовёт loadAdminCatalogs — для своего PF-ключа
+  // и Dodo IS логинов, чтобы корректно отрисовать форму создания юзера.
   await loadAdminCatalogs();
-  initPfKeysCatalog();
-  initCacheModal();
+  if (isSuper) {
+    initPfKeysCatalog();
+    initCacheModal();
+  }
 
   // Закрытие модалок по [data-close]
   document.querySelectorAll('[data-close]').forEach(btn => {
@@ -1925,11 +1937,16 @@ async function initUsersTab() {
     e.preventDefault();
     setMsg('cuMsg', '', '');
     const pfKeyId = document.getElementById('cuPfKeyId').value;
+    // Чекбокс «Сделать администратором» означает super_admin (для
+    // super-юзера который создаёт). Network admin его не видит и
+    // создаёт только role=user. role=network_admin сейчас можно
+    // выставить только через CLI или прямой API-вызов — Phase 5.
+    const isAdminChecked = document.getElementById('cuIsAdmin').checked;
     const body = {
       username: document.getElementById('cuUsername').value.trim(),
       password: document.getElementById('cuPassword').value,
       display_name: document.getElementById('cuDisplayName').value.trim() || null,
-      is_admin: document.getElementById('cuIsAdmin').checked,
+      role: isAdminChecked ? 'super_admin' : 'user',
       dodois_credentials_name: document.getElementById('cuDodoisName').value || null,
       planfact_key_id: pfKeyId ? Number(pfKeyId) : null,
       visibility_level: Number(document.getElementById('cuVisibilityLevel').value) || 100,
@@ -1950,9 +1967,16 @@ async function initUsersTab() {
     setMsg('ueMsg', '', '');
     const id = document.getElementById('ueId').value;
     const pfKeyId = document.getElementById('uePfKeyId').value;
+    // Чекбокс «Администратор» переключает super_admin/user. Если у юзера
+    // была role=network_admin — мы её через эту форму не меняем (сохраняем).
+    const ueIsAdminEl = document.getElementById('ueIsAdmin');
+    const currentRole = ueIsAdminEl.dataset.currentRole || 'user';
+    const newRole = ueIsAdminEl.checked
+      ? (currentRole === 'network_admin' ? 'network_admin' : 'super_admin')
+      : 'user';
     const body = {
       display_name: document.getElementById('ueDisplayName').value.trim() || null,
-      is_admin: document.getElementById('ueIsAdmin').checked,
+      role: newRole,
       dodois_credentials_name: document.getElementById('ueDodoisName').value || null,
       visibility_level: Number(document.getElementById('ueVisibilityLevel').value) || 100,
     };
