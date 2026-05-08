@@ -62,13 +62,91 @@ async def require_user(
 
 
 async def require_admin(user: User = Depends(require_user)) -> User:
-    """Тот же, что require_user, но дополнительно проверяет is_admin."""
-    if not user.is_admin:
+    """Любой администратор (super OR network). Используется legacy-роутами,
+    которые сами скоупятся по user.planfact_key_id (например /api/template/*,
+    /api/metrics/*, /api/projects/config) — для них network_admin не опаснее
+    super_admin'а, т.к. он работает только в своём scope."""
+    if not user.is_any_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нужны права администратора",
         )
     return user
+
+
+async def require_super_admin(user: User = Depends(require_user)) -> User:
+    """Только super_admin. Для глобальных операций: CRUD planfact_keys,
+    смена is_admin_managed, доступ к чужим ключам."""
+    if not user.is_super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нужны права супер-администратора",
+        )
+    return user
+
+
+def require_admin_for_key(key_param: str = "key_id"):
+    """Фабрика: разрешает super_admin'у работать с любым PF-ключом, а
+    network_admin'у — только со своим (user.planfact_key_id == key_id).
+    Используется в эндпойнтах вида /api/admin/planfact-keys/{key_id}/*.
+
+    Применение:
+        @router.patch("/api/admin/planfact-keys/{key_id}/...")
+        async def handler(
+            key_id: int,
+            user: User = Depends(require_admin_for_key("key_id")),
+        ): ...
+    """
+    async def _dep(
+        request: Request,
+        user: User = Depends(require_user),
+    ) -> User:
+        if user.is_super_admin:
+            return user
+        if not user.is_network_admin:
+            raise HTTPException(403, "Нужны права администратора")
+        # network_admin → проверяем принадлежность ключа
+        target_key = request.path_params.get(key_param)
+        try:
+            target_key_id = int(target_key) if target_key is not None else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Bad {key_param}")
+        if target_key_id != user.planfact_key_id:
+            raise HTTPException(
+                403, "Этот ключ вне области вашей сети",
+            )
+        return user
+    return _dep
+
+
+def require_admin_for_user(user_param: str = "user_id"):
+    """Фабрика: super_admin может работать с любым юзером, network_admin —
+    только с юзерами в своём planfact_key. Для CRUD по /api/admin/users/{id}/*.
+    """
+    async def _dep(
+        request: Request,
+        actor: User = Depends(require_user),
+        db: AsyncSession = Depends(get_session),
+    ) -> User:
+        if actor.is_super_admin:
+            return actor
+        if not actor.is_network_admin:
+            raise HTTPException(403, "Нужны права администратора")
+        target = request.path_params.get(user_param)
+        try:
+            target_user_id = int(target) if target is not None else None
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Bad {user_param}")
+        from .users import get_user_by_id
+        target_user = await get_user_by_id(db, target_user_id)
+        if target_user is None:
+            raise HTTPException(404, "Пользователь не найден")
+        if target_user.planfact_key_id != actor.planfact_key_id:
+            raise HTTPException(
+                403, "Этот пользователь вне области вашей сети",
+            )
+        return actor
+    return _dep
 
 
 def require_visibility_level(min_level: int, role_label: str = ""):

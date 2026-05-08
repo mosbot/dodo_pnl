@@ -43,7 +43,8 @@ class AdminUserPublic(BaseModel):
     id: int
     username: str
     display_name: Optional[str]
-    is_admin: bool
+    role: str                          # 'super_admin' / 'network_admin' / 'user'
+    is_admin: bool                     # legacy: True если super_admin or network_admin
     visibility_level: int
     dodois_credentials_name: Optional[str]
     planfact_key_id: Optional[int]
@@ -57,7 +58,8 @@ class AdminUserPublic(BaseModel):
             id=u.id,
             username=u.username,
             display_name=u.display_name,
-            is_admin=u.is_admin,
+            role=u.role,
+            is_admin=u.is_any_admin,
             visibility_level=u.visibility_level,
             dodois_credentials_name=u.dodois_credentials_name,
             planfact_key_id=u.planfact_key_id,
@@ -71,7 +73,7 @@ class AdminUserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=256)
     display_name: Optional[str] = None
-    is_admin: bool = False
+    role: str = Field(default="user", pattern="^(super_admin|network_admin|user)$")
     visibility_level: int = Field(default=100, ge=0, le=100)
     dodois_credentials_name: Optional[str] = None
     planfact_key_id: Optional[int] = None
@@ -79,7 +81,7 @@ class AdminUserCreate(BaseModel):
 
 class AdminUserUpdate(BaseModel):
     display_name: Optional[str] = None
-    is_admin: Optional[bool] = None
+    role: Optional[str] = Field(default=None, pattern="^(super_admin|network_admin|user)$")
     visibility_level: Optional[int] = Field(default=None, ge=0, le=100)
     dodois_credentials_name: Optional[str] = None
     planfact_key_id: Optional[int] = None
@@ -129,13 +131,18 @@ async def admin_create_user(
     admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    # Network admin не может создать super_admin (privilege escalation).
+    # Также network admin форсит planfact_key_id = self.planfact_key_id —
+    # эту логику включим в Phase 2 (require_admin_for_user). Пока — pass.
+    if body.role == "super_admin" and not admin.is_super_admin:
+        raise HTTPException(403, "Только super-админ может создавать super-админов")
     try:
         u = await create_user(
             session,
             username=body.username,
             password=body.password,
             display_name=body.display_name,
-            is_admin=body.is_admin,
+            role=body.role,
             visibility_level=body.visibility_level,
             dodois_credentials_name=body.dodois_credentials_name,
             planfact_key_id=body.planfact_key_id,
@@ -143,7 +150,7 @@ async def admin_create_user(
         await audit.log_audit(
             session, audit.ACTION_ADMIN_USER_CREATED,
             user_id=admin.id, request=request,
-            details={"target_user_id": u.id, "target_username": u.username, "is_admin": u.is_admin},
+            details={"target_user_id": u.id, "target_username": u.username, "role": u.role},
         )
         await session.commit()
         keys = await _key_names_map(session)
@@ -168,16 +175,22 @@ async def admin_update_user(
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
 
-    if body.is_admin is False and admin.id == u.id:
-        raise HTTPException(400, "Нельзя снять админ-флаг с самого себя")
+    # Защита от само-разжалования (пользователь не должен снять с себя
+    # role!=super_admin). Также network_admin не может присвоить super_admin
+    # роль никому (privilege escalation).
+    if body.role is not None:
+        if admin.id == u.id and body.role != "super_admin":
+            raise HTTPException(400, "Нельзя снять super-admin с самого себя")
+        if body.role == "super_admin" and not admin.is_super_admin:
+            raise HTTPException(403, "Только super-админ может назначать super-админов")
 
     fields_changed: list[str] = []
     if body.display_name is not None:
         u.display_name = body.display_name or None
         fields_changed.append("display_name")
-    if body.is_admin is not None:
-        u.is_admin = bool(body.is_admin)
-        fields_changed.append("is_admin")
+    if body.role is not None:
+        u.role = body.role
+        fields_changed.append("role")
     if body.visibility_level is not None:
         u.visibility_level = int(body.visibility_level)
         fields_changed.append("visibility_level")

@@ -81,7 +81,34 @@ class User(Base):
         nullable=True,
     )
 
-    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # S15: разделили админа на два уровня:
+    #   super_admin   — Anthropic-уровень владения, видит/правит все ключи,
+    #                   создаёт PF-ключи и сетевых админов (Andrey)
+    #   network_admin — администратор одной сети, scope = его planfact_key,
+    #                   создаёт юзеров и управляет проектами в whitelist'е,
+    #                   который выдал super_admin (oltruist → Xfood)
+    #   user          — обычный пользователь (Управляющий/Территориальный/...)
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="user", server_default=text("'user'"),
+    )
+
+    @property
+    def is_super_admin(self) -> bool:
+        return self.role == "super_admin"
+
+    @property
+    def is_network_admin(self) -> bool:
+        return self.role == "network_admin"
+
+    @property
+    def is_any_admin(self) -> bool:
+        return self.role in ("super_admin", "network_admin")
+
+    # Legacy alias — всё ещё используется в старых call sites (cli.py,
+    # users.py:create_user, и т.д.). После прохода всех вызовов будет удалён.
+    @property
+    def is_admin(self) -> bool:
+        return self.is_any_admin
 
     # Уровень видимости метрик P&L. Юзер видит метрику если его level
     # >= metric.min_visibility_level. Дефолтные пресеты:

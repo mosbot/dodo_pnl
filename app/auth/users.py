@@ -41,20 +41,24 @@ async def create_user(
     username: str,
     password: str,
     display_name: Optional[str] = None,
-    is_admin: bool = False,
+    role: str = "user",
     visibility_level: int = 100,
     dodois_credentials_name: Optional[str] = None,
     planfact_key_id: Optional[int] = None,
 ) -> User:
     """Создать пользователя. Username нормализуется к нижнему регистру.
 
+    role: 'super_admin' / 'network_admin' / 'user'.
+
     Бросает IntegrityError если username уже занят — ловить в вызывающей точке.
     """
+    if role not in ("super_admin", "network_admin", "user"):
+        raise ValueError(f"Bad role: {role!r}")
     user = User(
         username=username.lower(),
         password_hash=hash_password(password),
         display_name=display_name,
-        is_admin=is_admin,
+        role=role,
         visibility_level=visibility_level,
         dodois_credentials_name=dodois_credentials_name,
         planfact_key_id=planfact_key_id,
@@ -106,10 +110,19 @@ async def update_integrations(
     await session.execute(stmt)
 
 
-async def set_admin(session: AsyncSession, user_id: int, is_admin: bool) -> None:
+async def set_role(session: AsyncSession, user_id: int, role: str) -> None:
+    """Сменить роль пользователя. role: 'super_admin' / 'network_admin' / 'user'."""
+    if role not in ("super_admin", "network_admin", "user"):
+        raise ValueError(f"Bad role: {role!r}")
     stmt = (
         update(User)
         .where(User.id == user_id)
-        .values(is_admin=is_admin, updated_at=datetime.now(timezone.utc))
+        .values(role=role, updated_at=datetime.now(timezone.utc))
     )
     await session.execute(stmt)
+
+
+async def set_admin(session: AsyncSession, user_id: int, is_admin: bool) -> None:
+    """Legacy. Делает super_admin (если is_admin=True) или user.
+    Новый код должен использовать set_role напрямую."""
+    await set_role(session, user_id, "super_admin" if is_admin else "user")

@@ -45,7 +45,8 @@ class UserPublic(BaseModel):
     id: int
     username: str
     display_name: Optional[str]
-    is_admin: bool
+    role: str                          # 'super_admin' / 'network_admin' / 'user'
+    is_admin: bool                     # legacy для существующего фронта
     visibility_level: int
     has_dodois_credentials: bool
     has_planfact_key: bool
@@ -56,7 +57,8 @@ class UserPublic(BaseModel):
             id=u.id,
             username=u.username,
             display_name=u.display_name,
-            is_admin=u.is_admin,
+            role=u.role,
+            is_admin=u.is_any_admin,
             visibility_level=u.visibility_level,
             has_dodois_credentials=bool(u.dodois_credentials_name),
             has_planfact_key=bool(u.planfact_key_id),
