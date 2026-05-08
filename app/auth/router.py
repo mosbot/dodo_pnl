@@ -143,8 +143,8 @@ async def logout(
         # Получим user_id до удаления сессии — нужен, чтобы выкинуть
         # PlanFact-клиента (с его HTTP-коннектами и кэшем) из памяти.
         from .sessions import get_session_with_user
-        pair = await get_session_with_user(db, token)
-        user_id = pair[1].id if pair else None
+        sess = await get_session_with_user(db, token)
+        user_id = sess.user_id if sess else None
         await delete_session(db, token)
         await audit.log_audit(
             db, audit.ACTION_LOGOUT,
