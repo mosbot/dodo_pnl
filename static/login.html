@@ -85,7 +85,10 @@
   <div class="login-card">
     <div class="login-brand">P&amp;L Dashboard <span class="muted">· PlanFact</span></div>
     <div class="login-sub">Войдите, чтобы получить доступ</div>
-    <form id="loginForm" class="login-form" autocomplete="on">
+    <!-- method=POST + action=# чтобы при неудаче выполнения JS форма всё
+         равно НЕ слила пароль в URL через default GET. Реальный submit
+         перехватывается JS (login.js, e.preventDefault). -->
+    <form id="loginForm" class="login-form" autocomplete="on" method="POST" action="#">
       <label>Логин
         <input type="text" name="username" id="username" required autofocus autocomplete="username">
       </label>
@@ -98,67 +101,6 @@
   </div>
 </div>
 
-<script>
-(function () {
-  const form = document.getElementById('loginForm');
-  const errBox = document.getElementById('loginError');
-  const submit = document.getElementById('loginSubmit');
-
-  function showError(msg) {
-    errBox.textContent = msg;
-    errBox.classList.add('visible');
-  }
-  function clearError() {
-    errBox.classList.remove('visible');
-    errBox.textContent = '';
-  }
-
-  // Поддержка ?next=/path — после логина возвращаем туда.
-  // ВАЖНО: разрешаем только same-origin paths (/foo/bar). Иначе — open redirect:
-  // ?next=https://evil.com или ?next=//evil.com → фишинг с легитимным /login.
-  const params = new URLSearchParams(window.location.search);
-  function safeNext(raw) {
-    if (!raw) return '/';
-    // Разрешаем: /, /something, /a/b?c=1
-    // Запрещаем: //evil, http:..., https:..., javascript:..., data:..., \\\\foo
-    if (typeof raw !== 'string') return '/';
-    if (!raw.startsWith('/')) return '/';
-    if (raw.startsWith('//') || raw.startsWith('/\\')) return '/';
-    return raw;
-  }
-  const next = safeNext(params.get('next'));
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    clearError();
-    submit.disabled = true;
-    submit.textContent = 'Вход…';
-
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
-    try {
-      const r = await fetch('/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        credentials: 'same-origin',
-      });
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
-        showError(data.detail || `Ошибка ${r.status}`);
-        submit.disabled = false;
-        submit.textContent = 'Войти';
-        return;
-      }
-      // Успех — редирект на ?next или /
-      window.location.href = next;
-    } catch (err) {
-      showError('Сетевая ошибка: ' + (err.message || err));
-      submit.disabled = false;
-      submit.textContent = 'Войти';
-    }
-  });
-})();
-</script>
+<script src="/static/login.js"></script>
 </body>
 </html>
