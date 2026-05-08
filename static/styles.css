@@ -1125,18 +1125,27 @@ body.drawer-open .drawer-backdrop {
 }
 
 @media (max-width: 800px) {
-  /* Только одна колонка контента; sidebar — оверлей */
-  body { grid-template-columns: 1fr; grid-template-areas: "top" "main"; }
+  /* Только одна колонка контента; sidebar — оверлей.
+   * grid-template-rows: auto — даём топбару расти под несколько строк
+   * контролов. Высота меряется в JS и попадает в --topbar-h, чтобы
+   * .panel под топбаром позиционировался корректно. */
+  body { grid-template-columns: 1fr; grid-template-areas: "top" "main";
+         grid-template-rows: auto 1fr; }
   /* Hamburger в топбаре */
   .drawer-toggle { display: inline-flex; }
-  /* Сайдбар — фиксированная панель слева, по умолчанию за экраном */
+  /* Топбар — растёт под содержимое, но не меньше 56px */
+  .topbar { min-height: 56px; padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
+  .controls { gap: 8px; }
+  .controls-left, .controls-right { gap: 8px; }
+  /* Сайдбар — фиксированная панель слева, по умолчанию за экраном.
+   * top рассчитывается от --topbar-h (на лету устанавливается JS-ом). */
   .panel {
     display: block;
     position: fixed;
-    top: 56px;  /* под топбаром */
+    top: var(--topbar-h, 56px);
     left: 0;
     width: min(280px, 80vw);
-    height: calc(100vh - 56px);
+    height: calc(100vh - var(--topbar-h, 56px));
     overflow-y: auto;
     background: white;
     border-right: 1px solid var(--border);
@@ -1148,10 +1157,6 @@ body.drawer-open .drawer-backdrop {
   body.drawer-open .panel { transform: translateX(0); }
   /* На узких экранах workspace получает меньше padding */
   .workspace { padding: 12px; }
-  /* Топбар компактный: меньше gap, padding */
-  .topbar { padding: 0 10px; gap: 8px; }
-  .controls { gap: 8px; }
-  .controls-left, .controls-right { gap: 8px; }
 }
 
 /* На мобиле — детализация имеет горизонтальный скролл (много колонок
@@ -1181,11 +1186,49 @@ body.drawer-open .drawer-backdrop {
   .cfg-arrow { width: 32px; height: 32px; font-size: 12px; }
 }
 
-/* Очень узкие экраны (телефон) — освобождаем место в топбаре */
+/* Очень узкие экраны (телефон) — освобождаем место в топбаре.
+ * Стратегия: переводим .topbar в CSS-grid 2 строки —
+ *   row 1: ☰ | brand | ⚙ | Выйти
+ *   row 2: [Месяц|Период] | селект месяца | LFL
+ * Так пользователь видит главное (brand + действия) сверху, а большой
+ * блок выбора периода стабильно занимает вторую строку без переносов. */
 @media (max-width: 600px) {
+  .topbar {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    grid-template-areas:
+      "toggle brand settings logout"
+      "lcontrols lcontrols lcontrols lcontrols";
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 6px;
+    padding: 8px 10px;
+  }
+  .drawer-toggle { grid-area: toggle; }
+  .brand { grid-area: brand; min-width: 0; overflow: hidden; }
+  /* .controls и .controls-right разворачиваем display: contents,
+   * чтобы их прямые дети попали в сетку .topbar напрямую. */
+  .controls { display: contents; }
+  .controls-left {
+    grid-area: lcontrols;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .controls-right { display: contents; }
+  .controls-right > a.btn-secondary { grid-area: settings; }
+  .controls-right > .user-menu { grid-area: logout; }
+
   /* В brand оставляем только «P&L», без подписи `· PlanFact` */
   .brand .muted { display: none; }
   .brand strong { font-size: 14px; }
+  /* Подписи «МЕСЯЦ»/«с»/«по» внутри селектов скрыты — селект сам по себе
+   * понятен в контексте узкого экрана. Освобождает ~50px на каждом поле. */
+  .tb-field-label > span:first-child { display: none; }
+  .tb-field-label { gap: 0; }
+  /* Mode-toggle компактный */
+  .mode-toggle-btn { padding: 5px 10px; font-size: 12px; }
   /* «не синхронизировано» badge на мобиле скрываем — не критично,
    * пользователь увидит его на десктопе. Освобождает 150+ px. */
   .ops-freshness { display: none !important; }

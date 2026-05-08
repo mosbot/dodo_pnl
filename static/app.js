@@ -2454,6 +2454,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) _toggleDrawer(false);
   });
 
+  // На мобиле топбар может быть 2-строчным (grid 2x). .panel под ним
+  // позиционируется по var(--topbar-h). Обновляем переменную при resize.
+  const _setTopbarHVar = () => {
+    const tb = document.querySelector('.topbar');
+    if (!tb) return;
+    const h = tb.offsetHeight;
+    if (h > 0) document.documentElement.style.setProperty('--topbar-h', h + 'px');
+  };
+  _setTopbarHVar();
+  window.addEventListener('resize', _setTopbarHVar);
+  // Шрифты могут догрузиться — ещё раз через тик
+  setTimeout(_setTopbarHVar, 100);
+
   // Попап «⚙ Графики» — список + кнопки «Показать все / Скрыть все».
   // Применяем visibility сразу, чтобы скрытые графики не мелькали при первом
   // рендере перед загрузкой данных.
