@@ -1216,6 +1216,30 @@ body.drawer-open .drawer-backdrop {
      * соседнего столбца не «прижимались» к sticky-границе */
     padding-right: 12px;
   }
+  /* Заметный горизонтальный scrollbar — на iOS/Android Safari/Chrome
+   * по умолчанию прячут scrollbar до момента скролла, и пользователь
+   * не понимает что таблица скроллится. Делаем всегда видимый,
+   * толще и в тон бренда. */
+  .table-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) #e5e7eb;
+  }
+  .table-scroll::-webkit-scrollbar {
+    height: 8px;
+    -webkit-appearance: none;
+  }
+  .table-scroll::-webkit-scrollbar-track {
+    background: #e5e7eb;
+    border-radius: 4px;
+  }
+  .table-scroll::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border-radius: 4px;
+    min-width: 40px;
+  }
+  .table-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-dark);
+  }
   /* tbody-строки с цветным фоном (calc, total, summary) сохраняют
    * свой фон при stickyness — иначе на белом sticky видны цвета. */
   .table-scroll tr.calc-row td:first-child,
