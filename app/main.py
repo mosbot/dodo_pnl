@@ -57,12 +57,12 @@ _SEC_HEADERS = {
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
-        "frame-ancestors 'none'; "
+        "frame-ancestors 'self'; "
         "base-uri 'self'; "
         "form-action 'self'"
     ),
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
+    "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "same-origin",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
