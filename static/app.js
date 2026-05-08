@@ -1029,12 +1029,18 @@ function renderCards() {
   // Per-user фильтр: пользователь может скрыть метрики через попап
   // «⚙ Метрики». Хидден-сет не пускает показывать.
   const metricsHidden = loadMetricsHidden();
-  const finMetrics = allMetrics
-    .filter(m => m.format === 'rub')
-    .filter(m => !metricsHidden.has(m.code));
-  const pctMetrics = allMetrics
-    .filter(m => m.format !== 'rub')
-    .filter(m => !metricsHidden.has(m.code));
+  // Per-user порядок: применяется ВНУТРИ группы (fin/pct/ops). То есть
+  // юзер не может «впихнуть» Сертификаты между Выручкой и EBITDA, что
+  // визуально странно, но может переставить плитки внутри своего блока.
+  const userOrder = loadMetricsOrder();
+  const finMetrics = applyUserOrder(
+    allMetrics.filter(m => m.format === 'rub'),
+    userOrder,
+  ).filter(m => !metricsHidden.has(m.code));
+  const pctMetrics = applyUserOrder(
+    allMetrics.filter(m => m.format !== 'rub'),
+    userOrder,
+  ).filter(m => !metricsHidden.has(m.code));
 
   state.pnl.projects.forEach(p => {
     const rev = revenue.projects[p.id]?.amount || 0;
@@ -1068,8 +1074,8 @@ function renderCards() {
 
     // S13.3: ops-метрики берутся из Dodo IS per period_month и не имеют
     // смысла за многомесячный период — прячем плитки целиком в Период-режиме.
-    // Также применяем per-user фильтр (попап «⚙ Метрики»).
-    const opsTiles = (state.mode === 'period') ? '' : opsMeta
+    // Также применяем per-user фильтр + порядок (попап «⚙ Метрики»).
+    const opsTiles = (state.mode === 'period') ? '' : applyUserOrder(opsMeta, userOrder)
       .filter(om => !metricsHidden.has(om.code))
       .map(om => opsTile(om, ops[om.field], opsTargets[om.code], ops))
       .join('');
@@ -1230,6 +1236,40 @@ function saveChartsHidden(set) {
   try { localStorage.setItem(_chartsHiddenKey(), JSON.stringify([...set])); } catch {}
 }
 
+// Per-user порядок графиков. Массив id графиков в нужной последовательности.
+function _chartsOrderKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.chartsOrder.${u}`;
+}
+function loadChartsOrder() {
+  try {
+    const raw = localStorage.getItem(_chartsOrderKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+function saveChartsOrder(arr) {
+  try { localStorage.setItem(_chartsOrderKey(), JSON.stringify(arr)); } catch {}
+}
+
+// Переставляем .chart-box элементы в DOM по сохранённому порядку.
+// Не указанные в userOrder — в конце по исходному (CHARTS-каталог) порядку.
+function applyChartsOrder() {
+  const grid = document.getElementById('chartsGrid');
+  if (!grid) return;
+  const userOrder = loadChartsOrder();
+  if (!userOrder.length) return;
+  const known = new Set(CHARTS.map(c => c.id));
+  const orderIds = [
+    ...userOrder.filter(id => known.has(id)),
+    ...CHARTS.map(c => c.id).filter(id => !userOrder.includes(id)),
+  ];
+  for (const id of orderIds) {
+    const box = grid.querySelector(`[data-chart-id="${id}"]`);
+    if (box) grid.appendChild(box);  // переносит в конец → итоговый порядок = orderIds
+  }
+}
+
 function isChartVisible(id) {
   // Дефолт — defaultVisible из каталога. Если пользователь добавил id в
   // hidden-set — скрываем. Также прячем, если у юзера нет доступа
@@ -1245,6 +1285,8 @@ function applyChartsVisibility() {
   // Скрываем/показываем сами обёртки .chart-box. Делаем это до renderCharts(),
   // чтобы Chart.js не считал размеры на скрытом canvas (иначе он рендерится
   // 0×0 и при показе остаётся пустым).
+  // Сначала применяем per-user порядок (DOM reorder), потом видимость.
+  applyChartsOrder();
   const hidden = loadChartsHidden();
   for (const c of CHARTS) {
     const box = document.querySelector(`[data-chart-id="${c.id}"]`);
@@ -1269,14 +1311,20 @@ function renderChartsConfigList() {
   // ломается. Используем отдельное имя data-chart-cb.
   // Графики, к которым у юзера нет доступа, в попапе не показываем —
   // нет смысла предлагать включить то, что всё равно скроется.
-  box.innerHTML = CHARTS
-    .filter(c => chartHasAccess(c.id))
-    .map(c => `
-      <label class="charts-config-row">
-        <input type="checkbox" data-chart-cb="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}>
-        <span>${esc(c.title)}</span>
-      </label>
-    `).join('');
+  // Применяем user-порядок (как в DOM).
+  const userOrder = loadChartsOrder();
+  const accessible = CHARTS.filter(c => chartHasAccess(c.id));
+  const ordered = applyUserOrder(accessible.map(c => ({ ...c, code: c.id })), userOrder);
+  box.innerHTML = ordered.map((c, i) => `
+    <label class="charts-config-row">
+      <input type="checkbox" data-chart-cb="${c.id}" ${hidden.has(c.id) ? '' : 'checked'}>
+      <span class="cfg-row-label">${esc(c.title)}</span>
+      <span class="cfg-row-arrows">
+        <button type="button" class="cfg-arrow" data-chart-up="${c.id}" ${i === 0 ? 'disabled' : ''} title="Выше" aria-label="Выше">▲</button>
+        <button type="button" class="cfg-arrow" data-chart-down="${c.id}" ${i === ordered.length - 1 ? 'disabled' : ''} title="Ниже" aria-label="Ниже">▼</button>
+      </span>
+    </label>
+  `).join('');
   box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       const set = loadChartsHidden();
@@ -1288,6 +1336,33 @@ function renderChartsConfigList() {
       renderCharts();
     });
   });
+  box.querySelectorAll('[data-chart-up]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      moveChart(btn.dataset.chartUp, -1);
+    });
+  });
+  box.querySelectorAll('[data-chart-down]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      moveChart(btn.dataset.chartDown, +1);
+    });
+  });
+}
+
+// Сдвинуть график на ±1 позицию.
+function moveChart(id, dir) {
+  const accessible = CHARTS.filter(c => chartHasAccess(c.id))
+    .map(c => ({ ...c, code: c.id }));
+  const items = applyUserOrder(accessible, loadChartsOrder());
+  const idx = items.findIndex(x => x.id === id);
+  const newIdx = idx + dir;
+  if (idx < 0 || newIdx < 0 || newIdx >= items.length) return;
+  [items[idx], items[newIdx]] = [items[newIdx], items[idx]];
+  saveChartsOrder(items.map(x => x.id));
+  renderChartsConfigList();
+  applyChartsVisibility();
+  renderCharts();
 }
 
 function setAllChartsVisible(visible) {
@@ -1314,6 +1389,35 @@ function loadMetricsHidden() {
 }
 function saveMetricsHidden(set) {
   try { localStorage.setItem(_metricsHiddenKey(), JSON.stringify([...set])); } catch {}
+}
+
+// Per-user порядок плиток. Массив кодов в нужной юзеру последовательности.
+// Метрики, не указанные в массиве (новые), идут после в глобальном порядке.
+function _metricsOrderKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.metricsOrder.${u}`;
+}
+function loadMetricsOrder() {
+  try {
+    const raw = localStorage.getItem(_metricsOrderKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+function saveMetricsOrder(arr) {
+  try { localStorage.setItem(_metricsOrderKey(), JSON.stringify(arr)); } catch {}
+}
+
+// Сортирует массив объектов с .code так, чтобы коды из userOrder
+// шли первыми в указанной последовательности; остальные — в исходном
+// (глобальном) порядке после.
+function applyUserOrder(items, userOrder) {
+  if (!userOrder || !userOrder.length) return items.slice();
+  const pos = new Map(userOrder.map((c, i) => [c, i]));
+  const named = items.filter(x => pos.has(x.code))
+    .sort((a, b) => pos.get(a.code) - pos.get(b.code));
+  const rest = items.filter(x => !pos.has(x.code));
+  return [...named, ...rest];
 }
 
 // Полный список метрик, которые можно скрывать/показывать.
@@ -1350,6 +1454,7 @@ function renderMetricsConfigList() {
   const box = el('metricsConfigList');
   if (!box) return;
   const hidden = loadMetricsHidden();
+  const userOrder = loadMetricsOrder();
   const catalog = buildMetricsCatalog();
   if (!catalog.length) {
     box.innerHTML = '<div class="charts-config-row" style="opacity:0.6">Нет доступных метрик</div>';
@@ -1360,13 +1465,17 @@ function renderMetricsConfigList() {
   const groupTitle = { fin: 'Финансовые', pct: 'P&L %', ops: 'Ops' };
   let html = '';
   for (const g of groupOrder) {
-    const items = catalog.filter(x => x.group === g);
+    const items = applyUserOrder(catalog.filter(x => x.group === g), userOrder);
     if (!items.length) continue;
     html += `<div class="charts-config-head" style="font-size:10px;margin-top:6px">${groupTitle[g]}</div>`;
-    html += items.map(m => `
-      <label class="charts-config-row">
+    html += items.map((m, i) => `
+      <label class="charts-config-row" data-group="${g}">
         <input type="checkbox" data-metric-cb="${m.code}" ${hidden.has(m.code) ? '' : 'checked'}>
-        <span>${esc(m.label)}</span>
+        <span class="cfg-row-label">${esc(m.label)}</span>
+        <span class="cfg-row-arrows">
+          <button type="button" class="cfg-arrow" data-metric-up="${m.code}" ${i === 0 ? 'disabled' : ''} title="Выше" aria-label="Выше">▲</button>
+          <button type="button" class="cfg-arrow" data-metric-down="${m.code}" ${i === items.length - 1 ? 'disabled' : ''} title="Ниже" aria-label="Ниже">▼</button>
+        </span>
       </label>
     `).join('');
   }
@@ -1381,6 +1490,48 @@ function renderMetricsConfigList() {
       renderCards();
     });
   });
+  // Стрелки ↑↓ — двигают код в пределах его группы.
+  box.querySelectorAll('[data-metric-up]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      moveMetric(btn.dataset.metricUp, -1);
+    });
+  });
+  box.querySelectorAll('[data-metric-down]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      moveMetric(btn.dataset.metricDown, +1);
+    });
+  });
+}
+
+// Сдвинуть метрику на ±1 позицию в её группе.
+function moveMetric(code, dir) {
+  const catalog = buildMetricsCatalog();
+  const meta = catalog.find(x => x.code === code);
+  if (!meta) return;
+  const group = meta.group;
+  // Текущий порядок группы (с учётом user-order и оставшихся в конце).
+  const items = applyUserOrder(
+    catalog.filter(x => x.group === group),
+    loadMetricsOrder(),
+  );
+  const idx = items.findIndex(x => x.code === code);
+  const newIdx = idx + dir;
+  if (idx < 0 || newIdx < 0 || newIdx >= items.length) return;
+  // Свапаем
+  [items[idx], items[newIdx]] = [items[newIdx], items[idx]];
+  // Объединяем со всеми остальными группами в новый общий порядок.
+  // Берём текущий порядок остальных групп, чтобы не сбросить.
+  const groupCodes = new Set(items.map(x => x.code));
+  const otherGroups = applyUserOrder(
+    catalog.filter(x => !groupCodes.has(x.code)),
+    loadMetricsOrder(),
+  ).map(x => x.code);
+  const newOrder = [...items.map(x => x.code), ...otherGroups];
+  saveMetricsOrder(newOrder);
+  renderMetricsConfigList();
+  renderCards();
 }
 
 function setAllMetricsVisible(visible) {
