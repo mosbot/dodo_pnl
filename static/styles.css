@@ -624,6 +624,8 @@ button:hover { background: var(--bg); }
   margin-bottom: 8px;
   position: relative; z-index: 5;
 }
+/* Тулбар над блоком карточек — то же оформление, ниже отступ. */
+.kpi-toolbar { margin-bottom: 4px; }
 
 /* «⚙ Графики» — собственный popover на <details>. Раскрывается панелью с
    чекбоксами; новые пункты добавляются в JS-каталоге CHARTS. */

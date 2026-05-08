@@ -705,6 +705,9 @@ function renderSkeleton() {
 // --- Rendering ---
 function render() {
   renderOpsFreshness();
+  // Список метрик в попапе строится из state.pnl — обновляем после
+  // каждой загрузки данных (могут добавиться/убраться доступные коды).
+  renderMetricsConfigList();
   renderCards();
   renderCharts();
   renderTable();
@@ -1023,8 +1026,15 @@ function renderCards() {
     }
   });
   allMetrics.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const finMetrics = allMetrics.filter(m => m.format === 'rub');
-  const pctMetrics = allMetrics.filter(m => m.format !== 'rub');
+  // Per-user фильтр: пользователь может скрыть метрики через попап
+  // «⚙ Метрики». Хидден-сет не пускает показывать.
+  const metricsHidden = loadMetricsHidden();
+  const finMetrics = allMetrics
+    .filter(m => m.format === 'rub')
+    .filter(m => !metricsHidden.has(m.code));
+  const pctMetrics = allMetrics
+    .filter(m => m.format !== 'rub')
+    .filter(m => !metricsHidden.has(m.code));
 
   state.pnl.projects.forEach(p => {
     const rev = revenue.projects[p.id]?.amount || 0;
@@ -1058,7 +1068,9 @@ function renderCards() {
 
     // S13.3: ops-метрики берутся из Dodo IS per period_month и не имеют
     // смысла за многомесячный период — прячем плитки целиком в Период-режиме.
+    // Также применяем per-user фильтр (попап «⚙ Метрики»).
     const opsTiles = (state.mode === 'period') ? '' : opsMeta
+      .filter(om => !metricsHidden.has(om.code))
       .map(om => opsTile(om, ops[om.field], opsTargets[om.code], ops))
       .join('');
 
@@ -1284,6 +1296,99 @@ function setAllChartsVisible(visible) {
   renderChartsConfigList();
   applyChartsVisibility();
   renderCharts();
+}
+
+// === Per-user видимость метрик-плиток на карточках ===
+// По аналогии с CHARTS — храним сет СКРЫТЫХ кодов в localStorage
+// (per-user, как и chartsHidden). При первом заходе всё видно, юзер
+// может скрыть лишнее через попап «⚙ Метрики» над карточками.
+function _metricsHiddenKey() {
+  const u = window.__currentUsername || 'default';
+  return `pnlDashboard.metricsHidden.${u}`;
+}
+function loadMetricsHidden() {
+  try {
+    const raw = localStorage.getItem(_metricsHiddenKey());
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+function saveMetricsHidden(set) {
+  try { localStorage.setItem(_metricsHiddenKey(), JSON.stringify([...set])); } catch {}
+}
+
+// Полный список метрик, которые можно скрывать/показывать.
+// Источники: state.pnl.metrics (P&L: UC/LC/DC/MARGIN/EBITDA/...) +
+// state.pnl.ops_metrics_meta (ops: ORD_PER_COURIER_H/...).
+// Возвращаем массив { code, label, group } для рендера попапа.
+function buildMetricsCatalog() {
+  const out = [];
+  const seen = new Set();
+  // P&L-метрики (включая фин-блок rub-плиток).
+  for (const m of (state.pnl?.metrics || [])) {
+    if (m.is_visible === false) continue;  // global off — не настраиваем
+    if (seen.has(m.code)) continue;
+    seen.add(m.code);
+    out.push({ code: m.code, label: m.label || m.code,
+               group: m.format === 'rub' ? 'fin' : 'pct' });
+  }
+  // Legacy MARGIN — добавляется в renderCards если в metrics нет.
+  if (!seen.has('MARGIN')) {
+    out.push({ code: 'MARGIN', label: 'Маржин. прибыль', group: 'fin' });
+    seen.add('MARGIN');
+  }
+  // Ops-метрики (только если есть в данных — иначе не показываем,
+  // чтобы не предлагать «Заказов на курьера» без доступа к Dodo IS).
+  for (const om of (state.pnl?.ops_metrics_meta || [])) {
+    if (seen.has(om.code)) continue;
+    seen.add(om.code);
+    out.push({ code: om.code, label: om.label || om.code, group: 'ops' });
+  }
+  return out;
+}
+
+function renderMetricsConfigList() {
+  const box = el('metricsConfigList');
+  if (!box) return;
+  const hidden = loadMetricsHidden();
+  const catalog = buildMetricsCatalog();
+  if (!catalog.length) {
+    box.innerHTML = '<div class="charts-config-row" style="opacity:0.6">Нет доступных метрик</div>';
+    return;
+  }
+  // Группируем визуально: финансовые → процентные → ops.
+  const groupOrder = ['fin', 'pct', 'ops'];
+  const groupTitle = { fin: 'Финансовые', pct: 'P&L %', ops: 'Ops' };
+  let html = '';
+  for (const g of groupOrder) {
+    const items = catalog.filter(x => x.group === g);
+    if (!items.length) continue;
+    html += `<div class="charts-config-head" style="font-size:10px;margin-top:6px">${groupTitle[g]}</div>`;
+    html += items.map(m => `
+      <label class="charts-config-row">
+        <input type="checkbox" data-metric-cb="${m.code}" ${hidden.has(m.code) ? '' : 'checked'}>
+        <span>${esc(m.label)}</span>
+      </label>
+    `).join('');
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const set = loadMetricsHidden();
+      const code = cb.dataset.metricCb;
+      if (cb.checked) set.delete(code);
+      else set.add(code);
+      saveMetricsHidden(set);
+      renderCards();
+    });
+  });
+}
+
+function setAllMetricsVisible(visible) {
+  const catalog = buildMetricsCatalog();
+  const set = visible ? new Set() : new Set(catalog.map(m => m.code));
+  saveMetricsHidden(set);
+  renderMetricsConfigList();
+  renderCards();
 }
 
 // Утилита: по массиву lines найти строку по коду.
@@ -2184,6 +2289,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderChartsConfigList();
   el('chartsConfigShowAll')?.addEventListener('click', () => setAllChartsVisible(true));
   el('chartsConfigHideAll')?.addEventListener('click', () => setAllChartsVisible(false));
+
+  // Попап «⚙ Метрики» — список плиток + кнопки.
+  renderMetricsConfigList();
+  el('metricsConfigShowAll')?.addEventListener('click', () => setAllMetricsVisible(true));
+  el('metricsConfigHideAll')?.addEventListener('click', () => setAllMetricsVisible(false));
 
   // UX-5: обновляем подпись «вкл/выкл» внутри pill — JS-handler рядом
   // с триггером загрузки данных, чтобы было одно место истины.

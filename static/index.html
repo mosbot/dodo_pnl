@@ -87,6 +87,20 @@
 
 <main class="workspace">
 
+  <div class="charts-toolbar kpi-toolbar">
+    <details class="charts-config">
+      <summary class="charts-config-trigger" title="Выбрать видимые метрики на карточках">⚙ Метрики</summary>
+      <div class="charts-config-popover">
+        <div class="charts-config-head">Видимые метрики</div>
+        <div id="metricsConfigList"></div>
+        <div class="charts-config-foot">
+          <button type="button" id="metricsConfigShowAll" class="charts-config-btn">Показать все</button>
+          <button type="button" id="metricsConfigHideAll" class="charts-config-btn">Скрыть все</button>
+        </div>
+      </div>
+    </details>
+  </div>
+
   <section id="kpiCards" class="cards"></section>
 
   <div class="charts-toolbar">
