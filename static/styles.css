@@ -1164,11 +1164,15 @@ body.drawer-open .drawer-backdrop {
 @media (max-width: 800px) {
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .table-scroll table { min-width: 100%; }
-  /* Drill-down модалка на мобиле — full-screen */
-  .modal-content {
+  /* Drill-down модалка на мобиле — full-screen.
+   * .modal-content.wide имеет более высокую специфичность (max-width
+   * min(1280, 100vw-48)), поэтому явно перебиваем оба варианта. */
+  .modal-content,
+  .modal-content.wide {
     max-width: 100%; width: 100%;
     max-height: 100vh; height: 100vh;
     border-radius: 0;
+    padding: 12px;
   }
   /* Попапы конфига (Метрики/Графики) — bottom-sheet на мобиле:
    * прижаты к низу экрана на всю ширину, легко скроллить пальцем. */
