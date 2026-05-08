@@ -1682,8 +1682,24 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   font-size: 12px; font-weight: 500; color: var(--muted);
   width: 100%;
 }
-.profile-form input {
+.profile-form input:not([type="checkbox"]):not([type="radio"]) {
   width: 100%; box-sizing: border-box;
+}
+.profile-form input[type="checkbox"], .profile-form input[type="radio"] {
+  width: auto; flex: 0 0 auto;
+}
+/* Чекбокс с подписью внутри .profile-form: чекбокс + текст в одну строку,
+ * прижато влево, шрифт как у обычной строки формы. */
+.profile-form > label.checkbox-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: auto;
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 400;
 }
 .profile-form input[type="password"],
 .profile-form input[type="text"] {
