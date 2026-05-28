@@ -1,0 +1,4 @@
+upstream: https://github.com/planfact/planfact-agent-kit.git
+commit:   ac2b3b2fb979d6eaa4acdca04f70721fa301af5d
+date:     2026-05-27T14:52:47+03:00
+synced:   2026-05-28T09:46:41Z
