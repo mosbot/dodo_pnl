@@ -121,6 +121,21 @@ OPS_METRICS: list[dict] = [
         "direction": "lower",
         "digits": 0,
     },
+    # S16.3/S16.4: расчётный Kitchen Cost из Dodo IS incentives.
+    # Источник: /staff/incentives-by-members.shiftsDetailing[].totalWage
+    # + /staff/incentives-by-members.staffMembers[].premiums[].amount
+    # фильтр: staffType != 'Courier' (KitchenMember + Cashier + Operator).
+    # Без налоговой накладки (по решению — берём как есть net wage).
+    # Управляющий в Dodo IS не платится — это отдельный оклад через PF,
+    # так что в KC_LIVE его нет; будет расхождение с PF-строкой KC.
+    {
+        "code": "KC_LIVE",
+        "label": "KC расчётный",
+        "unit": "%",
+        "field": "kc_live_pct",
+        "direction": "lower",
+        "digits": 1,
+    },
 ]
 OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
 OPS_METRIC_FIELD_BY_CODE: dict[str, str] = {m["code"]: m["field"] for m in OPS_METRICS}
@@ -481,12 +496,13 @@ async def list_ops_metrics(
             "late_delivery_certs": r.late_delivery_certs,
             "delivery_orders_count": r.delivery_orders_count,
             "late_delivery_certs_pct": r.late_delivery_certs_pct,
-            # S16 / S16.2
+            # S16 / S16.2 / S16.3
             "orders_per_trip": r.orders_per_trip,
             "courier_utilization_pct": r.courier_utilization_pct,
             "avg_order_trip_time_sec": r.avg_order_trip_time_sec,
             "avg_cooking_time_delivery_sec": r.avg_cooking_time_delivery_sec,
             "avg_cooking_time_restaurant_sec": r.avg_cooking_time_restaurant_sec,
+            "kc_live_pct": r.kc_live_pct,
         }
         if period_month is None:
             out.setdefault(r.project_id, {})[r.period_month] = payload
@@ -504,12 +520,13 @@ async def upsert_ops_metric(
     late_delivery_certs: Optional[int] = None,
     delivery_orders_count: Optional[int] = None,
     late_delivery_certs_pct: Optional[float] = None,
-    # S16 / S16.2
+    # S16 / S16.2 / S16.3
     orders_per_trip: Optional[float] = None,
     courier_utilization_pct: Optional[float] = None,
     avg_order_trip_time_sec: Optional[int] = None,
     avg_cooking_time_delivery_sec: Optional[int] = None,
     avg_cooking_time_restaurant_sec: Optional[int] = None,
+    kc_live_pct: Optional[float] = None,
 ) -> None:
     if (
         late_delivery_certs_pct is None
@@ -542,6 +559,7 @@ async def upsert_ops_metric(
             avg_order_trip_time_sec=int(avg_order_trip_time_sec) if avg_order_trip_time_sec is not None else None,
             avg_cooking_time_delivery_sec=int(avg_cooking_time_delivery_sec) if avg_cooking_time_delivery_sec is not None else None,
             avg_cooking_time_restaurant_sec=int(avg_cooking_time_restaurant_sec) if avg_cooking_time_restaurant_sec is not None else None,
+            kc_live_pct=kc_live_pct,
         ))
     else:
         if orders_per_courier_h is not None:
@@ -566,6 +584,8 @@ async def upsert_ops_metric(
             existing.avg_cooking_time_delivery_sec = int(avg_cooking_time_delivery_sec)
         if avg_cooking_time_restaurant_sec is not None:
             existing.avg_cooking_time_restaurant_sec = int(avg_cooking_time_restaurant_sec)
+        if kc_live_pct is not None:
+            existing.kc_live_pct = float(kc_live_pct)
         existing.updated_at = datetime.now(timezone.utc)
 
 

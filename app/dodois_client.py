@@ -286,7 +286,7 @@ async def fetch_orders_handover_statistics(
     *, sales_channels: str | None = None,
 ) -> list[dict[str, Any]]:
     """Параллельно по юнитам. `sales_channels`=None → все каналы,
-    'Dine-in' → только ресторан, 'Delivery' → только доставка."""
+    'DineIn' → только ресторан, 'Delivery' → только доставка."""
     if not unit_uuids:
         return []
     sem = asyncio.Semaphore(_MAX_PARALLEL)
@@ -295,6 +295,44 @@ async def fetch_orders_handover_statistics(
             *[_fetch_handover_stats_one(
                 http, sem, token, u, from_date, to_date, sales_channels,
               ) for u in unit_uuids]
+        )
+    out: list[dict[str, Any]] = []
+    for r in results:
+        out.extend(r)
+    return out
+
+
+async def _fetch_incentives_one(
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, token: str, unit_uuid: str,
+    from_date: datetime, to_date: datetime,
+) -> list[dict[str, Any]]:
+    """GET /staff/incentives-by-members — вознаграждения сотрудников за период
+    с детализацией по сменам (`shiftsDetailing[]`) и вне-сменным премиям
+    (`premiums[]`)."""
+    url = f"{settings.dodo_is_base_url}/staff/incentives-by-members"
+    params = {"from": _fmt(from_date), "to": _fmt(to_date), "units": unit_uuid}
+
+    async def _do() -> list[dict[str, Any]]:
+        async with sem:
+            r = await http.get(url, headers=_headers(token), params=params)
+        _raise(r)
+        return r.json().get("staffMembers") or []
+
+    return await _with_retries(f"incentives[{unit_uuid[:8]}]", _do)
+
+
+async def fetch_incentives_by_members(
+    token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime,
+) -> list[dict[str, Any]]:
+    """Параллельно по юнитам. Возвращает плоский список staffMember
+    с привязкой через shiftsDetailing[].unitId / premiums[].unitId."""
+    if not unit_uuids:
+        return []
+    sem = asyncio.Semaphore(_MAX_PARALLEL)
+    async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
+        results = await asyncio.gather(
+            *[_fetch_incentives_one(http, sem, token, u, from_date, to_date)
+              for u in unit_uuids]
         )
     out: list[dict[str, Any]] = []
     for r in results:

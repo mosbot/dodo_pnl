@@ -248,6 +248,8 @@ class OpsMetric(Base):
     avg_order_trip_time_sec: Mapped[Optional[int]] = mapped_column(Integer)
     avg_cooking_time_delivery_sec: Mapped[Optional[int]] = mapped_column(Integer)
     avg_cooking_time_restaurant_sec: Mapped[Optional[int]] = mapped_column(Integer)
+    # S16.3: расчётный KC% — net wage кухонных смен / выручка × 100
+    kc_live_pct: Mapped[Optional[float]] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

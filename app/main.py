@@ -1718,15 +1718,61 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
                 log.warning("ops sync %s: ABORT: %s", period, e)
                 return
 
+            # S16.3: incentives для KC_LIVE — ОТДЕЛЬНЫМ блоком, чтобы 403
+            # (Insufficient Scopes) или другая ошибка не валила весь sync.
+            # При недоступности — пропускаем расчёт KC, остальные плитки идут.
+            incentives: list[dict] = []
+            try:
+                incentives = await _timed("incentives", with_dodois_retry(
+                    session, user,
+                    dodois_client.fetch_incentives_by_members,
+                    unit_uuids, from_dt, to_dt,
+                ))
+            except (DodoISError, NoTokenError) as e:
+                log.warning(
+                    "ops sync %s: incentives FAILED (KC_LIVE will be null): %s",
+                    period, e,
+                )
+
             log.info(
-                "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d/handover-rest=%d",
+                "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d/handover-rest=%d/incentives=%d",
                 period, time.monotonic() - t0, len(unit_uuids),
-                len(stats), len(cert_counts), len(delivery_stats), len(handover_rest),
+                len(stats), len(cert_counts), len(delivery_stats),
+                len(handover_rest), len(incentives),
             )
 
             by_uuid = {s.get("unitId", "").lower(): s for s in stats}
             by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
             by_uuid_hov = {h.get("unitId", "").lower(): h for h in handover_rest}
+
+            # S16.3: KC_LIVE = sum(totalWage где staffType != 'Courier') / sales.
+            # Пользователь решил: KC по факту = все смены кроме курьерских.
+            # Управляющий в Dodo IS не платится (это отдельный оклад через PF),
+            # так что KC_LIVE будет ≈ kitchen + cashiers без управляющего и
+            # без налогов. Это «факт по сменам».
+            kc_wage_by_unit: dict[str, float] = {}
+            kc_staff_by_unit: dict[str, set[str]] = {}
+            COURIER_TYPE = "Courier"
+            for sm in incentives:
+                staff_id = sm.get("staffId") or ""
+                for sh in sm.get("shiftsDetailing") or []:
+                    if (sh.get("staffType") or "") == COURIER_TYPE:
+                        continue
+                    uid_raw = (sh.get("unitId") or "").lower().replace("-", "")
+                    if not uid_raw:
+                        continue
+                    wage = float(sh.get("totalWage") or 0)
+                    kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + wage
+                    kc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
+                # Premiums (вне-сменные) учитываем тем сотрудникам, у которых
+                # были не-курьерские смены в том же юните.
+                for pr in sm.get("premiums") or []:
+                    uid_raw = (pr.get("unitId") or "").lower().replace("-", "")
+                    if not uid_raw:
+                        continue
+                    if staff_id in kc_staff_by_unit.get(uid_raw, set()):
+                        amount = float(pr.get("amount") or 0)
+                        kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + amount
             for pid, uuid in targets:
                 key = (uuid or "").lower().replace("-", "")
                 s = by_uuid.get(key) or by_uuid.get(uuid.lower())
@@ -1759,6 +1805,16 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
                     if couriers_shifts > 0 else None
                 )
 
+                # S16.3: KC_LIVE = (kitchen_wage / sales) × 100
+                # sales берём из productivity.sales за тот же период.
+                # Если нет ни одной кухонной смены ИЛИ нет выручки — None.
+                kitchen_wage = kc_wage_by_unit.get(key, 0.0)
+                sales_total = float(s.get("sales") or 0) if s else 0.0
+                kc_live_pct = (
+                    kitchen_wage / sales_total * 100.0
+                    if sales_total > 0 and kitchen_wage > 0 else None
+                )
+
                 if not s:
                     continue
                 await store.upsert_ops_metric(
@@ -1774,6 +1830,7 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
                     avg_order_trip_time_sec=avg_trip_sec,
                     avg_cooking_time_delivery_sec=avg_cook_delivery_sec,
                     avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
+                    kc_live_pct=kc_live_pct,
                 )
             await session.commit()
             log.info("ops sync %s: committed", period)
