@@ -813,15 +813,16 @@ function renderOpsFreshness() {
   badge.className = 'ops-freshness ' + cls;
   badge.textContent = text;
   badge.classList.remove('hidden');
-  // S12.2: кнопка теперь ВСЕГДА видима (чтобы топбар не прыгал при
-  // переключении месяцев). Для замороженных месяцев — disabled с подсказкой.
-  // Раньше: btn.classList.toggle('hidden', !showBtn) → display:none →
-  // соседи (селектор месяца, LFL) сдвигались на ~108px.
+  // S12.2: кнопка всегда видима (чтобы топбар не прыгал при переключении
+  // месяцев). Теперь она ВСЕГДА enabled — даже для frozen-месяцев: ops sync
+  // может ничего не сделать (Dodo IS не отдаёт глубокую историю), но кнопка
+  // дополнительно сбрасывает PlanFact-кэш и инвалидирует snapshot
+  // cache_history, что нужно когда PF-проводки правят задним числом.
   btn.classList.remove('hidden');
-  btn.disabled = !showBtn;
-  btn.title = showBtn
-    ? 'Запустить синхронизацию ops-метрик из Dodo IS'
-    : 'Месяц заморожен — синхронизация ops отключена';
+  btn.disabled = false;
+  btn.title = f.is_frozen
+    ? 'Заморожен. Кнопка перечитает P&L из PlanFact (если правили проводки)'
+    : 'Обновить P&L из PlanFact и ops-метрики из Dodo IS';
 }
 
 // Авто-обновление /api/pnl пока идёт фоновый ops-синк. Останавливаемся
@@ -890,8 +891,11 @@ function pctTile(label, proj, target, opts = {}) {
   const valueStr = hasVal
     ? (pct * 100).toFixed(1).replace(/\.0$/, '').replace('.', ',')
     : '—';
+  // toFixed(1) даёт ≤1 знака после запятой; для целых (UC=32) trailing .0
+  // снимаем, чтобы было «32%», а не «32,0%». Для долей <1% (LOSSES=0.6)
+  // получается «0,6%», а не округление до 1%.
   const targetStr = (typeof target === 'number' && target > 0)
-    ? `цель ${(target * 100).toFixed(0)}%`
+    ? `цель ${(target * 100).toFixed(1).replace(/\.0$/, '').replace('.', ',')}%`
     : '&nbsp;';
   // LFL-дельта в percentage points (Δпп). Меньше — лучше у cost-ratio.
   // Рендерим отдельной строкой под «цель» — иначе на узкой плитке обрезается.
@@ -1028,6 +1032,10 @@ function renderCards() {
 
   const opsMeta = state.pnl?.ops_metrics_meta || [];
   const opsTargets = state.pnl?.ops_targets || {};
+  const opsProjTargets = state.pnl?.ops_project_targets || {};
+  // Per-project override > сетевой дефолт. Симметрично targetFor для P&L.
+  const opsTargetFor = (pid, code) =>
+    opsProjTargets[pid]?.[code] ?? opsTargets[code] ?? null;
 
   // S8.9: набор плиток на карточке настраивается через pnl_metrics.is_visible
   // + sort_order. format='rub' → фин-блок (большие плитки в ₽), 'pct'/'x' →
@@ -1100,7 +1108,7 @@ function renderCards() {
     // Также применяем per-user фильтр + порядок (попап «⚙ Метрики»).
     const opsTiles = (state.mode === 'period') ? '' : applyUserOrder(opsMeta, userOrder)
       .filter(om => !metricsHidden.has(om.code))
-      .map(om => opsTile(om, ops[om.field], opsTargets[om.code], ops))
+      .map(om => opsTile(om, ops[om.field], opsTargetFor(p.id, om.code), ops))
       .join('');
 
     const metricTiles = pctTiles + opsTiles;
@@ -2510,10 +2518,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   _updateLflPill();
 
-  // S3.6/S11.9: «⟳ Метрики» — стартует фоновый синк ops из Dodo IS.
-  // POST возвращается мгновенно (202 scheduled), не блокируя UI. Прогресс
-  // юзер видит через бейдж «синхронизация…», авто-poll по /api/pnl каждые
-  // 8 секунд до 3 минут или пока last_synced_at не обновится.
+  // S3.6/S11.9/S15.1: «⟳ Обновить» — три действия одной кнопкой:
+  //   1. backend сбрасывает in-memory PlanFact-кэш текущего юзера;
+  //   2. если месяц был closed (snapshot в cache_history) — snapshot
+  //      удаляется, при следующем /api/pnl данные пересоберутся живьём;
+  //   3. стартует фоновый синк ops-метрик из Dodo IS (для live-месяцев).
+  // Backend возвращается мгновенно (202 scheduled). После этого фронт сразу
+  // дёргает /api/pnl — он попадёт на чистый кэш и принесёт свежие данные.
+  // Если ops sync был стартован — крутим авто-poll до 3 минут с шагом 8с.
   el('opsRefreshBtn')?.addEventListener('click', async () => {
     const btn = el('opsRefreshBtn');
     if (!state.currentMonth) return;
@@ -2529,17 +2541,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(`${r.status}: ${t}`);
       }
       const res = await r.json();
+      const snap = res.snapshot_invalidated;
       if (res.status === 'already_running') {
-        toast('Синхронизация уже идёт');
+        toast(snap
+          ? 'PnL пересобираем, синк ops уже идёт'
+          : 'Синхронизация уже идёт');
       } else {
-        toast('Синхронизация запущена в фоне');
+        toast(snap
+          ? 'Обновляем P&L и ops-метрики…'
+          : 'Обновляем данные…');
       }
-      // Обновим UI один раз — там уже будет is_syncing=true (badge сменится).
+      // Один сразу — UI покажет либо свежие данные (если snapshot был
+      // удалён и cache_history miss), либо is_syncing=true (badge сменится).
       await loadPnl();
-      // Запускаем авто-poll до 3 минут с шагом 8с.
-      _pollOpsSync(state.currentMonth);
+      // Авто-poll только если ops-синк реально стартовал.
+      if (res.status === 'scheduled') {
+        _pollOpsSync(state.currentMonth);
+      }
     } catch (e) {
-      toast('Ошибка запуска синка: ' + e.message, 'error');
+      toast('Ошибка обновления: ' + e.message, 'error');
     } finally {
       btn.disabled = false;
       btn.classList.remove('spinning');

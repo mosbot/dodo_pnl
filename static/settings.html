@@ -260,7 +260,7 @@
         <table class="dense-table" id="usersTable">
           <thead>
             <tr>
-              <th>ID</th><th>Логин</th><th>Имя</th><th>Админ</th>
+              <th>ID</th><th>Логин</th><th>Имя</th><th title="★ супер-админ — видит всё; ▲ сетевой админ — управляет одной сетью">Роль</th>
               <th>Должность</th>
               <th>Dodo IS name</th><th>PF key</th><th>Создан</th><th></th>
             </tr>
@@ -290,16 +290,21 @@
       <label>Отображаемое имя (опционально)
         <input type="text" id="cuDisplayName" maxlength="128">
       </label>
-      <label class="checkbox-row super-only hidden">
-        <input type="checkbox" id="cuIsAdmin">
-        <span>Сделать администратором</span>
+      <label class="super-only hidden">Роль
+        <select id="cuRole">
+          <option value="user" selected>Пользователь (рядовой сотрудник сети)</option>
+          <option value="network_admin">Сетевой админ (управляет сетью)</option>
+          <option value="super_admin">Супер-админ (видит все сети)</option>
+        </select>
       </label>
-      <label>Dodo IS логин (опционально)
+      <!-- Dodo IS логин и PF-ключ — управляются super-админом централизованно;
+           network admin создаёт юзеров в своей сети, ключ форсится бэком. -->
+      <label class="super-only hidden">Dodo IS логин (опционально)
         <select id="cuDodoisName">
           <option value="">— не выбран —</option>
         </select>
       </label>
-      <label>PlanFact ключ (опционально)
+      <label class="super-only hidden">PlanFact ключ (опционально)
         <select id="cuPfKeyId">
           <option value="">— не назначен —</option>
         </select>
@@ -334,16 +339,19 @@
       <label>Отображаемое имя
         <input type="text" id="ueDisplayName" maxlength="128">
       </label>
-      <label class="checkbox-row super-only hidden">
-        <input type="checkbox" id="ueIsAdmin">
-        <span>Администратор</span>
+      <label class="super-only hidden">Роль
+        <select id="ueRole">
+          <option value="user">Пользователь (рядовой сотрудник сети)</option>
+          <option value="network_admin">Сетевой админ (управляет сетью)</option>
+          <option value="super_admin">Супер-админ (видит все сети)</option>
+        </select>
       </label>
-      <label>Dodo IS логин
+      <label class="super-only hidden">Dodo IS логин
         <select id="ueDodoisName">
           <option value="">— не выбран —</option>
         </select>
       </label>
-      <label>PlanFact ключ
+      <label class="super-only hidden">PlanFact ключ
         <select id="uePfKeyId">
           <option value="">— не назначен —</option>
         </select>
@@ -468,7 +476,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="/static/topbar.js?v=16"></script>
-<script src="/static/settings.js?v=16"></script>
+<script src="/static/topbar.js?v=22"></script>
+<script src="/static/settings.js?v=22"></script>
 </body>
 </html>

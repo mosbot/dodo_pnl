@@ -50,8 +50,9 @@ DENOMINATOR = {
     "DC": "delivery",
 }
 
-# Таргетируемые метрики. TC (Total Cost = UC+LC+DC) — это computed метрика,
-# считается в target_report отдельно.
+# Legacy. Используется только когда planfact_key_id отсутствует (юзер без
+# ключа). Для всех остальных случаев список таргетируемых метрик строится
+# динамически из pnl_metrics WHERE is_target=true (см. build_pnl ниже).
 TARGETABLE_METRICS = ["UC", "LC", "DC", "TC", "RENT", "MARKETING"]
 COMPUTED_TARGETABLE_METRICS = {"TC"}
 
@@ -791,37 +792,10 @@ async def build_pnl(
         (t["project_id"], t["metric_code"]): t["target_pct"] for t in raw_targets
     }
 
-    def amount_for_metric(metric: str, pid: str) -> float:
-        """Для TC — сумма UC+LC+DC; для прочих — totals по коду."""
-        if metric == "TC":
-            return total_cost(pid)
-        return totals.get((pid, metric), 0.0)
-
-    target_report = []
-    for pid in shown_project_ids:
-        for metric in TARGETABLE_METRICS:
-            target = targets_index.get((pid, metric))
-            source = "project"
-            if target is None and metric in default_targets:
-                target = default_targets[metric]
-                source = "default"
-            if target is None:
-                continue
-            amt = amount_for_metric(metric, pid)
-            denom = denom_for(metric, pid)
-            actual = (amt / denom) if denom else 0.0
-            target_report.append({
-                "project_id": pid,
-                "project_name": projects_by_id.get(pid, pid),
-                "metric": metric,
-                "metric_label": PNL_CODES[metric],
-                "denominator": DENOMINATOR.get(metric, "total"),
-                "target_pct": target,
-                "target_source": source,
-                "actual_pct": actual,
-                "delta_pct": actual - target,
-                "status": "ok" if actual <= target else "over",
-            })
+    # target_report генерируется НИЖЕ после _apply_metric_formulas — там
+    # уже посчитаны фактические значения метрик через формулы pnl_metrics,
+    # включая кастомные (LOSSES, KC и т.п.). Хардкод TARGETABLE_METRICS
+    # сюда не используется.
 
     # --- детализация по категориям (для drill) ---
     category_breakdown: list[dict] = []
@@ -879,6 +853,47 @@ async def build_pnl(
         )
     else:
         pf_metrics = []
+
+    # --- Цели (P&L target_report) ---
+    # Динамически по pnl_metrics WHERE is_target=true. Actual берём из
+    # уже посчитанных формул в lines: line["projects"][pid]["pct_of_revenue"].
+    # Это даёт корректную работу с кастомными метриками (LOSSES, KC и т.п.) —
+    # юзер просто отмечает чекбокс «Цель» при создании метрики, и плитка
+    # начинает сравнивать факт с целью.
+    targetable_codes: list[str] = [
+        m["code"] for m in pf_metrics if m.get("is_target")
+    ]
+    line_by_code: dict[str, dict] = {ln["code"]: ln for ln in lines}
+    target_report = []
+    for pid in shown_project_ids:
+        for metric_code in targetable_codes:
+            target = targets_index.get((pid, metric_code))
+            source = "project"
+            if target is None and metric_code in default_targets:
+                target = default_targets[metric_code]
+                source = "default"
+            if target is None:
+                continue
+            ln = line_by_code.get(metric_code)
+            if ln is None:
+                continue  # метрика отфильтрована visibility — не показываем
+            actual = ln.get("projects", {}).get(pid, {}).get("pct_of_revenue")
+            if actual is None:
+                continue
+            meta = next((m for m in pf_metrics if m["code"] == metric_code), None)
+            label = (meta and meta.get("label")) or PNL_CODES.get(metric_code, metric_code)
+            target_report.append({
+                "project_id": pid,
+                "project_name": projects_by_id.get(pid, pid),
+                "metric": metric_code,
+                "metric_label": label,
+                "denominator": DENOMINATOR.get(metric_code, "total"),
+                "target_pct": target,
+                "target_source": source,
+                "actual_pct": actual,
+                "delta_pct": actual - target,
+                "status": "ok" if actual <= target else "over",
+            })
 
     # --- projects_config (активность, отображаемое имя, сортировка) ---
     # Конфиг проектов (имена/сортировка/dodo_unit) — общий на ключ.
@@ -983,8 +998,14 @@ async def build_pnl(
             for cid, amt in sorted(unclassified.items(), key=lambda kv: -abs(kv[1]))[:20]
         ],
         "pnl_codes": PNL_CODES,
-        "targetable_metrics": TARGETABLE_METRICS,
-        "computed_targetable_metrics": sorted(COMPUTED_TARGETABLE_METRICS),
+        # Динамический список — из pnl_metrics WHERE is_target=true.
+        # Фронт читает чтобы знать, для каких метрик показывать колонку
+        # «Цель» в матрице и сравнение target vs actual на плитке.
+        "targetable_metrics": targetable_codes,
+        # Все targetable метрики теперь computed (через формулы pnl_metrics),
+        # так что список совпадает с targetable_metrics. Поле оставлено для
+        # обратной совместимости фронта.
+        "computed_targetable_metrics": sorted(targetable_codes),
         "denominators": DENOMINATOR,
         "method": method,
         "period_month": period_month,

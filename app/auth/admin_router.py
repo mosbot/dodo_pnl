@@ -142,10 +142,13 @@ async def admin_create_user(
         raise HTTPException(403, "Только super-админ может создавать super-админов")
     # Network admin форсит planfact_key_id = self.planfact_key_id (создавать
     # юзеров может только в своей сети). Игнорируем body.planfact_key_id.
+    # Аналогично dodois_credentials_name — все юзеры сети используют тот же
+    # Dodo IS-логин что и админ сети (поля скрыты в UI).
     if admin.is_network_admin:
         if body.planfact_key_id is not None and body.planfact_key_id != admin.planfact_key_id:
             raise HTTPException(403, "Можно создавать юзеров только в своей сети")
         body.planfact_key_id = admin.planfact_key_id
+        body.dodois_credentials_name = admin.dodois_credentials_name
     try:
         u = await create_user(
             session,
@@ -193,12 +196,18 @@ async def admin_update_user(
             raise HTTPException(400, "Нельзя снять super-admin с самого себя")
         if body.role == "super_admin" and not admin.is_super_admin:
             raise HTTPException(403, "Только super-админ может назначать super-админов")
-    # Network admin не может перевести юзера в другую сеть.
+    # Network admin не может перевести юзера в другую сеть/сменить Dodo IS-логин.
+    # Эти поля у его юзеров всегда совпадают с его собственными (поля скрыты в UI).
     if admin.is_network_admin:
         if body.planfact_key_id is not None and body.planfact_key_id != admin.planfact_key_id:
             raise HTTPException(403, "Нельзя переназначить юзера в другую сеть")
         if body.clear_planfact_key:
             raise HTTPException(403, "Нельзя отвязать юзера от своей сети")
+        if (
+            body.dodois_credentials_name is not None
+            and body.dodois_credentials_name != admin.dodois_credentials_name
+        ):
+            raise HTTPException(403, "Нельзя сменить Dodo IS-логин юзеру сети")
 
     fields_changed: list[str] = []
     if body.display_name is not None:
@@ -476,10 +485,19 @@ async def admin_user_visibility(
         raise HTTPException(502, f"PlanFact API: {e}")
 
     visibility = await store.list_user_visibility(session, u.id)
+    # В per-user видимость попадают только проекты, включённые в сеть
+    # (is_admin_managed=true, тумблер в «Проекты ключа»). Это касается
+    # и super_admin'a — иначе SA может назначить юзеру пиццерию,
+    # которую сам же исключил из сети, ломая собственный whitelist.
+    cfg = await store.list_projects_config(session, u.planfact_key_id)
     out = []
     for p in projects:
         pid = str(p.get("projectId") or p.get("id") or "")
         if not pid:
+            continue
+        c = cfg.get(pid) or {}
+        is_admin_managed = bool(c.get("is_admin_managed", True))
+        if not is_admin_managed:
             continue
         pg = p.get("projectGroup") or {}
         # is_visible default True если записи нет
@@ -488,6 +506,7 @@ async def admin_user_visibility(
             "id": pid,
             "planfact_name": p.get("title") or p.get("name") or "",
             "is_visible": is_visible,
+            "is_admin_managed": is_admin_managed,
             "planfact_active": bool(p.get("active", True)),
             "project_group_id": pg.get("projectGroupId"),
             "project_group_title": pg.get("title"),
@@ -502,12 +521,22 @@ async def admin_user_visibility(
 async def admin_set_user_visibility(
     user_id: int, project_id: str,
     body: VisibilityUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     u = await get_user_by_id(session, user_id)
     if u is None:
         raise HTTPException(404, "Пользователь не найден")
+    # Никто не может назначить юзеру проект, исключённый из сети
+    # (is_admin_managed=false). Касается и super_admin'a — иначе он
+    # обходит собственный whitelist.
+    if u.planfact_key_id:
+        cfg = await store.list_projects_config(session, u.planfact_key_id)
+        c = cfg.get(project_id) or {}
+        if not c.get("is_admin_managed", True):
+            raise HTTPException(
+                403, "Этот проект исключён из сети — сначала включи его в «Проекты ключа»",
+            )
     await store.set_user_visibility(session, u.id, project_id, body.is_visible)
     await session.commit()
     return {"status": "ok"}
@@ -693,15 +722,17 @@ async def _key_usage_count(session: AsyncSession, key_id: int) -> int:
 
 @admin_router.get("/api/admin/planfact-keys", response_model=list[PlanfactKeyPublic])
 async def admin_list_planfact_keys(
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Каталог PF-ключей. Только super_admin — network видит только свой
-    ключ через /api/admin/planfact-keys/{key_id}/* эндпойнты."""
+    """Каталог PF-ключей. super_admin видит все, network_admin — только
+    свой ключ (нужно для рендера селекта PF-ключа в форме редактирования
+    юзера). CRUD по ключам всё равно super-only через POST/PATCH/DELETE."""
     from sqlalchemy import select
-    res = await session.execute(
-        select(PlanfactKey).order_by(PlanfactKey.name)
-    )
+    stmt = select(PlanfactKey).order_by(PlanfactKey.name)
+    if admin.is_network_admin:
+        stmt = stmt.where(PlanfactKey.id == admin.planfact_key_id)
+    res = await session.execute(stmt)
     items = list(res.scalars())
     out: list[PlanfactKeyPublic] = []
     for k in items:

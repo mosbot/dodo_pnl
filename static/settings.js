@@ -187,6 +187,11 @@ async function loadAll() {
 
   initMonthSelect();
   initDodoSync();
+  // Перегрузка целей под выбранный месяц (initMonthSelect ставит текущий).
+  // Без этого state.projectTargets остался бы пустым: предыдущие fetch'и в
+  // loadAll'е ходили без period_month → бэк возвращал бы __default__ (а его
+  // больше нет, всё month-specific).
+  await reloadTargets();
   await loadOpsMetrics();
 
   renderProjects();
@@ -275,18 +280,13 @@ function dodoUnitName(uuid) {
 }
 
 // ---------- Month picker ----------
-// S14.4: один селектор управляет и факт-ops (за месяц), и месячными
-// целями. По умолчанию '__default__' = «общие цели + факты не показываются»
-// (юзер сначала задаёт общие цели, потом по необходимости делает override
-// на конкретный месяц).
-const TARGETS_DEFAULT_PERIOD = '__default__';
-
+// Цели всегда месячные (нет общего __default__-уровня). Дефолт — текущий
+// месяц. История: до этого был отдельный __default__-уровень («общие цели»),
+// но прошлые периоды никто реально не редактировал, поэтому упростили.
 function initMonthSelect() {
   const sel = el('opsMonthSelect');
   const now = new Date();
-  const opts = [
-    { key: TARGETS_DEFAULT_PERIOD, label: 'Все месяцы (общие цели)' },
-  ];
+  const opts = [];
   for (let i = 0; i < 24; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -294,45 +294,30 @@ function initMonthSelect() {
     opts.push({ key, label: label.charAt(0).toUpperCase() + label.slice(1) });
   }
   sel.innerHTML = opts.map(o => `<option value="${o.key}">${esc(o.label)}</option>`).join('');
-  state.targetsPeriod = TARGETS_DEFAULT_PERIOD;
-  state.currentMonth = opts[1] ? opts[1].key : '';  // первый реальный месяц для подгрузки фактов
+  state.targetsPeriod = opts[0].key;   // текущий месяц
+  state.currentMonth = opts[0].key;
   sel.value = state.targetsPeriod;
   sel.addEventListener('change', async () => {
     state.targetsPeriod = sel.value;
-    if (sel.value !== TARGETS_DEFAULT_PERIOD) {
-      state.currentMonth = sel.value;
-    }
+    state.currentMonth = sel.value;
     await Promise.all([loadOpsMetrics(), reloadTargets()]);
     renderPnlMatrix();
     renderOpsMatrix();
   });
 }
 
-// Перезагружает таргеты под выбранный period_month.
-// При period='__default__' — обычная картинка (как раньше).
-// При period='YYYY-MM' дополнительно подгружаем общие __default__-цели —
-// они становятся placeholder'ом в пустых ячейках (показывают «текущая
-// эффективная цель» для подсказки).
+// Перезагружает таргеты под выбранный period_month. Все цели month-specific —
+// дополнительной «глобальной» подсказки больше нет, placeholder'ы пустые.
 async function reloadTargets() {
-  const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
-  const isMonthSpecific = pm !== TARGETS_DEFAULT_PERIOD;
+  const pm = state.targetsPeriod;
+  if (!pm) return;
   const q = `?period_month=${encodeURIComponent(pm)}`;
-  const qDef = `?period_month=${encodeURIComponent(TARGETS_DEFAULT_PERIOD)}`;
   try {
-    const requests = [
+    const [defR, tarR, opsTgR] = await Promise.all([
       api('/api/targets/defaults' + q),
       api('/api/targets' + q),
       api('/api/ops-targets' + q),
-    ];
-    if (isMonthSpecific) {
-      requests.push(
-        api('/api/targets/defaults' + qDef),
-        api('/api/targets' + qDef),
-        api('/api/ops-targets' + qDef),
-      );
-    }
-    const responses = await Promise.all(requests);
-    const [defR, tarR, opsTgR, defGlobal, tarGlobal, opsGlobal] = responses;
+    ]);
 
     state.defaultTargets = defR.defaults || {};
     state.projectTargets = {};
@@ -345,26 +330,13 @@ async function reloadTargets() {
       state.opsProjectTargets[`${t.project_id}|${t.metric_code}`] = t.target_value;
     });
 
-    // Для подсказки — общие default-цели (placeholder в пустых ячейках).
-    if (isMonthSpecific) {
-      state.defaultTargetsGlobal = defGlobal.defaults || {};
-      state.projectTargetsGlobal = {};
-      (tarGlobal.targets || []).forEach(t => {
-        state.projectTargetsGlobal[`${t.project_id}|${t.metric_code}`] = t.target_pct;
-      });
-      state.opsTargetsGlobal = opsGlobal.targets || {};
-      state.opsProjectTargetsGlobal = {};
-      (opsGlobal.project_targets || []).forEach(t => {
-        state.opsProjectTargetsGlobal[`${t.project_id}|${t.metric_code}`] = t.target_value;
-      });
-    } else {
-      // В __default__-режиме placeholder и value совпадают — отдельных
-      // global-копий не нужно, render-логика поймёт по флагу.
-      state.defaultTargetsGlobal = state.defaultTargets;
-      state.projectTargetsGlobal = state.projectTargets;
-      state.opsTargetsGlobal = state.opsTargets;
-      state.opsProjectTargetsGlobal = state.opsProjectTargets;
-    }
+    // Global-копии больше не используются (нет __default__-уровня).
+    // Оставляем пустые dict'ы, чтобы placeholder-логика рендера матриц
+    // ниже отрабатывала корректно (не показывала никакой подсказки).
+    state.defaultTargetsGlobal = {};
+    state.projectTargetsGlobal = {};
+    state.opsTargetsGlobal = {};
+    state.opsProjectTargetsGlobal = {};
   } catch (e) {
     toast('Не удалось загрузить цели: ' + e.message, 'error');
   }
@@ -372,8 +344,7 @@ async function reloadTargets() {
 
 async function loadOpsMetrics() {
   // Факты ops показываем только при выбранном конкретном месяце.
-  // В режиме '__default__' показывать неоткуда — оставляем пустой набор.
-  if (!state.currentMonth || state.targetsPeriod === TARGETS_DEFAULT_PERIOD) {
+  if (!state.currentMonth) {
     state.opsMetrics = {};
     return;
   }
@@ -615,7 +586,7 @@ function renderPnlMatrix() {
     inp.addEventListener('change', async () => {
       const m = inp.dataset.metric;
       const raw = inp.value.trim();
-      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
+      const pm = state.targetsPeriod;
       try {
         if (raw === '') {
           await del(`/api/targets/defaults?metric_code=${m}&period_month=${encodeURIComponent(pm)}`);
@@ -646,7 +617,7 @@ function renderPnlMatrix() {
       const raw = inp.value.trim();
       const key = `${pid}|${m}`;
       const td = inp.closest('td');
-      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
+      const pm = state.targetsPeriod;
       try {
         if (raw === '') {
           await del(`/api/targets?project_id=${pid}&metric_code=${m}&period_month=${encodeURIComponent(pm)}`);
@@ -782,7 +753,7 @@ function renderOpsMatrix() {
       const code = inp.dataset.code;
       const raw = inp.value.trim();
       const m = state.opsMeta.find(x => x.code === code) || {};
-      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
+      const pm = state.targetsPeriod;
       try {
         if (raw === '') {
           await del(`/api/ops-targets?metric_code=${code}&period_month=${encodeURIComponent(pm)}`);
@@ -813,7 +784,7 @@ function renderOpsMatrix() {
       const raw = inp.value.trim();
       const key = `${pid}|${code}`;
       const td = inp.closest('td');
-      const pm = state.targetsPeriod || TARGETS_DEFAULT_PERIOD;
+      const pm = state.targetsPeriod;
       try {
         if (raw === '') {
           await del(`/api/ops-targets/project?project_id=${pid}&metric_code=${code}&period_month=${encodeURIComponent(pm)}`);
@@ -1462,7 +1433,11 @@ async function renderUsersTable() {
         <td>${u.id}</td>
         <td><strong>${esc(u.username)}</strong></td>
         <td>${esc(u.display_name || '—')}</td>
-        <td>${u.is_admin ? '★ да' : 'нет'}</td>
+        <td>${
+          u.role === 'super_admin' ? '<span title="Супер-админ">★ супер</span>' :
+          u.role === 'network_admin' ? '<span title="Сетевой админ">▲ сеть</span>' :
+          '<span class="muted">—</span>'
+        }</td>
         <td>${esc(visibilityLabel(u.visibility_level))}</td>
         <td>${esc(u.dodois_credentials_name || '—')}</td>
         <td>${u.planfact_key_name ? esc(u.planfact_key_name) : '<span class="muted">— не назначен —</span>'}</td>
@@ -1518,8 +1493,7 @@ function openEditUserModal(u) {
   document.getElementById('ueId').value = u.id;
   document.getElementById('ueUsername').value = u.username;
   document.getElementById('ueDisplayName').value = u.display_name || '';
-  document.getElementById('ueIsAdmin').checked = !!u.is_admin;
-  document.getElementById('ueIsAdmin').dataset.currentRole = u.role || 'user';
+  document.getElementById('ueRole').value = u.role || 'user';
   // visibility_level — приведение к ближайшему пресету (10/30/60/100)
   const lvl = u.visibility_level ?? 100;
   document.getElementById('ueVisibilityLevel').value = String(lvl);
@@ -1783,25 +1757,12 @@ async function openKeyProjectsModal(keyId, keyName) {
 
   const dodoisHint = unitsResp.message
     ? `<p class="muted" style="font-size:11px;margin-bottom:8px;">Dodo IS юниты недоступны: ${esc(unitsResp.message)}</p>`
-    : `<p class="muted" style="font-size:11px;margin-bottom:8px;">Снятый тумблер «Вкл» = проект архивирован для всех юзеров под этим ключом. Привязка к Dodo IS — выберите юнит из списка.</p>`;
+    : `<p class="muted" style="font-size:11px;margin-bottom:8px;">Снятый тумблер «Вкл» = проект исключён из этой сети: не показывается на дашборде и недоступен сетевому админу для назначения юзерам. Привязка к Dodo IS — выберите юнит из списка.</p>`;
 
-  const groups = _groupProjectsForModal(projects, p => p.is_active);
-  // Колонка «Доступен сети» (is_admin_managed) — управляется только
-  // super_admin'ом. Для network'а её не показываем (он и так видит только
-  // managed-проекты, бэк фильтрует).
-  const isSuper = !!(state.me && state.me.role === 'super_admin');
-  const adminColTh = isSuper
-    ? `<th style="width:90px;text-align:center;" title="Whitelist: проект доступен сетевому админу для управления">Доступен&nbsp;сети</th>`
-    : '';
-  const adminColTd = (p) => isSuper
-    ? `<td style="text-align:center;">
-        <label class="row-toggle" style="margin:0 auto;">
-          <input type="checkbox" class="js-up-managed"
-            ${p.is_admin_managed ? 'checked' : ''}>
-          <span class="row-toggle-track"></span>
-        </label>
-      </td>`
-    : '';
+  // Один тумблер «Вкл» = проект включён в этой сети
+  // (is_active + is_admin_managed синхронно). Если выключить — проект
+  // исчезает и из дашборда (архив), и из списка доступных сети для NA.
+  const groups = _groupProjectsForModal(projects, p => p.is_active && p.is_admin_managed);
 
   wrap.innerHTML = `
     ${dodoisHint}
@@ -1809,18 +1770,20 @@ async function openKeyProjectsModal(keyId, keyName) {
     <datalist id="${unitDatalistId}">${dlOpts}</datalist>
     <table class="dense-table">
       <thead><tr>
-        <th style="width:60px;text-align:center;">Вкл</th>
+        <th style="width:60px;text-align:center;" title="Проект включён в этой сети: виден на дашборде + доступен сетевому админу">Вкл</th>
         <th>PlanFact-имя</th>
         <th style="width:200px;">Отображаемое имя</th>
         <th style="width:90px;text-align:center;">Порядок</th>
         <th style="width:280px;">Dodo IS юнит</th>
-        ${adminColTh}
       </tr></thead>
       <tbody>
         ${groups.map(g => _renderGroupRows(
           g,
-          p => ({ rowClass: p.is_active ? '' : 'row-off', checked: p.is_active }),
-          isSuper ? 5 : 4,
+          p => {
+            const on = p.is_active && p.is_admin_managed;
+            return { rowClass: on ? '' : 'row-off', checked: on };
+          },
+          4,
           p => `
             <td>
               <input type="text" class="js-up-display inp-flush"
@@ -1839,7 +1802,6 @@ async function openKeyProjectsModal(keyId, keyName) {
                 title="${esc(unitName(p.dodo_unit_uuid))}">
               <span class="muted js-up-uname" style="font-size:10px;">${esc(unitName(p.dodo_unit_uuid))}</span>
             </td>
-            ${adminColTd(p)}
           `,
         )).join('')}
       </tbody>
@@ -1861,8 +1823,11 @@ async function openKeyProjectsModal(keyId, keyName) {
     }
   }
 
+  // Тумблер «Вкл» пишет ОБА флага в lock-step: is_active (показ на дашборде)
+  // + is_admin_managed (доступ для сетевого админа). Один клик = «проект
+  // включён в сети» / «исключён из сети».
   _wireGroupCheckboxes(wrap, async (pid, target) => {
-    await patchField(pid, { is_active: target });
+    await patchField(pid, { is_active: target, is_admin_managed: target });
   });
 
   wrap.querySelectorAll('tr.up-row').forEach(tr => {
@@ -1883,15 +1848,6 @@ async function openKeyProjectsModal(keyId, keyName) {
         const name = unitName(v);
         un.textContent = name; uu.title = name;
       } catch (e) {}
-    });
-    // is_admin_managed toggle (super_admin only)
-    const mg = tr.querySelector('.js-up-managed');
-    if (mg) mg.addEventListener('change', async () => {
-      try {
-        await patchField(pid, { is_admin_managed: mg.checked }, mg);
-      } catch (e) {
-        mg.checked = !mg.checked;  // откат UI при ошибке
-      }
     });
   });
 
@@ -1964,16 +1920,16 @@ async function initUsersTab() {
     e.preventDefault();
     setMsg('cuMsg', '', '');
     const pfKeyId = document.getElementById('cuPfKeyId').value;
-    // Чекбокс «Сделать администратором» означает super_admin (для
-    // super-юзера который создаёт). Network admin его не видит и
-    // создаёт только role=user. role=network_admin сейчас можно
-    // выставить только через CLI или прямой API-вызов — Phase 5.
-    const isAdminChecked = document.getElementById('cuIsAdmin').checked;
+    // Селект «Роль»: user / network_admin / super_admin. У network admin'а
+    // селект скрыт CSS'ом (.super-only) — для них роль форсится 'user'.
+    const isSuperCreator = !!(state.me && state.me.role === 'super_admin');
+    const roleSel = document.getElementById('cuRole');
+    const role = isSuperCreator ? (roleSel.value || 'user') : 'user';
     const body = {
       username: document.getElementById('cuUsername').value.trim(),
       password: document.getElementById('cuPassword').value,
       display_name: document.getElementById('cuDisplayName').value.trim() || null,
-      role: isAdminChecked ? 'super_admin' : 'user',
+      role,
       dodois_credentials_name: document.getElementById('cuDodoisName').value || null,
       planfact_key_id: pfKeyId ? Number(pfKeyId) : null,
       visibility_level: Number(document.getElementById('cuVisibilityLevel').value) || 100,
@@ -1994,19 +1950,19 @@ async function initUsersTab() {
     setMsg('ueMsg', '', '');
     const id = document.getElementById('ueId').value;
     const pfKeyId = document.getElementById('uePfKeyId').value;
-    // Чекбокс «Администратор» переключает super_admin/user. Если у юзера
-    // была role=network_admin — мы её через эту форму не меняем (сохраняем).
-    const ueIsAdminEl = document.getElementById('ueIsAdmin');
-    const currentRole = ueIsAdminEl.dataset.currentRole || 'user';
-    const newRole = ueIsAdminEl.checked
-      ? (currentRole === 'network_admin' ? 'network_admin' : 'super_admin')
-      : 'user';
+    // Селект роли: user / network_admin / super_admin. Network admin
+    // селект не видит — для него поле остаётся, но не отправляется (роль
+    // не меняется). Super admin может выбрать любую.
+    const isSuperEditor = !!(state.me && state.me.role === 'super_admin');
+    const newRole = isSuperEditor
+      ? (document.getElementById('ueRole').value || 'user')
+      : undefined;
     const body = {
       display_name: document.getElementById('ueDisplayName').value.trim() || null,
-      role: newRole,
       dodois_credentials_name: document.getElementById('ueDodoisName').value || null,
       visibility_level: Number(document.getElementById('ueVisibilityLevel').value) || 100,
     };
+    if (newRole !== undefined) body.role = newRole;
     if (pfKeyId === '') {
       body.clear_planfact_key = true;
     } else {

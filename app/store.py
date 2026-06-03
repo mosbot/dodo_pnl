@@ -1000,6 +1000,31 @@ async def save_cache_entry(
     await session.execute(stmt)
 
 
+async def delete_cache_entry(
+    session: AsyncSession,
+    planfact_key_id: int,
+    period_month: str,
+    *,
+    kind: str = CACHE_KIND_PLANFACT_PNL,
+) -> bool:
+    """Удалить снэпшот закрытого периода. Возвращает True если запись была.
+
+    Используется кнопкой «Обновить» в дашборде, когда юзер хочет принудительно
+    пересобрать данные за закрытый месяц (правки задним числом в PlanFact).
+    При следующем /api/pnl build_pnl увидит cache miss → сходит в PF живьём и
+    допишет свежий snapshot через save_cache_entry."""
+    stmt = (
+        delete(CacheHistory)
+        .where(
+            CacheHistory.planfact_key_id == planfact_key_id,
+            CacheHistory.kind == kind,
+            CacheHistory.period_month == period_month,
+        )
+    )
+    result = await session.execute(stmt)
+    return (result.rowcount or 0) > 0
+
+
 async def list_cache_entries(
     session: AsyncSession, planfact_key_id: int,
 ) -> list[dict]:

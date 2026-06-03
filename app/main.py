@@ -724,12 +724,22 @@ async def get_pnl(
         session, user.id, user.planfact_key_id, project_ids,
     )
     if effective_projects is not None and len(effective_projects) == 0:
+        # Динамический targetable_metrics (как в build_pnl): из pnl_metrics
+        # WHERE is_target=true, чтобы фронт даже в пустом ответе знал,
+        # какие колонки целей рисовать в матрице настроек.
+        _pf_metrics_empty = (
+            await store.list_metrics(session, user.planfact_key_id)
+            if user.planfact_key_id else []
+        )
+        _targetable_empty = [
+            m["code"] for m in _pf_metrics_empty if m.get("is_target")
+        ]
         return {
             "projects": [], "lines": [], "template_lines": [], "targets": [],
             "category_breakdown": [], "revenue_by_channel": {}, "unclassified": [],
             "pnl_codes": pnl_module.PNL_CODES,
-            "targetable_metrics": pnl_module.TARGETABLE_METRICS,
-            "computed_targetable_metrics": sorted(pnl_module.COMPUTED_TARGETABLE_METRICS),
+            "targetable_metrics": _targetable_empty,
+            "computed_targetable_metrics": sorted(_targetable_empty),
             "denominators": pnl_module.DENOMINATOR,
             "method": method, "period_month": period_month, "stats": {},
             "default_targets": (
@@ -1525,12 +1535,16 @@ async def sync_ops_metrics_from_dodois(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Запускает синк ops-метрик из Dodo IS в фоне (S11.9). Возвращает 202 +
-    статус «scheduled»/«already_running» сразу, не дожидаясь окончания.
+    """Кнопка «⟳ Обновить»: запускает синк ops-метрик из Dodo IS в фоне (S11.9)
+    + сбрасывает PlanFact-кэш для пользователя + (для closed-месяцев)
+    инвалидирует snapshot в cache_history — чтобы при следующем /api/pnl
+    данные пересобрались живьём из PlanFact.
 
-    Сам синк живёт ~30-80 сек (см. /api/health логи), блокировать UI на это
-    время не годится. Прогресс юзер видит через ops_freshness.is_syncing
-    в /api/pnl, а готовность — по обновившемуся last_synced_at.
+    POST возвращается мгновенно (202 scheduled), не дожидаясь синка ops.
+    Прогресс ops юзер видит через ops_freshness.is_syncing в /api/pnl,
+    готовность — по обновившемуся last_synced_at. PnL уже сразу будет
+    свежий, потому что in-memory кэш PF и snapshot закрытого месяца уже
+    инвалидированы синхронно до возврата.
     """
     import asyncio as _asyncio
     from datetime import datetime
@@ -1544,9 +1558,29 @@ async def sync_ops_metrics_from_dodois(
     if not user.planfact_key_id:
         raise HTTPException(400, "У пользователя не задан ключ PlanFact.")
 
+    # ── 1. Инвалидация PlanFact-кэша для этого пользователя ──
+    # In-memory LRU в PlanFactClient держит ответы /operations до cache_ttl
+    # (1ч по дефолту). После любой правки в PlanFact юзер хочет видеть
+    # свежие данные немедленно — поэтому сбрасываем кэш синхронно.
+    invalidate_planfact_for(user.id)
+
+    # ── 2. Если за этот period есть snapshot — удалить ──
+    # Для closed-месяца build_pnl возвращает payload из cache_history и
+    # никогда не идёт в PF. Если юзер правит закрытый месяц задним числом
+    # (бывает: проводки, корректировки) — без удаления snapshot новые данные
+    # никогда не появятся в дашборде. После удаления первый же /api/pnl
+    # за этот месяц пересоберёт snapshot через cache_mode="save".
+    snapshot_invalidated = await store.delete_cache_entry(
+        session, user.planfact_key_id, period,
+    )
+    if snapshot_invalidated:
+        await session.commit()
+
+    # ── 3. Запуск фонового синка ops-метрик ──
     if is_ops_sync_running(user.planfact_key_id, period):
         return {
             "status": "already_running", "period": period,
+            "snapshot_invalidated": snapshot_invalidated,
             "detail": "Синхронизация этого периода уже идёт.",
         }
 
@@ -1556,7 +1590,10 @@ async def sync_ops_metrics_from_dodois(
     _asyncio.create_task(
         _run_ops_sync(user_id=user.id, period=period)
     )
-    return {"status": "scheduled", "period": period}
+    return {
+        "status": "scheduled", "period": period,
+        "snapshot_invalidated": snapshot_invalidated,
+    }
 
 
 async def _run_ops_sync(*, user_id: int, period: str) -> None:
