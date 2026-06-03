@@ -253,3 +253,50 @@ async def fetch_late_delivery_vouchers_count(
             continue
         counts[uid] = counts.get(uid, 0) + 1
     return counts
+
+
+async def _fetch_handover_stats_one(
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, token: str, unit_uuid: str,
+    from_date: datetime, to_date: datetime, sales_channels: str | None,
+) -> list[dict[str, Any]]:
+    """GET /production/orders-handover-statistics — агрегированные тайминги
+    кухни. Опциональный фильтр `salesChannels` (например, `Dine-in` —
+    ресторан, `Delivery`, `Takeaway`)."""
+    url = f"{settings.dodo_is_base_url}/production/orders-handover-statistics"
+    params: dict[str, Any] = {
+        "from": _fmt(from_date), "to": _fmt(to_date), "units": unit_uuid,
+    }
+    if sales_channels:
+        params["salesChannels"] = sales_channels
+
+    async def _do() -> list[dict[str, Any]]:
+        async with sem:
+            r = await http.get(url, headers=_headers(token), params=params)
+        _raise(r)
+        return r.json().get("ordersHandoverStatistics") or []
+
+    return await _with_retries(
+        f"handover-stats[{unit_uuid[:8]}{':' + sales_channels if sales_channels else ''}]",
+        _do,
+    )
+
+
+async def fetch_orders_handover_statistics(
+    token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime,
+    *, sales_channels: str | None = None,
+) -> list[dict[str, Any]]:
+    """Параллельно по юнитам. `sales_channels`=None → все каналы,
+    'Dine-in' → только ресторан, 'Delivery' → только доставка."""
+    if not unit_uuids:
+        return []
+    sem = asyncio.Semaphore(_MAX_PARALLEL)
+    async with httpx.AsyncClient(timeout=_REQ_TIMEOUT) as http:
+        results = await asyncio.gather(
+            *[_fetch_handover_stats_one(
+                http, sem, token, u, from_date, to_date, sales_channels,
+              ) for u in unit_uuids]
+        )
+    out: list[dict[str, Any]] = []
+    for r in results:
+        out.extend(r)
+    return out

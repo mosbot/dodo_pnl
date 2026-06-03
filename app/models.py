@@ -241,6 +241,13 @@ class OpsMetric(Base):
     late_delivery_certs: Mapped[Optional[int]] = mapped_column(Integer)
     delivery_orders_count: Mapped[Optional[int]] = mapped_column(Integer)
     late_delivery_certs_pct: Mapped[Optional[float]] = mapped_column(Float)
+    # S16: метрики из /delivery/statistics
+    orders_per_trip: Mapped[Optional[float]] = mapped_column(Float)
+    courier_utilization_pct: Mapped[Optional[float]] = mapped_column(Float)
+    # S16.2: время храним в секундах (INT), на UI формат mm:ss
+    avg_order_trip_time_sec: Mapped[Optional[int]] = mapped_column(Integer)
+    avg_cooking_time_delivery_sec: Mapped[Optional[int]] = mapped_column(Integer)
+    avg_cooking_time_restaurant_sec: Mapped[Optional[int]] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

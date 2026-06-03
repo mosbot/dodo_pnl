@@ -935,7 +935,18 @@ function opsTile(meta, val, target, opsRow) {
     const ok = dir === 'lower' ? val <= target : val >= target;
     stateCls = ok ? 'tile-ok' : 'tile-bad';
   }
-  const valueStr = hasVal ? fmtNum(val, digits) : '—';
+  // S16.2: meta.format='mm_ss' — значение в секундах, на выводе mm:ss.
+  // Применяется для AOT и COOK_TIME_{DELIVERY,RESTAURANT}.
+  const fmtVal = (v) => {
+    if (meta.format === 'mm_ss') {
+      const sec = Math.round(Math.abs(v));
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+    return fmtNum(v, digits);
+  };
+  const valueStr = hasVal ? fmtVal(val) : '—';
   // Абсолютное количество (для сертификатов — N штук). Рендерим инлайн
   // справа от значения. NBSP перед скобкой, чтобы не разъезжалось на 2
   // строки. При overflow JS-auto-fit ужмёт ТОЛЬКО шрифт .tile-sub —
@@ -950,7 +961,7 @@ function opsTile(meta, val, target, opsRow) {
   // «цель 3 500 ₽/ч» влезала ровно в одну строку (раньше переносилась
   // на 2 на узких плитках 1280px).
   const targetStr = target != null
-    ? `<span class="nb">цель&nbsp;${fmtNum(target, digits)}&nbsp;${meta.unit}</span>`
+    ? `<span class="nb">цель&nbsp;${fmtVal(target)}${meta.unit ? '&nbsp;' + meta.unit : ''}</span>`
     : '&nbsp;';
   // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
   // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).

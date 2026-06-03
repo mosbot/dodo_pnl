@@ -1688,7 +1688,7 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
 
             t0 = time.monotonic()
             try:
-                stats, cert_counts, delivery_stats = await _asyncio.gather(
+                stats, cert_counts, delivery_stats, handover_rest = await _asyncio.gather(
                     _timed("productivity", with_dodois_retry(
                         session, user,
                         dodois_client.fetch_productivity_many,
@@ -1704,29 +1704,61 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
                         dodois_client.fetch_delivery_statistics,
                         unit_uuids, from_dt, to_dt,
                     )),
+                    # S16.1: restaurant cooking time — отдельной ручкой,
+                    # фильтр salesChannels=DineIn (без дефиса! проверено
+                    # эмпирически: 'Dine-in'/'Restaurant' возвращают 400,
+                    # 'DineIn' и 'Delivery' — рабочие значения).
+                    _timed("handover-restaurant", with_dodois_retry(
+                        session, user,
+                        dodois_client.fetch_orders_handover_statistics,
+                        unit_uuids, from_dt, to_dt, sales_channels="DineIn",
+                    )),
                 )
             except (DodoISError, NoTokenError) as e:
                 log.warning("ops sync %s: ABORT: %s", period, e)
                 return
 
             log.info(
-                "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d",
+                "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d/handover-rest=%d",
                 period, time.monotonic() - t0, len(unit_uuids),
-                len(stats), len(cert_counts), len(delivery_stats),
+                len(stats), len(cert_counts), len(delivery_stats), len(handover_rest),
             )
 
             by_uuid = {s.get("unitId", "").lower(): s for s in stats}
             by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
+            by_uuid_hov = {h.get("unitId", "").lower(): h for h in handover_rest}
             for pid, uuid in targets:
                 key = (uuid or "").lower().replace("-", "")
                 s = by_uuid.get(key) or by_uuid.get(uuid.lower())
                 d = by_uuid_dlv.get(key) or by_uuid_dlv.get(uuid.lower()) or {}
+                h = by_uuid_hov.get(key) or by_uuid_hov.get(uuid.lower()) or {}
                 cert_n = cert_counts.get(key, 0)
                 delivery_orders = int(d.get("deliveryOrdersCount") or 0)
                 cert_pct = (
                     (cert_n / delivery_orders * 100.0)
                     if delivery_orders > 0 else None
                 )
+                # S16: метрики из /delivery/statistics — все приходят в одном
+                # ответе. Защищаемся от деления на ноль (новая точка без
+                # запусков курьеров).
+                trips_count = int(d.get("tripsCount") or 0)
+                trips_duration = int(d.get("tripsDuration") or 0)
+                couriers_shifts = int(d.get("couriersShiftsDuration") or 0)
+                # S16.2: время хранится в секундах (INT), на UI mm:ss
+                avg_trip_sec = d.get("avgOrderTripTime")
+                avg_cook_delivery_sec = d.get("avgCookingTime")
+                # S16.1: ресторанное время готовки — из отдельного запроса
+                # /production/orders-handover-statistics?salesChannels=DineIn
+                avg_cook_restaurant_sec = h.get("avgCookingTime")
+
+                orders_per_trip = (
+                    delivery_orders / trips_count if trips_count > 0 else None
+                )
+                courier_util_pct = (
+                    trips_duration / couriers_shifts * 100.0
+                    if couriers_shifts > 0 else None
+                )
+
                 if not s:
                     continue
                 await store.upsert_ops_metric(
@@ -1737,6 +1769,11 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
                     late_delivery_certs=cert_n,
                     delivery_orders_count=delivery_orders,
                     late_delivery_certs_pct=cert_pct,
+                    orders_per_trip=orders_per_trip,
+                    courier_utilization_pct=courier_util_pct,
+                    avg_order_trip_time_sec=avg_trip_sec,
+                    avg_cooking_time_delivery_sec=avg_cook_delivery_sec,
+                    avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
                 )
             await session.commit()
             log.info("ops sync %s: committed", period)
