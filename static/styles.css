@@ -513,6 +513,16 @@ button:hover { background: var(--bg); }
   /* UC/LC/DC/TC + 3 ops = 7 плиток; auto-fit чтобы уместить без «дырок» */
   grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
 }
+/* S16.5: разделитель строк в попапе «⚙ Метрики». Невидимый элемент,
+   принудительно занимает всю ширину ряда CSS Grid — следующая плитка
+   гарантированно пойдёт с новой строки. */
+.tile-row-break {
+  grid-column: 1 / -1;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .tile-grid-fin {
   /* Выручка, Маржин, EBITDA, Net — 2 в ряд */
   grid-template-columns: repeat(2, 1fr);

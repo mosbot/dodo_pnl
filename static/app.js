@@ -1117,10 +1117,21 @@ function renderCards() {
     // S13.3: ops-метрики берутся из Dodo IS per period_month и не имеют
     // смысла за многомесячный период — прячем плитки целиком в Период-режиме.
     // Также применяем per-user фильтр + порядок (попап «⚙ Метрики»).
-    const opsTiles = (state.mode === 'period') ? '' : applyUserOrder(opsMeta, userOrder)
-      .filter(om => !metricsHidden.has(om.code))
-      .map(om => opsTile(om, ops[om.field], opsTargetFor(p.id, om.code), ops))
-      .join('');
+    // S16.5: добавляем виртуальные sep-items (__SEP_*__) из userOrder и
+    // рендерим их как div.tile-row-break — переносит следующую плитку
+    // на новую строку через grid-column: 1/-1.
+    const opsItems = (state.mode === 'period') ? [] : (() => {
+      const seps = userOrder
+        .filter(c => c.startsWith('__SEP_'))
+        .map(c => ({ code: c, isSep: true }));
+      return applyUserOrder([...opsMeta, ...seps], userOrder)
+        .filter(om => om.isSep || !metricsHidden.has(om.code));
+    })();
+    const opsTiles = opsItems.map(om =>
+      om.isSep
+        ? '<div class="tile-row-break" aria-hidden="true"></div>'
+        : opsTile(om, ops[om.field], opsTargetFor(p.id, om.code), ops)
+    ).join('');
 
     const metricTiles = pctTiles + opsTiles;
 
@@ -1465,7 +1476,7 @@ function applyUserOrder(items, userOrder) {
 // Полный список метрик, которые можно скрывать/показывать.
 // Источники: state.pnl.metrics (P&L: UC/LC/DC/MARGIN/EBITDA/...) +
 // state.pnl.ops_metrics_meta (ops: ORD_PER_COURIER_H/...).
-// Возвращаем массив { code, label, group } для рендера попапа.
+// Возвращаем массив { code, label, group, isSep? } для рендера попапа.
 function buildMetricsCatalog() {
   const out = [];
   const seen = new Set();
@@ -1489,7 +1500,22 @@ function buildMetricsCatalog() {
     seen.add(om.code);
     out.push({ code: om.code, label: om.label || om.code, group: 'ops' });
   }
+  // S16.5: разделители-переносы. Виртуальные item'ы для попапа: они живут
+  // только в userOrder (loadMetricsOrder), генерятся как __SEP_<timestamp>__.
+  // Группа всегда 'ops' — это блок с auto-fit, где имеет смысл делить ряды.
+  const userOrder = loadMetricsOrder();
+  for (const code of userOrder) {
+    if (code.startsWith('__SEP_') && !seen.has(code)) {
+      seen.add(code);
+      out.push({ code, label: '', group: 'ops', isSep: true });
+    }
+  }
   return out;
+}
+
+function newSeparatorCode() {
+  return '__SEP_' + Date.now().toString(36) + '_' +
+    Math.random().toString(36).slice(2, 5) + '__';
 }
 
 function renderMetricsConfigList() {
@@ -1508,18 +1534,47 @@ function renderMetricsConfigList() {
   let html = '';
   for (const g of groupOrder) {
     const items = applyUserOrder(catalog.filter(x => x.group === g), userOrder);
-    if (!items.length) continue;
+    if (!items.length && g !== 'ops') continue;
     html += `<div class="charts-config-head" style="font-size:10px;margin-top:6px">${groupTitle[g]}</div>`;
-    html += items.map((m, i) => `
-      <label class="charts-config-row" data-group="${g}">
-        <input type="checkbox" data-metric-cb="${m.code}" ${hidden.has(m.code) ? '' : 'checked'}>
-        <span class="cfg-row-label">${esc(m.label)}</span>
-        <span class="cfg-row-arrows">
-          <button type="button" class="cfg-arrow" data-metric-up="${m.code}" ${i === 0 ? 'disabled' : ''} title="Выше" aria-label="Выше">▲</button>
-          <button type="button" class="cfg-arrow" data-metric-down="${m.code}" ${i === items.length - 1 ? 'disabled' : ''} title="Ниже" aria-label="Ниже">▼</button>
-        </span>
-      </label>
-    `).join('');
+    html += items.map((m, i) => {
+      // S16.5: разделитель — особый pешн в попапе. Не имеет чекбокса,
+      // показывается как горизонтальная линия с кнопкой удалить.
+      if (m.isSep) {
+        return `
+          <div class="charts-config-row charts-config-sep" data-group="${g}" data-sep="${m.code}"
+               style="display:flex;align-items:center;gap:8px;padding:6px 8px">
+            <span style="flex:1;border-top:1px dashed var(--border, #d0d7de);height:0"></span>
+            <span class="muted" style="font-size:11px;letter-spacing:0.04em">↵ перенос</span>
+            <span style="flex:1;border-top:1px dashed var(--border, #d0d7de);height:0"></span>
+            <button type="button" class="cfg-arrow" data-metric-up="${m.code}" ${i === 0 ? 'disabled' : ''} title="Выше">▲</button>
+            <button type="button" class="cfg-arrow" data-metric-down="${m.code}" ${i === items.length - 1 ? 'disabled' : ''} title="Ниже">▼</button>
+            <button type="button" class="cfg-arrow" data-sep-remove="${m.code}" title="Удалить разделитель" aria-label="Удалить">×</button>
+          </div>
+        `;
+      }
+      return `
+        <label class="charts-config-row" data-group="${g}">
+          <input type="checkbox" data-metric-cb="${m.code}" ${hidden.has(m.code) ? '' : 'checked'}>
+          <span class="cfg-row-label">${esc(m.label)}</span>
+          <span class="cfg-row-arrows">
+            <button type="button" class="cfg-arrow" data-metric-up="${m.code}" ${i === 0 ? 'disabled' : ''} title="Выше" aria-label="Выше">▲</button>
+            <button type="button" class="cfg-arrow" data-metric-down="${m.code}" ${i === items.length - 1 ? 'disabled' : ''} title="Ниже" aria-label="Ниже">▼</button>
+          </span>
+        </label>
+      `;
+    }).join('');
+    // Кнопка «+ Разделитель» только в ops-группе — там auto-fit grid
+    // с переменным числом плиток, где перенос имеет смысл.
+    if (g === 'ops') {
+      html += `
+        <div style="padding:6px 8px;text-align:center">
+          <button type="button" id="addSepBtn" class="charts-config-btn"
+                  title="Добавить разделитель: следующая плитка начнётся с новой строки">
+            + разделитель ↵
+          </button>
+        </div>
+      `;
+    }
   }
   box.innerHTML = html;
   box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
@@ -1543,6 +1598,30 @@ function renderMetricsConfigList() {
     btn.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
       moveMetric(btn.dataset.metricDown, +1);
+    });
+  });
+  // S16.5: добавить разделитель — кладём новый __SEP_*__ в конец
+  // ops-блока user order.
+  const addBtn = document.getElementById('addSepBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      const order = loadMetricsOrder().slice();
+      order.push(newSeparatorCode());
+      saveMetricsOrder(order);
+      renderMetricsConfigList();
+      renderCards();
+    });
+  }
+  // Удалить разделитель.
+  box.querySelectorAll('[data-sep-remove]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      const code = btn.dataset.sepRemove;
+      const order = loadMetricsOrder().filter(c => c !== code);
+      saveMetricsOrder(order);
+      renderMetricsConfigList();
+      renderCards();
     });
   });
 }
