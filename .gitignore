@@ -9,3 +9,18 @@ data/*.db-journal
 .DS_Store
 .idea/
 .vscode/
+
+# Security: ничего из backend/secrets не должно попасть в static/, оттуда
+# раздаётся public. SafeStaticFiles в app/main.py отказывает в раздаче, но
+# .gitignore — вторая линия: не допустить случайный commit. См. инцидент
+# 2026-05-08 ↔ 2026-06-03 (docs/audits/static-leak-incident.md).
+static/*.py
+static/*.pyc
+static/*.env
+static/*.key
+static/*.pem
+static/*.sql
+static/*.db
+static/*.sqlite
+static/*.sqlite3
+static/__pycache__/

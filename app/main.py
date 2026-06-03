@@ -290,7 +290,45 @@ async def test_dodois_connection(
 
 # --- static files ---
 static_dir = Path(__file__).resolve().parent.parent / "static"
-app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+class SafeStaticFiles(StaticFiles):
+    """StaticFiles с deny-листом по расширению.
+
+    Background (2026-05-08 → 2026-06-03): в `static/` оказались копии backend
+    исходников (main.py, pnl.py, models.py, schemas.py, storage.py). Они
+    отдавались публично по https://pnl.dodotool.ru/static/main.py с
+    HTTP 200. Дефолтный StaticFiles раздаёт ВСЁ что лежит в директории —
+    нет встроенной фильтрации по типу файла.
+
+    Defense-in-depth: даже если кто-то снова случайно скопирует исходники
+    в static/ (или сложит туда .env, .key, .pem) — раздать не дадим.
+    """
+
+    DENIED_EXTENSIONS = frozenset({
+        ".py", ".pyc", ".pyo", ".pyd",       # python source/bytecode
+        ".env", ".envrc",                     # secrets
+        ".key", ".pem", ".crt", ".p12",       # tls/crypto
+        ".db", ".sqlite", ".sqlite3",         # data
+        ".sh", ".bash",                       # shell scripts
+        ".yml", ".yaml",                      # configs (compose/k8s/ansible)
+        ".toml", ".ini", ".cfg",              # configs
+        ".log",                                # logs
+        ".sql",                                # db dumps
+    })
+
+    async def get_response(self, path, scope):
+        from starlette.responses import Response
+        # Любой компонент пути с deny-расширением → 404 (не 403, чтобы не
+        # подтверждать существование файла).
+        low = path.lower()
+        for ext in self.DENIED_EXTENSIONS:
+            if low.endswith(ext):
+                return Response(status_code=404)
+        return await super().get_response(path, scope)
+
+
+app.mount("/static", SafeStaticFiles(directory=str(static_dir)), name="static")
 
 
 @app.get("/login", response_class=HTMLResponse)
