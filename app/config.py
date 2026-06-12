@@ -6,8 +6,6 @@ class Settings(BaseSettings):
 
     planfact_api_key: str = ""
     planfact_base_url: str = "https://api.planfact.io/api/v1"
-    # SQLite-путь — legacy single-tenant хранилище. После S2.x уйдёт.
-    database_path: str = "./data/pnl.db"
     # TTL in-memory кэша PlanFact-клиента (LRU). Покрывает /projects,
     # /operationcategories и bulk /operations (тяжёлый — за месяц целиком).
     # Drill-down list_operations явно идёт мимо кэша (use_cache=False),
@@ -16,8 +14,6 @@ class Settings(BaseSettings):
     # инвалидация ручная через админку «Переоткрыть».
     cache_ttl: int = 3600
     port: int = 8000
-    basic_auth_user: str = ""
-    basic_auth_password: str = ""
 
     # --- Dodo IS API ---
     # Токен получаем либо вручную (для локальной разработки) — кладём в .env,
