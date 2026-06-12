@@ -642,22 +642,17 @@ function renderEmptyState() {
     const periodIsSet = state.mode === 'period'
       ? !!(state.periodFrom && state.periodTo)
       : !!state.currentMonth;
-    // На мобиле сайдбар прячется за hamburger — текст шага 2 адаптируем,
-    // а текст шага 1 не упоминает «сверху», т.к. селект периода переехал
-    // во вторую строку топбара (но всё ещё «выше всего»).
-    const isMobile = matchMedia('(max-width: 800px)').matches;
-    const step2Title = isMobile
-      ? 'Открой ☰ — отметь пиццерии'
-      : 'Слева — отметь пиццерии';
-    const step1Title = isMobile
-      ? 'Выбери период'
-      : 'Сверху — выбери период';
+    // Сайдбар проектов теперь всегда off-canvas за бургером ☰ (и на
+    // десктопе), а период — в топбаре сверху. Тексты шагов единые для
+    // десктопа и мобилы.
+    const step1Title = 'Сверху — выбери период';
+    const step2Title = 'Открой ☰ — отметь пиццерии';
     cards.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-title">Дашборд P&amp;L · с чего начать</div>
         <div class="empty-state-sub">
           Чтобы увидеть отчёт, нужно выбрать период и хотя бы одну пиццерию.
-          ${available ? `В сайдбаре доступно <strong>${available}</strong> проект(ов).` : ''}
+          ${available ? `В меню ☰ доступно <strong>${available}</strong> проект(ов).` : ''}
         </div>
         <div class="empty-state-steps">
           <div class="empty-state-step ${periodIsSet ? 'is-done' : ''}">
