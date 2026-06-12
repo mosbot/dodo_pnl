@@ -1254,7 +1254,7 @@ const CHARTS = [
     requires: ['REVENUE', 'NET_PROFIT'] },
   { id: 'margins',         title: 'Маржинальность по уровням, %',     defaultVisible: true,
     requires: ['MARGIN', 'EBITDA', 'NET_PROFIT'] },
-  { id: 'costShare',       title: 'Структура затрат, % от выручки',   defaultVisible: true,
+  { id: 'costShare',       title: 'Структура затрат',                 defaultVisible: true,
     requires: ['UC'] },
   { id: 'revHistory12m',   title: 'Выручка по месяцам · YoY',         defaultVisible: true,
     requires: ['REVENUE'] },
@@ -1749,38 +1749,51 @@ function renderCharts() {
     });
   }
 
-  // --- График 3: Структура затрат (stacked) ---
-  // В compare-режиме переключаемся с одинарного stacked на сгруппированный stacked (cur / ly)
-  // с помощью ключа stack. В обычном режиме — без группировки.
+  // --- График 3: Структура затрат (кольцевая, агрегат сети) ---
+  // Doughnut по сумме затрат всех выбранных проектов. Раньше был stacked
+  // bar по проектам — при нескольких точках бары узкие и нечитаемые.
+  // Кольцо показывает доли статей затрат друг от друга; tooltip — ₽ и
+  // % от выручки сети. Не зависит от числа выбранных пиццерий.
   if (isChartVisible('costShare')) {
     const costCodes = ['UC','LC','DC','RENT','MARKETING','FRANCHISE','OTHER_OPEX'];
     const colors = ['#6366f1','#8b5cf6','#ec4899','#f97316','#14b8a6','#fb7185','#94a3b8'];
-    const costDatasets = costCodes.map((code, i) => {
+    const revTotal = Math.abs(findLine('REVENUE')?.total?.amount || 0);
+    const items = costCodes.map((code, i) => {
       const line = findLine(code);
-      return {
-        label: hasCmp ? `${line?.label || code} · ${curLbl}` : (line?.label || code),
-        stack: 'cur',
-        data: pids.map(pid => (line?.projects[pid]?.pct_of_revenue || 0) * 100),
-        backgroundColor: colors[i],
-        borderRadius: 2,
-      };
-    });
-    if (hasCmp) {
-      costCodes.forEach((code, i) => {
-        const line = findIn(cmp.lines, code);
-        costDatasets.push({
-          label: `${line?.label || code} · ${lyLbl}`,
-          stack: 'ly',
-          data: pids.map(pid => (line?.projects[pid]?.pct_of_revenue || 0) * 100),
-          backgroundColor: colors[i] + '59', // ~35% alpha в hex
-          borderRadius: 2,
-        });
-      });
-    }
+      return { label: line?.label || code, amt: Math.abs(line?.total?.amount || 0), color: colors[i] };
+    }).filter(it => it.amt > 0);  // нулевые статьи в кольцо не выводим
+
     state.charts.costShare = new Chart(el('costShare'), {
-      type: 'bar',
-      data: { labels, datasets: costDatasets },
-      options: { ...pctOpts, scales: { ...pctOpts.scales, x: { ...pctOpts.scales.x, stacked: true }, y: { ...pctOpts.scales.y, stacked: true } } }
+      type: 'doughnut',
+      data: {
+        labels: items.map(it => it.label),
+        datasets: [{
+          data: items.map(it => it.amt),
+          backgroundColor: items.map(it => it.color),
+          borderColor: '#ffffff',
+          borderWidth: 1.5,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 12, padding: 8, font: { size: 11 } },
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const amt = ctx.parsed || 0;
+                const pct = revTotal ? (amt / revTotal * 100) : 0;
+                return `${ctx.label}: ${fmt(amt)} ₽ (${pct.toFixed(1).replace('.', ',')}% от выручки)`;
+              },
+            },
+          },
+        },
+      },
     });
   }
 
