@@ -1,160 +1,97 @@
-# P&L Dashboard · PlanFact
+# pnl-service — P&L Dashboard для франчайзи Dodo Pizza
 
-Веб-сервис, который в реальном времени тянет данные из PlanFact API и строит детальный P&L по пиццериям с расчётом процентов от выручки, сравнением периодов и контролем целей (Delivery Cost / Kitchen Cost и др.).
+Многотенантный SaaS-дашборд: тянет данные из **PlanFact** (P&L по проектам)
+и **Dodo IS** (операционные метрики), строит детальный отчёт о прибылях и
+убытках по пиццериям и оперативную сводку сети за день.
+
+Прод: `https://pnl.dodotool.ru` (VPS `dodotool.ru`).
+
+## Стек
+
+FastAPI + SQLAlchemy 2.0 (async) + asyncpg + PostgreSQL. Фронт — ванильный
+JS + Chart.js (self-host), без сборки. Деплой — systemd + venv + nginx.
 
 ## Что умеет
 
-- **P&L по проектам** в единой сводной таблице: Revenue → UC → LC → DC → Opex → EBITDA → Net Profit. Каждая статья показана и в рублях, и в % от выручки пиццерии.
-- **Период**: произвольные даты, плюс пресеты (этот/прошлый месяц, квартал, YTD, последние 30 дней).
-- **Сравнение с предыдущим периодом** — колонки Δ (руб. и п.п.).
-- **Фильтр по проектам** — чекбоксы в боковой панели.
-- **Drill-down**: клик по ячейке открывает список операций этой категории в этом проекте за выбранный период.
-- **Цели по статьям** (UC / LC / DC / Rent / Marketing) — отдельно для каждой пиццерии. Отчёт «Отклонения от целей» подсвечивает превышение.
-- **Ручное обновление** — кнопка «Обновить данные» сбрасывает кэш и перезапрашивает PlanFact.
+- **P&L по проектам** (`/`) — Revenue → UC/LC/DC → Opex → EBITDA → Net
+  Profit, в рублях и % от выручки, сравнение периодов (LFL / MoM), цели по
+  статьям, drill-down по операциям, экспорт в xlsx. Источник агрегата —
+  `POST /api/v2/reports/opu` PlanFact (см. `docs/audits/v2-reports-migration-plan.md`).
+- **Сетевой scoreboard дня** (`/board`) — выручка всех точек сети с дельтой
+  vs прошлый аналогичный день недели, активные стопы, ops-метрики (Кухня +
+  Доставка) из Dodo IS, месяц LFL, прогноз. Для territorial/network-админа.
+- **Настройки** (`/settings`) — профиль, сессии, интеграции, шаблон P&L,
+  проекты, метрики, цели, пользователи (для админов).
 
-## Архитектура
+## Доступ и роли
 
-```
-pnl-service/
-├── app/
-│   ├── main.py         FastAPI: роуты, auth, статика
-│   ├── planfact.py     HTTP-клиент PlanFact + in-memory TTL-кэш
-│   ├── pnl.py          классификация категорий, агрегация, сравнение
-│   ├── storage.py      SQLite: цели и пользовательский маппинг
-│   ├── schemas.py      Pydantic-модели
-│   └── config.py       pydantic-settings из .env
-├── static/             index.html + styles.css + app.js (Chart.js)
-├── data/               SQLite-файл (монтируется как volume)
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
-```
+Серверные сессии (argon2id-пароли, HttpOnly+Secure+SameSite cookie,
+rate-limit логина, audit log). Роли: `super_admin` / `network_admin` /
+`user`. Видимость строк P&L и проектов гейтится по `visibility_level`
+(10 управляющий → 100 партнёр) и per-user hidden-list.
 
-PlanFact не отдаёт готовый P&L — мы берём `/operationcategories` (дерево статей) и `/bizinfos/incomeoutcomehistorybyoperationcategories` (суммы по категориям в разрезе проектов), классифицируем статьи эвристикой по ключевым словам в названии, при необходимости переопределяем маппинг через `POST /api/mappings`.
+## Мультитенантность
 
-Цели и пользовательский маппинг хранятся в SQLite (`data/pnl.db`).
+Все данные скоупятся по `planfact_key_id` (сеть = PF-ключ) или `owner_id`.
+PlanFact-ключи и привязка к Dodo IS — в БД (`planfact_keys`, `users`),
+не в env. Схема БД — `pnl_service.*`; соседняя `public.dodois_credentials`
+(read-only) хранит access-token Dodo IS, refresh делает соседний сервис.
 
-## Запуск на VPS (Docker)
-
-```bash
-# 1. Склонируйте проект на сервер
-scp -r pnl-service/ user@your-vps:/opt/
-
-# 2. Зайдите и настройте окружение
-ssh user@your-vps
-cd /opt/pnl-service
-cp .env.example .env
-nano .env   # впишите PLANFACT_API_KEY и при желании BASIC_AUTH_*
-
-# 3. Запустите
-docker compose up -d
-
-# 4. Проверьте
-curl http://localhost:8000/api/health
-# {"status":"ok","planfact_key_set":true}
-```
-
-Логи:
-```bash
-docker compose logs -f pnl
-```
-
-Остановить / обновить:
-```bash
-docker compose down
-docker compose up -d --build
-```
-
-## Где взять PlanFact API-ключ
-
-Личный кабинет PlanFact → **Настройки → Безопасность → API-ключи** → «Создать ключ». Скопируйте значение и положите в `.env`:
+## Структура
 
 ```
-PLANFACT_API_KEY=xxxxxxxxxxxxxxxxxxxx
+app/
+  main.py          FastAPI app + endpoints
+  board.py         /api/board — сетевой scoreboard дня
+  day_window.py    временные окна MSK для /board
+  dodois_client.py клиент Dodo IS API
+  planfact.py      клиент PlanFact (вкл. report_opu v2)
+  pnl.py           сборка P&L, классификация статей
+  pnl_v2.py        адаптер v2 reports/opu → агрегаты
+  store.py         DB-операции
+  models.py        SQLAlchemy 2.0 модели
+  auth/            пароли, сессии, роли, audit
+  config.py        pydantic-settings из .env
+alembic/versions/  миграции 0001→0026
+static/            board.* / index / settings + app.js + vendor/chart
+scripts/
+  deploy.sh        атомарный деплой (git + migrate + restart + откат)
+docs/
+  dodois-api.md    снапшот Dodo IS API
+  planfact-agent-kit/  дока PlanFact
+  audits/          incident-репорты и аудиты
+CLAUDE.md          подробный контекст репозитория
 ```
 
-## Проброс в интернет (nginx + HTTPS)
+## Локальный запуск
 
-Пример конфига nginx перед контейнером:
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name pnl.example.com;
-
-    ssl_certificate     /etc/letsencrypt/live/pnl.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/pnl.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-Доступ по паролю — пропишите в `.env`:
-```
-BASIC_AUTH_USER=admin
-BASIC_AUTH_PASSWORD=strong-password-here
-```
-
-## API (кратко)
-
-| Метод | Путь | Описание |
-|---|---|---|
-| GET | `/api/health` | Пинг |
-| GET | `/api/projects` | Список проектов из PlanFact |
-| GET | `/api/categories` | Дерево статей + текущий маппинг |
-| GET | `/api/pnl?date_start=…&date_end=…&project_ids=…&compare_start=…&compare_end=…` | Собранный P&L |
-| GET | `/api/operations?date_start=…&date_end=…&project_id=…&category_id=…` | Drill-down |
-| POST | `/api/refresh` | Сбросить кэш |
-| GET \| POST \| DELETE | `/api/targets` | CRUD целей |
-| POST | `/api/mappings` | Переопределить категорию → P&L-код |
-
-## Настройка целей
-
-В интерфейсе — кнопка **«Цели»** в шапке. Для каждой пиццерии задаёте максимальный % от выручки по метрикам:
-- **UC** — Unit Cost (себестоимость продуктов)
-- **LC** — Labor Cost (ФОТ)
-- **DC** — Delivery Cost (курьеры, упаковка)
-- **RENT** — аренда
-- **MARKETING** — маркетинг
-
-Типичные ориентиры для пиццерий: UC ≤ 30%, LC ≤ 22%, DC ≤ 12%, RENT ≤ 8%, MARKETING ≤ 5%.
-
-В таблице и в виджете «Отклонения от целей» превышение подсвечивается красным.
-
-## Если эвристика классификации ошиблась
-
-Откройте `GET /api/categories` — увидите список всех статей PlanFact и текущий `pnl_code`. Чтобы переопределить:
-
-```bash
-curl -X POST http://localhost:8000/api/mappings \
-  -H 'Content-Type: application/json' \
-  -d '{"planfact_category_id":"12345","pnl_code":"DC"}'
-```
-
-Допустимые `pnl_code`:
-`REVENUE, UC, LC, DC, RENT, MARKETING, FRANCHISE, OTHER_OPEX, OTHER_INCOME, MGMT, INTEREST, TAX, DIVIDENDS`
-
-После изменения маппинга нажмите «Обновить данные» в интерфейсе.
-
-## Локальный запуск (без Docker)
+Нужен Python 3.10+ и доступный PostgreSQL. Заполнить `.env`
+(см. `.env.example`), затем:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # и заполните PLANFACT_API_KEY
+alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-Откройте http://localhost:8000.
+Либо `./start.sh` (сам создаёт venv и ставит зависимости).
 
-## Известные нюансы
+## Деплой (прод)
 
-- PlanFact не даёт webhooks — обновление только по кнопке (или по расписанию внешним cron'ом на `POST /api/refresh`).
-- Формат ответа `/bizinfos/incomeoutcomehistorybyoperationcategories` зависит от версии API; `_normalize_history()` в `main.py` обрабатывает и плоский, и вложенный по проектам ответ.
-- Первая загрузка после старта контейнера медленнее (наполнение кэша). TTL кэша — 5 минут (меняется через `CACHE_TTL` в `.env`).
+Через git, одной командой (подробности — в CLAUDE.md):
+
+```bash
+# правки скопировать на VPS, затем:
+ssh claude@dodotool.ru 'cd /home/claude/pnl-service && ./scripts/deploy.sh "feat: описание"'
+```
+
+`scripts/deploy.sh` атомарно: `git commit` → `git push` → `pip install`
+(если менялся requirements) → `alembic upgrade head` → рестарт →
+health-check, **с автооткатом кода при провале**.
+
+## Документация
+
+- `CLAUDE.md` — детальный контекст: окна /board, источники Dodo IS,
+  известные подводные камни, открытые задачи.
+- `docs/audits/` — аудиты и план миграции на PlanFact v2.
