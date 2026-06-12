@@ -1995,6 +1995,22 @@ async def get_board(
     return payload
 
 
+@app.get("/api/ops-metrics/sync-status")
+async def ops_sync_status(
+    period: str = Query(..., description="'YYYY-MM'"),
+    user: User = Depends(require_user),
+):
+    """Лёгкий статус фонового ops-синка для поллинга на фронте.
+
+    Читает только in-memory флаг _OPS_SYNC_INFLIGHT — НЕ дёргает PlanFact и
+    НЕ собирает P&L. Фронт во время синка опрашивает этот endpoint вместо
+    тяжёлого /api/pnl, а полную перерисовку делает один раз по завершении.
+    """
+    if not user.planfact_key_id:
+        return {"is_syncing": False}
+    return {"is_syncing": is_ops_sync_running(user.planfact_key_id, period)}
+
+
 @app.post("/api/ops-metrics/sync")
 async def sync_ops_metrics_from_dodois(
     period: str = Query(..., description="'YYYY-MM' — месяц, для которого тянем ops"),

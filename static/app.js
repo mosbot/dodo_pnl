@@ -883,12 +883,19 @@ function _pollOpsSync(period) {
       return;
     }
     try {
-      await loadPnl();
-      const fr = state.pnl?.ops_freshness;
-      if (fr && !fr.is_syncing) {
-        // Готово — показываем результат.
-        toast('Метрики обновлены');
-        return;
+      // Лёгкий статус-запрос: НЕ дёргаем /api/pnl (не тянем PlanFact и не
+      // перерисовываем всю страницу каждые 8с). Полную перерисовку делаем
+      // ОДИН раз — когда синк завершился.
+      const r = await fetch(`/api/ops-metrics/sync-status?period=${period}`,
+        { credentials: 'same-origin' });
+      if (r.ok) {
+        const st = await r.json();
+        if (!st.is_syncing) {
+          if (state.currentMonth !== period) return;
+          await loadPnl();           // единственная финальная перерисовка
+          toast('Метрики обновлены');
+          return;
+        }
       }
     } catch { /* ignore */ }
     _opsPollTimer = setTimeout(tick, STEP_MS);
