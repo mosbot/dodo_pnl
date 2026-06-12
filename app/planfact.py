@@ -8,12 +8,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
 
 import httpx
 
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 
 class PlanFactError(Exception):
@@ -194,6 +197,58 @@ class PlanFactClient:
         if isinstance(data, dict):
             return data
         return {"items": data or [], "total": len(data or [])}
+
+    async def report_opu(
+        self,
+        *,
+        date_start: str,
+        date_end: str,
+        method: str = "accrual",
+    ) -> dict:
+        """POST /api/v2/reports/opu — готовый ОПУ «категория × проект».
+
+        Миграция S20 (docs/audits/v2-reports-migration-plan.md): источник
+        агрегата для P&L вместо GET /operations (30–50 МБ + recursive-split
+        → ~0.5–3.5 МБ одним запросом, PF кэширует server-side).
+
+        Всегда ключе-уровневый (без projectId-фильтра) — payload лёгкий,
+        а кэш (наш и PF-шный) переиспользуется всеми юзерами ключа с любым
+        выбором пиццерий. Project_filter применяется на рендере в build_pnl.
+
+        Даты строго 'YYYY-MM-DD' (date-time PF отклоняет — REPORTS_V2.md:89).
+        Profit-флаги (isGrossProfit и т.п.) не передаём — прибыль считают
+        наши формулы pnl_metrics.
+
+        Возвращает data-конверт v2: {"operationCategoryByProjects": {...}}.
+        """
+        body = {
+            "isCalculation": method == "accrual",
+            "reportGenMethod": "Projects",
+            "periodStartDate": date_start[:10],
+            "periodEndDate": date_end[:10],
+            "isPeriodDetail": False,
+            "userCurrencyCode": "RUB",
+        }
+        # POST, но детерминированный и лёгкий → кэшируем сами (в _request
+        # кэш только для GET). TTL общий; кнопка «Обновить» сбрасывает
+        # через invalidate_planfact_for → invalidate_cache.
+        ck = self._cache_key("POST", "/v2/reports/opu", None, body)
+        now = time.time()
+        hit = self._cache.get(ck)
+        if hit and now - hit[0] < self.cache_ttl:
+            self._cache.move_to_end(ck)
+            return hit[1]
+        self._cache.pop(ck, None)
+
+        url = self.base_url.replace("/api/v1", "/api/v2") + "/reports/opu"
+        r = await self._http.post(url, headers=self.headers, json=body)
+        if r.status_code >= 400:
+            raise PlanFactError(r.status_code, r.text)
+        data = _unwrap(r.json() if r.content else {})
+        self._cache[ck] = (now, data)
+        while len(self._cache) > self.CACHE_MAX_ENTRIES:
+            self._cache.popitem(last=False)
+        return data
 
     # Сколько одновременных запросов в PF /operations — общий потолок,
     # включая parallel-split и parallel-by-project. PF не публикует rate-
@@ -405,16 +460,32 @@ CLIENTS_MAX = 50  # разумный лимит для VPS на ~30 пользо
 
 _clients: OrderedDict[int, PlanFactClient] = OrderedDict()
 
+# Ссылки на fire-and-forget aclose-таски: без них event loop держит таску
+# слабо и GC может собрать её до завершения → aclose не отработает →
+# утечка httpx-коннектов (ровно тот OOM-вектор, с которым уже боролись).
+_close_tasks: set[asyncio.Task] = set()
+
+
+def _fire_and_forget_close(victim: PlanFactClient) -> None:
+    """Закрыть клиент не блокируя caller. get_running_loop вместо
+    deprecated get_event_loop (code-review 2026-06-10, B5): если running
+    loop нет (sync-контекст вне event loop) — закрыть нечем, логируем."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        log.warning("planfact: нет running loop — aclose клиента пропущен "
+                    "(коннекты закроются при сборке мусора httpx)")
+        return
+    task = loop.create_task(victim.aclose())
+    _close_tasks.add(task)
+    task.add_done_callback(_close_tasks.discard)
+
 
 def _evict_lru_clients() -> None:
     """Удалить старейшие клиенты, пока размер не вернётся в пределы."""
     while len(_clients) > CLIENTS_MAX:
         _, victim = _clients.popitem(last=False)
-        # Не ждём aclose — fire-and-forget, чтобы не блокировать caller.
-        try:
-            asyncio.get_event_loop().create_task(victim.aclose())
-        except Exception:
-            pass
+        _fire_and_forget_close(victim)
         victim.invalidate_cache()
 
 
@@ -433,10 +504,7 @@ def get_planfact_client(user_id: int, api_key: str) -> PlanFactClient:
         return existing
     if existing is not None:
         # api_key сменился — закрываем старый клиент целиком.
-        try:
-            asyncio.get_event_loop().create_task(existing.aclose())
-        except Exception:
-            pass
+        _fire_and_forget_close(existing)
         existing.invalidate_cache()
     new_client = PlanFactClient(api_key=api_key)
     _clients[user_id] = new_client
@@ -448,10 +516,7 @@ def invalidate_planfact_for(user_id: int) -> None:
     """Сбросить инстанс/кэш для юзера. Использовать при logout / смене ключа."""
     c = _clients.pop(user_id, None)
     if c is not None:
-        try:
-            asyncio.get_event_loop().create_task(c.aclose())
-        except Exception:
-            pass
+        _fire_and_forget_close(c)
         c.invalidate_cache()
 
 

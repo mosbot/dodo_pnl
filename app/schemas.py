@@ -7,6 +7,12 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+# V13 (code-review 2026-06-10): period_month идёт в PK таблиц targets/
+# ops_metrics — мусорные значения замусоривают таблицы и ломают fallback
+# на '__default__'. Валидируем формат на входе.
+PERIOD_MONTH_RE = r"^(\d{4}-(0[1-9]|1[0-2])|__default__)$"
+PERIOD_MONTH_STRICT_RE = r"^\d{4}-(0[1-9]|1[0-2])$"  # без '__default__'
+
 
 class TargetIn(BaseModel):
     project_id: str
@@ -14,6 +20,7 @@ class TargetIn(BaseModel):
     target_pct: float = Field(..., description="Целевой % от выручки (0.35 = 35%)")
     period_month: str = Field(
         default="__default__",
+        pattern=PERIOD_MONTH_RE,
         description="'YYYY-MM' для месячного override или '__default__' для всех месяцев",
     )
 
@@ -21,7 +28,7 @@ class TargetIn(BaseModel):
 class DefaultTargetIn(BaseModel):
     metric_code: str = Field(..., description="UC | LC | DC | TC | RENT | MARKETING")
     target_pct: float
-    period_month: str = Field(default="__default__")
+    period_month: str = Field(default="__default__", pattern=PERIOD_MONTH_RE)
 
 
 class MetricIn(BaseModel):
@@ -81,7 +88,8 @@ class OpsMetricIn(BaseModel):
     """Запись по одному проекту за один месяц.
     Поля метрик необязательны — None значит «не менять»."""
     project_id: str
-    period_month: str = Field(..., description="'YYYY-MM' — напр. '2026-04'")
+    period_month: str = Field(..., pattern=PERIOD_MONTH_STRICT_RE,
+                              description="'YYYY-MM' — напр. '2026-04'")
     orders_per_courier_h: Optional[float] = None
     products_per_h: Optional[float] = None
     revenue_per_person_h: Optional[float] = None
@@ -94,7 +102,7 @@ class OpsTargetIn(BaseModel):
     target_value: float = Field(
         ..., description="Целевое значение (floor, факт ≥ цели)"
     )
-    period_month: str = Field(default="__default__")
+    period_month: str = Field(default="__default__", pattern=PERIOD_MONTH_RE)
 
 
 class OpsProjectTargetIn(BaseModel):
@@ -104,7 +112,7 @@ class OpsProjectTargetIn(BaseModel):
         ..., description="ORD_PER_COURIER_H | PROD_PER_H | REV_PER_PERSON_H"
     )
     target_value: float
-    period_month: str = Field(default="__default__")
+    period_month: str = Field(default="__default__", pattern=PERIOD_MONTH_RE)
 
 
 class TemplateNodeCodeIn(BaseModel):

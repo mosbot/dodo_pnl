@@ -3,9 +3,21 @@
 Token = 32 случайных байта в hex (64 символа). Кладётся в HttpOnly cookie
 `pnl_session`. Сессия валидна до `expires_at`; при каждом валидном запросе
 обновляем `last_seen_at` (rolling refresh — продлевает таймаут активности).
+
+V8 (code-review 2026-06-10): в БД храним НЕ сырой токен, а его SHA-256
+(hex). Read-доступ к БД (бэкап, дамп) больше не даёт угнать сессии.
+Конвенция по слоям:
+  - cookie ↔ юзер: сырой токен;
+  - всё, что внутри sessions.py принимает `token` из cookie
+    (get_session_with_user, delete_session) — хэширует само;
+  - в `UserSession.token` и в `request.state.session_token` — хэш;
+    функции, принимающие stored-токен (revoke_other_sessions keep_token),
+    ждут именно хэш.
+Сырой токен после login доступен один раз через `s.plain_token`.
 """
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -25,6 +37,11 @@ def _new_token() -> str:
     return secrets.token_hex(32)  # 64 hex-char
 
 
+def hash_token(raw_token: str) -> str:
+    """Сырой cookie-токен → хранимая форма (SHA-256 hex, 64 символа)."""
+    return hashlib.sha256(raw_token.encode("ascii")).hexdigest()
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -36,15 +53,19 @@ async def create_session(
     user_agent: Optional[str] = None,
     ip: Optional[str] = None,
 ) -> UserSession:
-    """Завести новую сессию для уже верифицированного пользователя."""
+    """Завести новую сессию для уже верифицированного пользователя.
+
+    В БД пишем hash; сырой токен (для Set-Cookie) — в `s.plain_token`,
+    он существует только в памяти этого запроса."""
     token = _new_token()
     s = UserSession(
-        token=token,
+        token=hash_token(token),
         user_id=user.id,
         expires_at=_now() + timedelta(days=SESSION_TTL_DAYS),
         user_agent=user_agent,
         ip=ip,
     )
+    s.plain_token = token  # не-column атрибут, в БД не попадает
     session.add(s)
     await session.flush()
     return s
@@ -58,13 +79,15 @@ async def get_session_with_user(
     Возвращает None если:
     - токена нет в БД
     - сессия просрочена (expires_at < now)
+
+    `token` — СЫРОЙ из cookie; ищем по его SHA-256.
     """
     if not token or len(token) != 64:
         return None
     stmt = (
         select(UserSession)
         .options(selectinload(UserSession.user))
-        .where(UserSession.token == token)
+        .where(UserSession.token == hash_token(token))
     )
     result = await session.execute(stmt)
     s = result.scalar_one_or_none()
@@ -87,8 +110,16 @@ async def touch_session(session: AsyncSession, s: UserSession) -> None:
 
 
 async def delete_session(session: AsyncSession, token: str) -> bool:
-    """Удалить сессию по токену. Используется при logout."""
-    stmt = delete(UserSession).where(UserSession.token == token)
+    """Удалить сессию по СЫРОМУ cookie-токену. Используется при logout."""
+    stmt = delete(UserSession).where(UserSession.token == hash_token(token))
+    result = await session.execute(stmt)
+    return result.rowcount > 0
+
+
+async def delete_session_by_stored(session: AsyncSession, stored_token: str) -> bool:
+    """Удалить сессию по ХРАНИМОМУ хэшу (например, из list_sessions_for_user).
+    Используется при отзыве конкретной сессии из UI."""
+    stmt = delete(UserSession).where(UserSession.token == stored_token)
     result = await session.execute(stmt)
     return result.rowcount > 0
 

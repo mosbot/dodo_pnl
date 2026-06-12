@@ -36,12 +36,6 @@ const fmt = (n, prefix = '') => {
   return prefix + sign + abs.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 };
 
-const fmtPct = (n) => {
-  if (n === null || n === undefined || isNaN(n)) return '';
-  const sign = n < 0 ? '' : '+';
-  return sign + (n * 100).toFixed(1).replace('.', ',') + '%';
-};
-
 const fmtPctAbs = (n) => {
   if (n === null || n === undefined || isNaN(n)) return '—';
   return (n * 100).toFixed(1).replace('.', ',') + '%';
@@ -119,10 +113,15 @@ function initMonthSelect() {
     loadPnl();
   });
 
-  // Toggle Месяц/Период
+  // Toggle День / Месяц / Период
   document.querySelectorAll('#periodModeToggle .mode-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const m = btn.dataset.mode;
+      // День — навигация на /board (drawer-выбор сохраняется через localStorage)
+      if (m === 'day') {
+        window.location.href = '/board';
+        return;
+      }
       if (m === state.mode) return;
       applyMode(m);
       loadPnl();
@@ -150,8 +149,16 @@ function savePeriodRange() {
 }
 function loadModeAndRangeFromStorage() {
   try {
-    const m = localStorage.getItem(_modeKey());
-    if (m === 'period' || m === 'month') state.mode = m;
+    // По умолчанию всегда «Месяц». «Период» НЕ запоминается между сессиями
+    // — при загрузке / пользователь видит Месяц, даже если в прошлый раз
+    // переключал в Период. Чтобы попасть в Период — явный клик на toggle.
+    // Исключение: URL ?mode=period — для перехода с /board (тоже не sticky).
+    const urlMode = new URLSearchParams(window.location.search).get('mode');
+    if (urlMode === 'period') {
+      state.mode = 'period';
+    } else {
+      state.mode = 'month';
+    }
     const raw = localStorage.getItem(_periodRangeKey());
     if (raw) {
       const arr = JSON.parse(raw);
@@ -216,12 +223,6 @@ function syncPeriodFromMonth() {
   el('dateStart').value = `${state.currentMonth}-01`;
   el('dateEnd').value = `${state.currentMonth}-${String(last).padStart(2, '0')}`;
   el('periodMonth').value = state.currentMonth;
-}
-
-function previousMonthKey(key) {
-  const [y, m] = key.split('-').map(Number);
-  const d = new Date(y, m - 2, 1); // m-1 = current, -1 ещё = prev
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function previousYearKey(key) {
@@ -397,14 +398,14 @@ function renderProjectsSidebar() {
         </div>
         <div class="proj-group-body" ${isCollapsed ? 'hidden' : ''}>
           ${g.projects.map(p => `
-            <div class="proj-row">
-              <label class="switch">
+            <label class="proj-row">
+              <span class="switch">
                 <input type="checkbox" data-pid="${p.id}"
                   ${state.selectedProjects.has(p.id) ? 'checked' : ''}>
                 <span class="slider"></span>
-              </label>
+              </span>
               <span class="proj-name">${esc(p.name)}</span>
-            </div>
+            </label>
           `).join('')}
         </div>
       </div>
@@ -868,14 +869,6 @@ function findLine(code) {
   return state.pnl.lines.find(l => l.code === code);
 }
 
-// Цвет значения по знаку amount. При null/undefined/0 — без цвета.
-function signClass(amount) {
-  if (amount === null || amount === undefined) return '';
-  if (amount < 0) return 'neg';
-  if (amount > 0) return 'pos';
-  return '';
-}
-
 // ---- Tile builders ----
 
 // Плитка % от выручки с таргетом (UC/LC/DC/TC). Ceiling: actual <= target = ok.
@@ -910,13 +903,13 @@ function pctTile(label, proj, target, opts = {}) {
     const ppStr = Math.abs(pp).toFixed(1).replace('.', ',');
     deltaRow = `<div class="tile-hint"><span class="tile-delta ${cls}">Δ ${sign}${ppStr}пп</span></div>`;
   }
-  const hint = opts.hint ? ` <span class="tile-sublabel">${opts.hint}</span>` : '';
+  const hint = opts.hint ? ` <span class="tile-sublabel">${esc(opts.hint)}</span>` : '';
   // UX-4: tile-label обрезается ellipsis на узких плитках («ВЫРУЧКА НА Ч…»);
   // даём нативный tooltip с полным текстом.
   const fullLabel = opts.hint ? `${label} ${opts.hint}` : label;
   return `
     <div class="tile tile-metric ${stateCls}" title="${esc(fullLabel)}">
-      <div class="tile-label">${label}${hint}</div>
+      <div class="tile-label">${esc(label)}${hint}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">%</span></div>
       <div class="tile-hint">${targetStr}</div>
       ${deltaRow}
@@ -961,18 +954,18 @@ function opsTile(meta, val, target, opsRow) {
   // «цель 3 500 ₽/ч» влезала ровно в одну строку (раньше переносилась
   // на 2 на узких плитках 1280px).
   const targetStr = target != null
-    ? `<span class="nb">цель&nbsp;${fmtVal(target)}${meta.unit ? '&nbsp;' + meta.unit : ''}</span>`
+    ? `<span class="nb">цель&nbsp;${fmtVal(target)}${meta.unit ? '&nbsp;' + esc(meta.unit) : ''}</span>`
     : '&nbsp;';
   // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
   // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).
   // Связываем «на» неразрывным пробелом со следующим словом — чтобы
   // «Заказов на курьера» / «Выручка на человека» переносилось как
   // «Заказов» / «на курьера», а не «Заказов» / «на» / «курьера» (3 строки).
-  const labelDisplay = meta.label.replace(/ на /g, ' на ');
+  const labelDisplay = esc(meta.label).replace(/ на /g, ' на ');
   return `
     <div class="tile tile-metric ${stateCls}" title="${esc(meta.label)}">
       <div class="tile-label">${labelDisplay}</div>
-      <div class="tile-value">${valueStr}<span class="tile-unit">${meta.unit}</span>${countStr}</div>
+      <div class="tile-value">${valueStr}<span class="tile-unit">${esc(meta.unit)}</span>${countStr}</div>
       <div class="tile-hint">${targetStr}</div>
     </div>`;
 }
@@ -1016,7 +1009,7 @@ function finTile(label, proj, opts = {}) {
   }
   return `
     <div class="tile tile-fin ${cls}" title="${esc(label)}">
-      <div class="tile-label">${label}</div>
+      <div class="tile-label">${esc(label)}</div>
       <div class="tile-value">${fmt(amt)}<span class="tile-unit">₽</span></div>
       <div class="tile-hint">${opts.hideSub && !proj?.previous_amount ? '&nbsp;' : hintHTML}</div>
     </div>`;
@@ -2086,8 +2079,8 @@ function renderAggregateTable() {
              : line.kind === 'header' ? 'lvl-1'
              : 'lvl-' + line.level;
     const drillable = line.kind === 'detail' && line.code !== 'REVENUE';
-    tbody += `<tr class="${cls}" data-code="${line.code}">`;
-    tbody += `<td>${line.label}</td>`;
+    tbody += `<tr class="${cls}" data-code="${esc(line.code)}">`;
+    tbody += `<td>${esc(line.label)}</td>`;
     let totalAmt = 0;
     projects.forEach(p => {
       const proj = line.projects[p.id] || {};

@@ -50,11 +50,9 @@ DENOMINATOR = {
     "DC": "delivery",
 }
 
-# Legacy. Используется только когда planfact_key_id отсутствует (юзер без
-# ключа). Для всех остальных случаев список таргетируемых метрик строится
-# динамически из pnl_metrics WHERE is_target=true (см. build_pnl ниже).
-TARGETABLE_METRICS = ["UC", "LC", "DC", "TC", "RENT", "MARKETING"]
-COMPUTED_TARGETABLE_METRICS = {"TC"}
+# NB: legacy-константы TARGETABLE_METRICS/COMPUTED_TARGETABLE_METRICS
+# удалены 2026-06-10 — список таргетируемых метрик строится динамически
+# из pnl_metrics WHERE is_target=true (см. build_pnl ниже).
 
 REVENUE_CHANNELS = ("delivery", "restaurant", "takeaway", "other")
 
@@ -853,6 +851,26 @@ async def build_pnl(
         )
     else:
         pf_metrics = []
+
+    # Тот же visibility-фильтр для category_breakdown — иначе юзер
+    # восстанавливает скрытые строки (DIVIDENDS/INTEREST/TAX/...) и их
+    # суммы из ответа /api/pnl через DevTools, см. code-review
+    # 2026-06-10, V4. Категории без pnl_code (unclassified) видны всем —
+    # как и в lines.
+    _min_level_by_code = {
+        m["code"]: int(m.get("min_visibility_level") or 0)
+        for m in pf_metrics
+    }
+    _user_level = int(user_visibility_level or 0)
+    category_breakdown = [
+        cb for cb in category_breakdown
+        if (
+            _min_level_by_code.get(
+                cb.get("pnl_code") or "",
+                LINE_CODE_DEFAULT_MIN_LEVEL.get(cb.get("pnl_code") or "", 0),
+            ) <= _user_level
+        )
+    ]
 
     # --- Цели (P&L target_report) ---
     # Динамически по pnl_metrics WHERE is_target=true. Actual берём из

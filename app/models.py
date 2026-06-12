@@ -260,6 +260,117 @@ class OpsMetric(Base):
     )
 
 
+# ---------- Monthly revenue history (S17 для /board prognoz) ----------
+
+class MonthlyRevenueHistory(Base):
+    """Снэпшот закрытых месяцев из Dodo IS для расчёта прогноза LFL.
+
+    Закрытый месяц immutable — пишем один раз, дальше читаем из БД без
+    обращений к Dodo IS. Используется как `last_year_full_month` в формуле
+    прогноза `mtd × (LY_full / MTD_LFL)`.
+    """
+    __tablename__ = "monthly_revenue_history"
+
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    revenue_total: Mapped[Optional[float]] = mapped_column(Float)
+    revenue_delivery: Mapped[Optional[float]] = mapped_column(Float)
+    revenue_restaurant: Mapped[Optional[float]] = mapped_column(Float)
+    taken_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_monthly_revenue_pfkey_month",
+            "planfact_key_id", "month",
+        ),
+    )
+
+
+# ---------- Dodo IS units cache (S18) ----------
+
+class DodoisUnitCache(Base):
+    """Кэш имён пиццерий из /auth/roles/units. Имя меняется крайне редко
+    (новая точка — раз в месяцы), TTL ~24h. Без зависимости от тенанта —
+    Кубинка-1 это Кубинка-1 для всех."""
+
+    __tablename__ = "dodois_units_cache"
+
+    uuid: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    refreshed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    )
+
+
+# ---------- Board card metric visibility (S19) ----------
+
+class BoardCardMetricVisibility(Base):
+    """Per-PF-ключ настройка видимости ops-метрик в rich-card на /board.
+
+    Запись отсутствует → метрика видна (default). UI на /settings
+    выключает/включает метрики; backend фильтрует payload."""
+
+    __tablename__ = "board_card_metric_visibility"
+
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    metric_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    is_visible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("TRUE"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    )
+
+
+# ---------- Dodo IS baseline window cache (S21) ----------
+
+class DodoisWindowCache(Base):
+    """Кэш immutable baseline-окон /board (S21, #3 из бэклога).
+
+    Окна сравнения last_week / mtd_lfl всегда заканчиваются в ПРОШЛОМ
+    (now−7д / now−1год), округлены до часа — поэтому за конкретный
+    `window_to_key` данные неизменны. Раньше тянулись из Dodo IS на
+    каждую перегенерацию /board (board-кэш живёт 60с). Теперь — один раз
+    на (ключ, проект, метрика, час), insert-only, переживает рестарт.
+
+    metric_type: 'sales_lw' | 'monthly_lfl' (на первом этапе только
+    критичные, честно бросающие при ошибке fetch'и; ops-метрики через
+    _safe_fetch маскируют ошибку пустотой — их кэшировать опасно).
+    window_to_key: ISO 'YYYY-MM-DDTHH:00:00' границы окна.
+    payload: ответ endpoint'а для ОДНОГО юнита (JSONB).
+    """
+
+    __tablename__ = "dodois_window_cache"
+
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    metric_type: Mapped[str] = mapped_column(String(32), primary_key=True)
+    window_to_key: Mapped[str] = mapped_column(String(20), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    )
+
+
 # ---------- Ops targets ----------
 
 class OpsTarget(Base):

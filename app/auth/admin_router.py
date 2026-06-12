@@ -689,6 +689,7 @@ class PlanfactKeyPublic(BaseModel):
     note: Optional[str]
     used_by_count: int   # сколько юзеров привязано
     live_months_window: int  # глубина live-окна для cache_history (S3.4)
+    pnl_source: str = "raw"  # S20: 'raw' | 'shadow' | 'v2'
     created_at: str
     updated_at: str
 
@@ -703,6 +704,8 @@ class PlanfactKeyUpdate(BaseModel):
     name: Optional[str] = None
     api_key: Optional[str] = None     # None = не менять; пустая = ошибка
     note: Optional[str] = None
+    # S20: переключение источника P&L без деплоя (см. v2-reports-migration-plan)
+    pnl_source: Optional[str] = Field(default=None, pattern="^(raw|shadow|v2)$")
 
 
 def _mask_key(s: str) -> str:
@@ -741,6 +744,7 @@ async def admin_list_planfact_keys(
             id=k.id, name=k.name, api_key_masked=_mask_key(k.api_key),
             note=k.note, used_by_count=cnt,
             live_months_window=k.live_months_window,
+            pnl_source=getattr(k, "pnl_source", "raw") or "raw",
             created_at=k.created_at.isoformat(),
             updated_at=k.updated_at.isoformat(),
         ))
@@ -768,6 +772,7 @@ async def admin_create_planfact_key(
         id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
         note=pk.note, used_by_count=0,
         live_months_window=pk.live_months_window,
+        pnl_source=getattr(pk, "pnl_source", "raw") or "raw",
         created_at=pk.created_at.isoformat(),
         updated_at=pk.updated_at.isoformat(),
     )
@@ -791,6 +796,8 @@ async def admin_update_planfact_key(
         pk.api_key = encrypt_secret(body.api_key.strip())
     if body.note is not None:
         pk.note = body.note.strip() or None
+    if body.pnl_source is not None:
+        pk.pnl_source = body.pnl_source
     pk.updated_at = datetime.now(timezone.utc)
     try:
         await session.commit()
@@ -802,6 +809,7 @@ async def admin_update_planfact_key(
         id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
         note=pk.note, used_by_count=cnt,
         live_months_window=pk.live_months_window,
+        pnl_source=getattr(pk, "pnl_source", "raw") or "raw",
         created_at=pk.created_at.isoformat(),
         updated_at=pk.updated_at.isoformat(),
     )

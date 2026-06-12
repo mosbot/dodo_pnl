@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,10 @@ from .models import (
     AppSetting,
     CacheHistory,
     DefaultTarget,
+    MonthlyRevenueHistory,
+    DodoisUnitCache,
+    DodoisWindowCache,
+    BoardCardMetricVisibility,
     OpsMetric,
     OpsProjectTarget,
     OpsTarget,
@@ -1151,18 +1155,214 @@ async def list_cache_entries(
     ]
 
 
-async def delete_cache_entry(
+# NB: вторая (дублирующая) delete_cache_entry удалена 2026-06-10 — она
+# возвращала None и затирала версию выше (которая возвращает bool), из-за
+# чего `if snapshot_invalidated:` в main.py никогда не срабатывал и
+# инвалидация закрытого месяца не коммитилась (code-review, B1).
+
+
+# ---------- Monthly revenue history (S17) ----------
+
+async def get_monthly_revenue_history(
     session: AsyncSession,
     planfact_key_id: int,
-    period_month: str,
-    kind: str = CACHE_KIND_PLANFACT_PNL,
+    project_ids: list[str],
+    month: str,
+) -> dict[str, dict]:
+    """Вернуть {project_id: {revenue_total, revenue_delivery, revenue_restaurant}}
+    для нескольких проектов за один месяц. Если записи нет — проект отсутствует
+    в возвращённом словаре (вызывающий должен сходить в Dodo IS).
+    """
+    if not project_ids:
+        return {}
+    stmt = select(MonthlyRevenueHistory).where(
+        MonthlyRevenueHistory.planfact_key_id == planfact_key_id,
+        MonthlyRevenueHistory.project_id.in_(project_ids),
+        MonthlyRevenueHistory.month == month,
+    )
+    result = await session.execute(stmt)
+    out: dict[str, dict] = {}
+    for r in result.scalars():
+        out[r.project_id] = {
+            "revenue_total": r.revenue_total,
+            "revenue_delivery": r.revenue_delivery,
+            "revenue_restaurant": r.revenue_restaurant,
+        }
+    return out
+
+
+async def upsert_monthly_revenue(
+    session: AsyncSession,
+    planfact_key_id: int,
+    project_id: str,
+    month: str,
+    *,
+    revenue_total: Optional[float] = None,
+    revenue_delivery: Optional[float] = None,
+    revenue_restaurant: Optional[float] = None,
 ) -> None:
-    """Переоткрытие месяца. Следующий запрос за этот период пойдёт live
-    в PF и при необходимости перекэшируется."""
-    await session.execute(
-        delete(CacheHistory).where(
-            CacheHistory.planfact_key_id == planfact_key_id,
-            CacheHistory.kind == kind,
-            CacheHistory.period_month == period_month,
+    """Записать или обновить выручку за месяц. INSERT ... ON CONFLICT DO UPDATE
+    (на случай если данные уточнились задним числом — пересчитаем)."""
+    stmt = (
+        pg_insert(MonthlyRevenueHistory)
+        .values(
+            planfact_key_id=planfact_key_id,
+            project_id=project_id,
+            month=month,
+            revenue_total=revenue_total,
+            revenue_delivery=revenue_delivery,
+            revenue_restaurant=revenue_restaurant,
+        )
+        .on_conflict_do_update(
+            index_elements=["planfact_key_id", "project_id", "month"],
+            set_={
+                "revenue_total": revenue_total,
+                "revenue_delivery": revenue_delivery,
+                "revenue_restaurant": revenue_restaurant,
+                "taken_at": datetime.now(timezone.utc),
+            },
         )
     )
+    await session.execute(stmt)
+
+
+# ---------- Dodo IS baseline window cache (S21, #3) ----------
+
+async def get_window_cache_many(
+    session: AsyncSession,
+    planfact_key_id: int,
+    project_ids: list[str],
+    metric_type: str,
+    window_to_key: str,
+) -> dict[str, dict]:
+    """Вернуть {project_id: payload} для immutable baseline-окна.
+    Отсутствующие проекты в словаре нет — вызывающий дёргает Dodo IS."""
+    if not project_ids:
+        return {}
+    stmt = select(
+        DodoisWindowCache.project_id, DodoisWindowCache.payload,
+    ).where(
+        DodoisWindowCache.planfact_key_id == planfact_key_id,
+        DodoisWindowCache.metric_type == metric_type,
+        DodoisWindowCache.window_to_key == window_to_key,
+        DodoisWindowCache.project_id.in_(project_ids),
+    )
+    result = await session.execute(stmt)
+    return {pid: payload for pid, payload in result.all()}
+
+
+async def upsert_window_cache(
+    session: AsyncSession,
+    planfact_key_id: int,
+    project_id: str,
+    metric_type: str,
+    window_to_key: str,
+    payload: dict,
+) -> None:
+    """Insert-only: immutable срез пишется один раз. ON CONFLICT DO NOTHING
+    — если параллельный запрос успел записать, не перетираем."""
+    stmt = (
+        pg_insert(DodoisWindowCache)
+        .values(
+            planfact_key_id=planfact_key_id,
+            project_id=project_id,
+            metric_type=metric_type,
+            window_to_key=window_to_key,
+            payload=payload,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[
+                "planfact_key_id", "project_id", "metric_type", "window_to_key",
+            ],
+        )
+    )
+    await session.execute(stmt)
+
+
+# ---------- Dodo IS units cache (S18) ----------
+
+async def get_units_cache(
+    session: AsyncSession,
+    uuids: Optional[list[str]] = None,
+) -> dict[str, dict]:
+    """Вернуть {uuid_norm: {name, refreshed_at}} из dodois_units_cache.
+    Если uuids=None — все записи."""
+    stmt = select(DodoisUnitCache)
+    if uuids:
+        stmt = stmt.where(DodoisUnitCache.uuid.in_(uuids))
+    result = await session.execute(stmt)
+    out: dict[str, dict] = {}
+    for r in result.scalars():
+        out[r.uuid] = {"name": r.name, "refreshed_at": r.refreshed_at}
+    return out
+
+
+async def upsert_units_cache(
+    session: AsyncSession,
+    items: dict[str, str],
+) -> None:
+    """Batch upsert {uuid_norm: name}. Обновляет refreshed_at до сейчас."""
+    if not items:
+        return
+    now = datetime.now(timezone.utc)
+    for uuid_norm, name in items.items():
+        stmt = (
+            pg_insert(DodoisUnitCache)
+            .values(uuid=uuid_norm, name=name, refreshed_at=now)
+            .on_conflict_do_update(
+                index_elements=["uuid"],
+                set_={"name": name, "refreshed_at": now},
+            )
+        )
+        await session.execute(stmt)
+
+
+async def get_units_cache_max_age_seconds(
+    session: AsyncSession,
+) -> Optional[float]:
+    """Сколько секунд назад был последний refresh любой записи.
+    None если таблица пустая. Используется для решения «пора ли тянуть API»."""
+    stmt = select(func.max(DodoisUnitCache.refreshed_at))
+    result = await session.execute(stmt)
+    last = result.scalar_one_or_none()
+    if last is None:
+        return None
+    delta = datetime.now(timezone.utc) - last
+    return delta.total_seconds()
+
+
+# ---------- Board card metric visibility (S19) ----------
+
+async def get_board_metrics_visibility(
+    session: AsyncSession, planfact_key_id: int,
+) -> dict[str, bool]:
+    """Вернуть {metric_code: is_visible} для PF-ключа. Записи нет в таблице
+    → метрика видна (default). Вызывающий должен это учесть: если код не
+    в результате, считать is_visible=True."""
+    stmt = select(BoardCardMetricVisibility).where(
+        BoardCardMetricVisibility.planfact_key_id == planfact_key_id,
+    )
+    result = await session.execute(stmt)
+    return {r.metric_code: r.is_visible for r in result.scalars()}
+
+
+async def upsert_board_metric_visibility(
+    session: AsyncSession, planfact_key_id: int,
+    metric_code: str, is_visible: bool,
+) -> None:
+    """Записать или обновить is_visible для (PF-ключ, code)."""
+    now = datetime.now(timezone.utc)
+    stmt = (
+        pg_insert(BoardCardMetricVisibility)
+        .values(
+            planfact_key_id=planfact_key_id,
+            metric_code=metric_code,
+            is_visible=is_visible,
+            updated_at=now,
+        )
+        .on_conflict_do_update(
+            index_elements=["planfact_key_id", "metric_code"],
+            set_={"is_visible": is_visible, "updated_at": now},
+        )
+    )
+    await session.execute(stmt)

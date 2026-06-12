@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>P&L по проектам · PlanFact</title>
-<link rel="stylesheet" href="/static/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<link rel="stylesheet" href="/static/styles.css?v=3">
+<script src="/static/vendor/chart-4.5.0.umd.js"></script>
 </head>
 <body>
 
@@ -30,7 +30,8 @@
          freshness. Они появляются справа от пикера и «раскрывают»
          левый кластер. -->
     <div class="controls-left">
-      <div class="mode-toggle" id="periodModeToggle" role="tablist" aria-label="Режим выбора периода">
+      <div class="mode-toggle" id="periodModeToggle" role="tablist" aria-label="Режим страницы">
+        <button type="button" class="mode-toggle-btn" data-mode="day" role="tab" aria-selected="false" title="Оперативная сводка дня по выбранным точкам">День</button>
         <button type="button" class="mode-toggle-btn is-active" data-mode="month" role="tab" aria-selected="true">Месяц</button>
         <button type="button" class="mode-toggle-btn" data-mode="period" role="tab" aria-selected="false">Период</button>
       </div>
@@ -193,9 +194,9 @@
   </div>
 </div>
 
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=20"></script>
-<script src="/static/app.js?v=20"></script>
+<script src="/static/app.js?v=22"></script>
 </body>
 </html>

@@ -2042,6 +2042,82 @@ async function loadMetrics() {
   state.metrics = resp.metrics || [];
 }
 
+
+// ─── Board card ops-metrics visibility (S19) ─────────────────────────
+
+async function loadBoardMetrics() {
+  const resp = await api('/api/board-metrics').catch(() => ({ metrics: [] }));
+  state.boardMetrics = resp.metrics || [];
+}
+
+function renderBoardMetrics() {
+  const wrap = document.getElementById('boardMetricsList');
+  if (!wrap) return;
+  const items = state.boardMetrics || [];
+  if (items.length === 0) {
+    wrap.innerHTML = '<p class="muted">Загрузка…</p>';
+    return;
+  }
+  // Группируем по группе (kitchen / delivery)
+  const groups = { kitchen: [], delivery: [] };
+  items.forEach(m => {
+    (groups[m.group] || (groups[m.group] = [])).push(m);
+  });
+  const groupTitles = {
+    kitchen: 'Кухня',
+    delivery: 'Доставка',
+  };
+  const html = Object.entries(groups).map(([gkey, gitems]) => {
+    if (!gitems.length) return '';
+    return `
+      <div class="board-metrics-group" style="margin-bottom:16px">
+        <h4 style="margin:0 0 8px;color:var(--muted);font-size:12px;
+                   letter-spacing:0.08em;text-transform:uppercase;
+                   font-weight:700">${esc(groupTitles[gkey] || gkey)}</h4>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${gitems.map(m => `
+            <label style="display:flex;align-items:center;gap:10px;
+                          padding:6px 8px;border-radius:6px;cursor:pointer;
+                          background:var(--row-bg, rgba(0,0,0,0.02))">
+              <input type="checkbox" data-board-metric="${esc(m.code)}"
+                     ${m.is_visible ? 'checked' : ''}>
+              <span>${esc(m.label)}</span>
+              <code style="margin-left:auto;color:var(--muted-2);
+                           font-size:11px">${esc(m.code)}</code>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+  wrap.innerHTML = html;
+  // Обработчики
+  wrap.querySelectorAll('input[data-board-metric]').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      const code = cb.dataset.boardMetric;
+      const is_visible = cb.checked;
+      try {
+        await api(`/api/board-metrics/${encodeURIComponent(code)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_visible }),
+        });
+        // Обновляем локальный стейт чтобы перерисовка не сбросила
+        const m = state.boardMetrics.find(x => x.code === code);
+        if (m) m.is_visible = is_visible;
+        if (typeof toast === 'function') {
+          toast(`«${m?.label || code}» ${is_visible ? 'показывается' : 'скрыта'}`, 'ok');
+        }
+      } catch (err) {
+        cb.checked = !is_visible;
+        if (typeof toast === 'function') {
+          toast('Не удалось сохранить: ' + err.message, 'error');
+        }
+      }
+    });
+  });
+}
+
 function renderMetrics() {
   const tbody = document.getElementById('metricsTbody');
   if (!tbody) return;
@@ -2254,8 +2330,9 @@ async function initMetricsTab() {
   if (!isAdmin) return;
   document.getElementById('btnAddMetric')?.addEventListener('click', addMetric);
   trackActiveFormulaInput();
-  await loadMetrics();
+  await Promise.all([loadMetrics(), loadBoardMetrics()]);
   renderMetrics();
+  renderBoardMetrics();
   renderMetricsLineList();
   document.getElementById('metricsLineSearch')?.addEventListener('input', (e) => {
     renderMetricsLineList(e.target.value);

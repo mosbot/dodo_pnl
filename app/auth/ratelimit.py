@@ -63,3 +63,9 @@ class LoginRateLimiter:
 
 # Singleton — общий для всех login-запросов внутри одного uvicorn-воркера.
 login_limiter = LoginRateLimiter(max_attempts=5, window_minutes=15)
+
+# V14 (code-review 2026-06-10): второй лимитер по username — иначе
+# распределённый brute-force одного аккаунта (много IP) не ограничен
+# ничем. Порог выше per-IP: легитимный юзер с нескольких устройств не
+# должен упираться. Ключ — username.lower().
+username_limiter = LoginRateLimiter(max_attempts=15, window_minutes=15)

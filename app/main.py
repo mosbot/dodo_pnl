@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import board as board_module
 from . import dodois_client
 from . import pnl as pnl_module
 from . import store
@@ -46,14 +47,36 @@ from .schemas import (
 app = FastAPI(title="PnL Dashboard")
 
 
+@app.on_event("startup")
+async def _require_secret_key() -> None:
+    """V9 (code-review 2026-06-10): без SECRET_KEY шифрование PlanFact-ключей
+    в crypto.py тихо деградирует до plaintext. На проде (Postgres задан) это
+    недопустимо — отказываемся стартовать. Локальная разработка без
+    DATABASE_URL продолжает работать как раньше."""
+    if settings.database_url and not settings.secret_key:
+        raise RuntimeError(
+            "SECRET_KEY не задан при настроенном DATABASE_URL — секреты "
+            "писались бы в БД открытым текстом. Сгенерируй: "
+            "python -c 'import secrets; print(secrets.token_hex(32))' "
+            "и положи в .env как SECRET_KEY=..."
+        )
+
+
+@app.on_event("shutdown")
+async def _close_dodois_shared_client() -> None:
+    """Закрыть общий httpx-клиент Dodo IS (см. dodois_client._client)."""
+    from . import dodois_client
+    await dodois_client.aclose_shared_client()
+
+
 # --- security headers ---
-# CSP: разрешаем self + cdn.jsdelivr.net (Chart.js загружается оттуда),
-# inline-стили (некоторые модалки используют style=...). Ужесточить можно
-# после того как все inline-style вынесены в CSS.
+# CSP: только self — Chart.js self-host в static/vendor/ (V7, code-review
+# 2026-06-10: весь jsdelivr в script-src = готовый CSP-bypass гаджет).
+# inline-стили пока разрешены (некоторые модалки используют style=...).
 _SEC_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
@@ -353,16 +376,31 @@ async def settings_page(user: User | None = Depends(optional_user)):
     return HTMLResponse((static_dir / "settings.html").read_text(encoding="utf-8"))
 
 
+@app.get("/board", response_class=HTMLResponse)
+async def board_page(user: User | None = Depends(optional_user)):
+    """Страница «День» — оперативная сводка по выбранным проектам.
+    Доступна всем авторизованным юзерам. Управляющий видит свою точку,
+    территориальный — свои, сетевой — все (по visibility + drawer-выбор)."""
+    if user is None:
+        return RedirectResponse("/login", status_code=302)
+    return HTMLResponse((static_dir / "board.html").read_text(encoding="utf-8"))
+
+
 # --- API routes ---
 
 @app.get("/api/health")
-async def health():
-    """Live-проверка + диагностика памяти (для отладки утечек без SSH).
-
-    Читает /proc/self/status — это нативно в Linux, не требует psutil.
-    Возвращает RSS, кол-во инстансов PlanFactClient и общий размер их кэшей.
+async def health(
+    user: User | None = Depends(optional_user),
+):
+    """Live-проверка. Анонимам — только {"status": "ok"} (V10, code-review
+    2026-06-10: RSS/threads/кол-во тенантов — информация для разведки).
+    Админам — диагностика памяти (для отладки утечек без SSH): читает
+    /proc/self/status (нативно в Linux, не требует psutil), возвращает RSS,
+    кол-во инстансов PlanFactClient и общий размер их кэшей.
     """
     import os
+    if user is None or not user.is_any_admin:
+        return {"status": "ok"}
     info: dict = {"status": "ok"}
     try:
         with open(f"/proc/{os.getpid()}/status") as f:
@@ -615,6 +653,15 @@ async def _build_pnl_for_period(
       3) Иначе — старая live-логика.
     """
     pf_key_id = user.planfact_key_id
+
+    # S20: источник P&L-агрегата ('raw' | 'shadow' | 'v2') — флаг на ключе.
+    pnl_source = "raw"
+    pk = None
+    if pf_key_id is not None:
+        from .auth.models import PlanfactKey
+        pk = await session.get(PlanfactKey, pf_key_id)
+        pnl_source = (getattr(pk, "pnl_source", None) or "raw")
+
     cacheable = (
         pf_key_id is not None
         and period_month is not None
@@ -624,8 +671,6 @@ async def _build_pnl_for_period(
     cached_payload: dict | None = None
     use_cache_after_miss = False
     if cacheable:
-        from .auth.models import PlanfactKey
-        pk = await session.get(PlanfactKey, pf_key_id)
         lmw = pk.live_months_window if pk else 2
         if not store.is_period_in_live_window(
             period_month, _current_month_str(), lmw,
@@ -655,21 +700,31 @@ async def _build_pnl_for_period(
         )
 
     if use_cache_after_miss:
-        # MISS: качаем ключ-уровневый снэпшот (без project_filter), агрегируем
+        # MISS: ключ-уровневый снэпшот (без project_filter), агрегируем
         # для всего ключа, рендерим под фильтр юзера, сохраняем в cache_history.
-        projects, categories, operations = await _fetch_period(
-            pf, date_start, date_end, None, method=method,
-        )
-        result = await pnl_module.build_pnl(
-            session=session, owner_id=user.id,
-            planfact_key_id=pf_key_id,
-            categories=categories, operations=operations, projects=projects,
-            project_filter=project_filter,
-            date_start=date_start, date_end=date_end,
-            method=method, period_month=period_month,
-            user_visibility_level=user.visibility_level,
-            cache_mode="save",
-        )
+        result = None
+        if pnl_source == "v2":
+            # S20: снэпшот из v2 (агрегат и так ключе-уровневый).
+            result = await _build_pnl_v2_result(
+                session=session, user=user, pf=pf,
+                date_start=date_start, date_end=date_end,
+                period_month=period_month, project_filter=project_filter,
+                method=method, cache_mode="save",
+            )
+        if result is None:
+            projects, categories, operations = await _fetch_period(
+                pf, date_start, date_end, None, method=method,
+            )
+            result = await pnl_module.build_pnl(
+                session=session, owner_id=user.id,
+                planfact_key_id=pf_key_id,
+                categories=categories, operations=operations, projects=projects,
+                project_filter=project_filter,
+                date_start=date_start, date_end=date_end,
+                method=method, period_month=period_month,
+                user_visibility_level=user.visibility_level,
+                cache_mode="save",
+            )
         agg = result.pop("_cache_aggregates", None)
         if agg is not None:
             await store.save_cache_entry(
@@ -679,11 +734,24 @@ async def _build_pnl_for_period(
             await session.commit()
         return result
 
-    # Live (текущий месяц или multi-month): обычный путь.
+    # Live (текущий месяц или multi-month).
+    # S20: источник v2 (один лёгкий POST вместо 30-50 МБ операций) с
+    # автоматическим fallback на raw при любой проблеме.
+    if pnl_source == "v2":
+        v2_result = await _build_pnl_v2_result(
+            session=session, user=user, pf=pf,
+            date_start=date_start, date_end=date_end,
+            period_month=period_month, project_filter=project_filter,
+            method=method,
+        )
+        if v2_result is not None:
+            return v2_result
+        # fallback: предупреждение уже в логе, продолжаем raw-путём.
+
     projects, categories, operations = await _fetch_period(
         pf, date_start, date_end, project_filter, method=method,
     )
-    return await pnl_module.build_pnl(
+    raw_result = await pnl_module.build_pnl(
         session=session, owner_id=user.id,
         planfact_key_id=pf_key_id,
         categories=categories, operations=operations, projects=projects,
@@ -693,6 +761,163 @@ async def _build_pnl_for_period(
         user_visibility_level=user.visibility_level,
     )
 
+    # S20 shadow: ответ отдаём из raw, а в фоне сверяем с v2 и логируем
+    # дельты построчно. Throttle, чтобы «Период» (12 месяцев = 13 вызовов)
+    # не плодил задачи.
+    if pnl_source == "shadow":
+        _schedule_v2_shadow(
+            user_id=user.id, pf_key_id=pf_key_id,
+            date_start=date_start, date_end=date_end,
+            period_month=period_month, project_filter=project_filter,
+            method=method,
+            raw_line_totals={
+                str(ln.get("code")): float((ln.get("total") or {}).get("amount") or 0)
+                for ln in (raw_result.get("lines") or [])
+            },
+        )
+    return raw_result
+
+
+async def _build_pnl_v2_result(
+    *,
+    session: AsyncSession,
+    user: User,
+    pf: PlanFactClient,
+    date_start: str,
+    date_end: str,
+    period_month: str | None,
+    project_filter: list[str] | None,
+    method: str,
+    cache_mode: str = "off",
+) -> dict | None:
+    """S20: собрать P&L из POST /api/v2/reports/opu.
+
+    Возвращает результат build_pnl или None — сигнал caller'у уйти на
+    raw-fallback (любая ошибка v2/адаптера логируется, но НЕ роняет запрос:
+    raw-путь полнофункционален).
+    """
+    import logging
+    from . import pnl_v2
+    log = logging.getLogger("uvicorn.error")
+    try:
+        projects, categories = await asyncio.gather(
+            pf.list_projects(),
+            pf.list_operation_categories(),
+        )
+        report = await pf.report_opu(
+            date_start=date_start, date_end=date_end, method=method,
+        )
+        cat_index = await pnl_module._build_category_index(
+            session, user.id, user.planfact_key_id, categories,
+        )
+        aggregates = pnl_v2.v2_to_aggregates(report, cat_index)
+    except pnl_v2.V2AdapterError as e:
+        log.warning("pnl-v2 %s..%s: %s — fallback на raw", date_start, date_end, e)
+        return None
+    except PlanFactError as e:
+        log.warning("pnl-v2 %s..%s: PF error %s — fallback на raw",
+                    date_start, date_end, e)
+        return None
+    except Exception:
+        # Любая неожиданность не должна ронять P&L — raw нас страхует.
+        log.exception("pnl-v2 %s..%s: unhandled — fallback на raw",
+                      date_start, date_end)
+        return None
+
+    result = await pnl_module.build_pnl(
+        session=session, owner_id=user.id,
+        planfact_key_id=user.planfact_key_id,
+        categories=categories, operations=[], projects=projects,
+        project_filter=project_filter,
+        date_start=date_start, date_end=date_end,
+        method=method, period_month=period_month,
+        user_visibility_level=user.visibility_level,
+        cached_aggregates=aggregates,
+        cache_mode=cache_mode,
+    )
+    # Маркер источника для диагностики (stats.cache='hit' тут означает
+    # «агрегат из v2», а не «из cache_history»).
+    (result.get("stats") or {}).update({"source": "v2"})
+    return result
+
+
+# ── S20 shadow-mode: фоновое сравнение raw vs v2 ───────────────────
+_V2_SHADOW_LAST: dict[tuple[int, str], float] = {}
+_V2_SHADOW_MIN_INTERVAL = 1800.0  # сек; раз в полчаса на (ключ, период, метод)
+_V2_SHADOW_TASKS: set = set()     # ссылки, чтобы GC не съел таски
+
+
+def _schedule_v2_shadow(
+    *, user_id: int, pf_key_id: int,
+    date_start: str, date_end: str,
+    period_month: str | None, project_filter: list[str] | None,
+    method: str, raw_line_totals: dict[str, float],
+) -> None:
+    import time as _time
+    throttle_key = (pf_key_id, f"{period_month}|{method}|{sorted(project_filter or [])}")
+    now = _time.time()
+    if now - _V2_SHADOW_LAST.get(throttle_key, 0.0) < _V2_SHADOW_MIN_INTERVAL:
+        return
+    _V2_SHADOW_LAST[throttle_key] = now
+    # Ограничить рост throttle-словаря (ключи с фильтрами множатся).
+    if len(_V2_SHADOW_LAST) > 500:
+        for k in sorted(_V2_SHADOW_LAST, key=_V2_SHADOW_LAST.get)[:250]:
+            _V2_SHADOW_LAST.pop(k, None)
+    task = asyncio.get_running_loop().create_task(_run_v2_shadow(
+        user_id=user_id, date_start=date_start, date_end=date_end,
+        period_month=period_month, project_filter=project_filter,
+        method=method, raw_line_totals=raw_line_totals,
+    ))
+    _V2_SHADOW_TASKS.add(task)
+    task.add_done_callback(_V2_SHADOW_TASKS.discard)
+
+
+async def _run_v2_shadow(
+    *, user_id: int, date_start: str, date_end: str,
+    period_month: str | None, project_filter: list[str] | None,
+    method: str, raw_line_totals: dict[str, float],
+) -> None:
+    """Фон: построить P&L из v2 с теми же параметрами и сравнить line totals.
+    Расхождения (> 1 копейки) — warning в лог с построчной детализацией."""
+    import logging
+    from .db import get_session_factory
+    log = logging.getLogger("uvicorn.error")
+    tag = f"v2-shadow {period_month or date_start} {method}"
+    try:
+        Sm = get_session_factory()
+        async with Sm() as session:
+            user = await session.get(User, user_id)
+            if user is None:
+                return
+            pf = await planfact_for(session, user)
+            v2_result = await _build_pnl_v2_result(
+                session=session, user=user, pf=pf,
+                date_start=date_start, date_end=date_end,
+                period_month=period_month, project_filter=project_filter,
+                method=method,
+            )
+            if v2_result is None:
+                log.warning("%s: v2 недоступен (причина выше)", tag)
+                return
+            v2_totals = {
+                str(ln.get("code")): float((ln.get("total") or {}).get("amount") or 0)
+                for ln in (v2_result.get("lines") or [])
+            }
+            diffs: list[str] = []
+            for code in sorted(set(raw_line_totals) | set(v2_totals)):
+                a = raw_line_totals.get(code, 0.0)
+                b = v2_totals.get(code, 0.0)
+                if abs(a - b) > 0.01:
+                    diffs.append(f"{code}: raw={a:.2f} v2={b:.2f} Δ={a - b:+.2f}")
+            if diffs:
+                log.warning("%s: РАСХОЖДЕНИЯ в %d строках — %s",
+                            tag, len(diffs), "; ".join(diffs[:12]))
+            else:
+                log.info("%s: OK — %d строк сходятся (|Δ| ≤ 0.01)",
+                         tag, len(v2_totals))
+    except Exception:
+        log.exception("%s: unhandled", tag)
+
 
 async def _resolve_project_filter(
     session: AsyncSession,
@@ -700,15 +925,34 @@ async def _resolve_project_filter(
     planfact_key_id: int | None,
     project_ids: list[str] | None,
 ) -> list[str] | None:
+    """Эффективный фильтр проектов с учётом прав юзера.
+
+    Allowed-set = активные проекты PF-ключа МИНУС личный hidden-list юзера.
+    Явно переданный project_ids ПЕРЕСЕКАЕТСЯ с allowed-set, а не доверяется
+    как есть — иначе любой юзер мог запросить скрытую от него точку по id
+    (IDOR, см. code-review 2026-06-10, V1).
+
+    Возвращает:
+      - None         — фильтра нет (показывать всё; конфиг проектов пуст)
+      - [] (пустой)  — юзеру не доступно ничего из запрошенного
+      - [ids...]     — итоговый список
+    """
+    active: set[str] | None = None
+    if planfact_key_id is not None:
+        active = await store.get_active_project_ids(session, planfact_key_id)
+    hidden = await store.get_user_hidden_projects(session, user_id)
+
     if project_ids:
-        return project_ids
-    if planfact_key_id is None:
-        return None
-    active = await store.get_active_project_ids(session, planfact_key_id)
+        requested = {p for p in project_ids if p}
+        if active is not None:
+            requested &= active
+        if hidden:
+            requested -= hidden
+        # Пустое пересечение = «ничего не доступно», НЕ «без фильтра».
+        return sorted(requested)
+
     if active is None:
         return None
-    # Дополнительно вычитаем личный hidden-list юзера.
-    hidden = await store.get_user_hidden_projects(session, user_id)
     if hidden:
         active = active - hidden
     return sorted(active) if active else []
@@ -1107,6 +1351,16 @@ async def get_operations(
             proj_id_set.add(p)
     proj_ids_list: list[str] | None = sorted(proj_id_set) if proj_id_set else None
 
+    # Права: проекты через allowed-set юзера, категории по visibility_level.
+    proj_ids_list = await _authorize_operations_drilldown(
+        session, user, pf, proj_ids_list, cat_ids_list,
+    )
+    if proj_ids_list is not None and len(proj_ids_list) == 0:
+        return {
+            "items": [], "total": 0, "raw_count": 0,
+            "filtered_count": 0, "sum_value": 0.0,
+        }
+
     try:
         data = await pf.list_operations(
             date_start=date_start,
@@ -1179,6 +1433,55 @@ def _normalize_operation_parts(
     return norm, sum_value, len(items)
 
 
+async def _authorize_operations_drilldown(
+    session: AsyncSession,
+    user: User,
+    pf,
+    proj_ids_list: list[str] | None,
+    cat_ids_list: list[str] | None,
+) -> list[str] | None:
+    """Применить права юзера к параметрам drill-down /api/operations{,.xlsx}.
+
+    1. Проекты — через _resolve_project_filter (active − hidden, explicit
+       список пересекается с allowed-set).
+    2. Категории — если pnl_code категории требует min_visibility_level выше
+       уровня юзера (та же логика, что _filter_lines_by_visibility в pnl.py),
+       → 403. Иначе юзер 10-го уровня делал бы drill-down по DIVIDENDS/TAX/
+       MGMT, скрытым из его P&L (code-review 2026-06-10, V2).
+
+    Возвращает эффективный список проектов (None = без фильтра).
+    """
+    effective_projects = await _resolve_project_filter(
+        session, user.id, user.planfact_key_id, proj_ids_list,
+    )
+    if cat_ids_list:
+        user_level = int(user.visibility_level or 0)
+        categories = await pf.list_operation_categories()
+        cat_index = await pnl_module._build_category_index(
+            session, user.id, user.planfact_key_id, categories,
+        )
+        metrics = (
+            await store.list_metrics(session, user.planfact_key_id)
+            if user.planfact_key_id else []
+        )
+        min_level_by_code = {
+            m["code"]: int(m.get("min_visibility_level") or 0)
+            for m in metrics
+        }
+        for cid in cat_ids_list:
+            code = (cat_index.get(str(cid)) or {}).get("pnl_code")
+            if not code:
+                continue  # неклассифицированные видны всем (как в P&L)
+            min_level = min_level_by_code.get(
+                code, pnl_module.LINE_CODE_DEFAULT_MIN_LEVEL.get(code, 0),
+            )
+            if min_level > user_level:
+                raise HTTPException(
+                    403, "Недостаточно прав для просмотра операций этой статьи.",
+                )
+    return effective_projects
+
+
 @app.get("/api/operations.xlsx")
 async def get_operations_xlsx(
     date_start: str,
@@ -1211,6 +1514,13 @@ async def get_operations_xlsx(
         if p:
             proj_id_set.add(p)
     proj_ids_list: list[str] | None = sorted(proj_id_set) if proj_id_set else None
+
+    # Права: проекты через allowed-set юзера, категории по visibility_level.
+    proj_ids_list = await _authorize_operations_drilldown(
+        session, user, pf, proj_ids_list, cat_ids_list,
+    )
+    if proj_ids_list is not None and len(proj_ids_list) == 0:
+        raise HTTPException(400, "Не выбрано ни одной доступной пиццерии.")
 
     try:
         # Достаём с большим limit, чтобы влезли все операции одного периода.
@@ -1567,6 +1877,124 @@ def is_ops_sync_running(planfact_key_id: int, period: str) -> bool:
     return (planfact_key_id, period) in _OPS_SYNC_INFLIGHT
 
 
+# ─── /api/board — сетевая сводка дня ───────────────────────────────
+# In-memory кэш с TTL per-layer. Ключ — (planfact_key_id, hour_floor_iso,
+# filter_key). Внутри — payload и unix timestamp создания.
+#
+# B6 (code-review 2026-06-10): per-key asyncio.Lock — конкурентные юзеры
+# одного ключа с одинаковой выборкой ждут ОДНУ сборку (раньше каждый
+# запускал свой fan-out в Dodo IS — задача #3 бэклога); рост в пределах
+# часа ограничен _BOARD_CACHE_MAX_VARIANTS фильтр-вариаций на ключ.
+_BOARD_CACHE: dict[tuple[int, str, tuple], tuple[float, dict]] = {}
+_BOARD_CACHE_TTL = 60  # секунд для live-слоя; вне часа — полная перегенерация
+_BOARD_CACHE_MAX_VARIANTS = 8  # максимум filter-вариаций на (pf_key, час)
+_BOARD_LOCKS: dict[tuple[int, str, tuple], asyncio.Lock] = {}
+
+
+@app.get("/api/board")
+async def get_board(
+    project_ids: list[str] | None = Query(None),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Сводка дня по выбранным проектам.
+
+    Фильтр проектов (как в /api/pnl):
+      - Если `project_ids` явно передан — берём этот список (после проверки
+        что юзер имеет к ним доступ).
+      - Иначе — все активные проекты PF-ключа МИНУС юзерский hidden-list.
+
+    Доступно с любого visibility_level: управляющий видит свою точку,
+    территориальный — свои, сетевой — все. Сетевой scoreboard получается
+    автоматически когда у юзера все точки выбраны.
+    """
+    import time
+    from .day_window import now_msk
+
+    if not user.planfact_key_id:
+        raise HTTPException(400, "У пользователя не задан ключ PlanFact.")
+
+    pf_key_id = user.planfact_key_id
+
+    # Резолвим фильтр: explicit list ∨ visibility - hidden
+    resolved_pids = await _resolve_project_filter(
+        session, user.id, pf_key_id, project_ids,
+    )
+
+    # ── собираем список доступных проектов ──
+    cfg = await store.list_projects_config(session, pf_key_id)
+    projects: list[tuple[str, str, str]] = []
+    for pid, c in cfg.items():
+        if not c.get("is_active"):
+            continue
+        uuid = c.get("dodo_unit_uuid")
+        if not uuid:
+            continue
+        # Применяем фильтр (если задан — иначе пропускаем все)
+        if resolved_pids is not None and pid not in resolved_pids:
+            continue
+        name = c.get("display_name") or pid
+        projects.append((pid, name, uuid))
+
+    # Cache key включает фильтр — разные пользователи/выборки получают
+    # разные cached payloads. Сортируем для стабильности ключа.
+    now = now_msk()
+    hour_iso = now.replace(minute=0, second=0, microsecond=0).isoformat()
+    filter_key = tuple(sorted(p[0] for p in projects))
+    cache_key = (pf_key_id, hour_iso, filter_key)
+
+    if not projects:
+        return {"now_msk": now.isoformat(), "projects": [], "totals": {}}
+
+    # Fast-path без локa: свежий кэш отдаём сразу.
+    hit = _BOARD_CACHE.get(cache_key)
+    if hit and (time.time() - hit[0]) < _BOARD_CACHE_TTL:
+        return hit[1]
+
+    # ── токен Dodo IS ── (до лока: дешёвый DB-read)
+    token = await get_dodois_token(session, user)
+
+    lock = _BOARD_LOCKS.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        # Re-check внутри лока: пока ждали, сосед мог уже собрать payload.
+        hit = _BOARD_CACHE.get(cache_key)
+        if hit and (time.time() - hit[0]) < _BOARD_CACHE_TTL:
+            return hit[1]
+
+        # ── основная сборка ──
+        try:
+            payload = await board_module.build_board_payload(
+                session=session, token=token,
+                planfact_key_id=pf_key_id,
+                projects=projects, now=now,
+            )
+        except (DodoISError, NoTokenError) as e:
+            raise HTTPException(502, f"Dodo IS: {e}")
+
+        _BOARD_CACHE[cache_key] = (time.time(), payload)
+
+        # Чистка: (а) другие часы этого PF-ключа; (б) cap на число
+        # filter-вариаций в ТЕКУЩЕМ часу (выкидываем самые старые);
+        # (в) осиротевшие локи.
+        same_hour: list[tuple[float, tuple]] = []
+        for k in list(_BOARD_CACHE.keys()):
+            if k[0] != pf_key_id:
+                continue
+            if k[1] != hour_iso:
+                _BOARD_CACHE.pop(k, None)
+            else:
+                same_hour.append((_BOARD_CACHE[k][0], k))
+        if len(same_hour) > _BOARD_CACHE_MAX_VARIANTS:
+            same_hour.sort()  # старые первыми
+            for _, k in same_hour[:-_BOARD_CACHE_MAX_VARIANTS]:
+                _BOARD_CACHE.pop(k, None)
+        for k in list(_BOARD_LOCKS.keys()):
+            if k not in _BOARD_CACHE and k != cache_key and not _BOARD_LOCKS[k].locked():
+                _BOARD_LOCKS.pop(k, None)
+
+    return payload
+
+
 @app.post("/api/ops-metrics/sync")
 async def sync_ops_metrics_from_dodois(
     period: str = Query(..., description="'YYYY-MM' — месяц, для которого тянем ops"),
@@ -1626,7 +2054,10 @@ async def sync_ops_metrics_from_dodois(
     # Реальный таск может дождаться чтобы create_task запустился (event loop).
     _OPS_SYNC_INFLIGHT.add((user.planfact_key_id, period))
     _asyncio.create_task(
-        _run_ops_sync(user_id=user.id, period=period)
+        _run_ops_sync(
+            user_id=user.id, period=period,
+            inflight_key_id=user.planfact_key_id,
+        )
     )
     return {
         "status": "scheduled", "period": period,
@@ -1634,7 +2065,9 @@ async def sync_ops_metrics_from_dodois(
     }
 
 
-async def _run_ops_sync(*, user_id: int, period: str) -> None:
+async def _run_ops_sync(
+    *, user_id: int, period: str, inflight_key_id: int,
+) -> None:
     """Фоновый воркер ops-синка. Создаёт собственную DB-сессию и httpx-клиента
     (нельзя переиспользовать запросные — они закрыты к моменту старта таска)."""
     import asyncio as _asyncio
@@ -1651,7 +2084,10 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
         user = await session.get(User, user_id)
         if user is None or not user.planfact_key_id:
             log.warning("ops sync: user %s vanished or has no PF key", user_id)
-            _OPS_SYNC_INFLIGHT.discard((user.planfact_key_id, period) if user else (-1, period))
+            # B7: discard ровно тем кортежем, которым добавляли — раньше
+            # при user=None или сменившемся ключе запись зависала навсегда
+            # и блокировала повторные синки.
+            _OPS_SYNC_INFLIGHT.discard((inflight_key_id, period))
             return
 
         pf_key_id = user.planfact_key_id
@@ -1837,6 +2273,9 @@ async def _run_ops_sync(*, user_id: int, period: str) -> None:
         except Exception:
             log.exception("ops sync %s: unhandled error", period)
         finally:
+            # B7: добавляли (inflight_key_id, period) — его и убираем.
+            # pf_key_id страхует случай смены ключа между schedule и run.
+            _OPS_SYNC_INFLIGHT.discard((inflight_key_id, period))
             _OPS_SYNC_INFLIGHT.discard((pf_key_id, period))
 
 
@@ -1969,6 +2408,48 @@ async def delete_metric(
 ):
     pf_key_id = _require_user_pf_key(user)
     await store.delete_metric(session, pf_key_id, code)
+    return {"status": "ok"}
+
+
+@app.get("/api/board-metrics")
+async def list_board_metrics(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Список ops-метрик rich-card на /board с флагами видимости.
+    Источник списка — константа `board_module.BOARD_OPS_METRICS`,
+    флаги — таблица board_card_metric_visibility per PF-ключ."""
+    if not user.planfact_key_id:
+        return {"metrics": [], "no_planfact_key": True}
+    vis_map = await store.get_board_metrics_visibility(
+        session, user.planfact_key_id,
+    )
+    metrics = []
+    for m in board_module.BOARD_OPS_METRICS:
+        # default visible если записи нет
+        metrics.append({
+            "code": m["code"],
+            "group": m["group"],
+            "label": m["label"],
+            "is_visible": vis_map.get(m["code"], True),
+        })
+    return {"metrics": metrics}
+
+
+@app.put("/api/board-metrics/{code}")
+async def upsert_board_metric_visibility(
+    code: str, payload: dict,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновить флаг видимости одной board-метрики. Принимает {is_visible: bool}."""
+    pf_key_id = _require_user_pf_key(user)
+    if code not in board_module.BOARD_OPS_METRIC_CODES:
+        raise HTTPException(400, f"Неизвестный code: {code}")
+    is_visible = bool(payload.get("is_visible", True))
+    await store.upsert_board_metric_visibility(
+        session, pf_key_id, code, is_visible,
+    )
     return {"status": "ok"}
 
 

@@ -17,7 +17,7 @@ from . import audit
 from .dependencies import SESSION_COOKIE, require_user
 from .models import User
 from .passwords import verify_password
-from .ratelimit import login_limiter
+from .ratelimit import login_limiter, username_limiter
 from .sessions import (
     SESSION_TTL_DAYS,
     create_session,
@@ -79,8 +79,13 @@ async def login(
     Rate-limit: 5 неудачных попыток / 15 мин / IP. Каждое событие пишется
     в audit_log."""
     ip = request.client.host if request.client else "unknown"
+    uname_key = body.username.strip().lower()
 
     allowed, retry_after = login_limiter.check(ip)
+    if allowed:
+        # V14: второй лимит по username — защита от распределённого
+        # brute-force одного аккаунта со многих IP.
+        allowed, retry_after = username_limiter.check(uname_key)
     if not allowed:
         await audit.log_audit(
             db, audit.ACTION_LOGIN_RATE_LIMITED,
@@ -97,6 +102,7 @@ async def login(
     u = await get_user_by_username(db, body.username)
     if u is None or not verify_password(body.password, u.password_hash):
         login_limiter.record_failure(ip)
+        username_limiter.record_failure(uname_key)
         await audit.log_audit(
             db, audit.ACTION_LOGIN_FAILED,
             user_id=(u.id if u else None),
@@ -110,6 +116,7 @@ async def login(
         )
 
     login_limiter.reset(ip)
+    username_limiter.reset(uname_key)
     s = await create_session(
         db, u,
         user_agent=request.headers.get("user-agent"),
@@ -126,7 +133,7 @@ async def login(
     # дашборда это приемлемо: пользователь начинает с /login и получает
     # cookie заново.
     response.set_cookie(
-        key=SESSION_COOKIE, value=s.token,
+        key=SESSION_COOKIE, value=s.plain_token,
         max_age=SESSION_TTL_DAYS * 24 * 3600,
         httponly=True, secure=True, samesite="strict", path="/",
     )
@@ -265,7 +272,9 @@ async def revoke_my_session(
             400,
             "Нельзя отозвать текущую сессию — используйте кнопку «Выйти»",
         )
-    await delete_session(session, target.token)
+    # target.token — хранимый хэш (V8), удаляем by-stored.
+    from .sessions import delete_session_by_stored
+    await delete_session_by_stored(session, target.token)
     await audit.log_audit(
         session, audit.ACTION_SESSION_REVOKED,
         user_id=user.id, request=request,

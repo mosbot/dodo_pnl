@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Iterable
 
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -58,6 +59,26 @@ def _safe_filename(s: str) -> str:
     return "".join(out)
 
 
+def _txt(value) -> str:
+    """Внешний текст (PlanFact-комментарии, названия, query-параметры) →
+    безопасная строка для ячейки: вычищаем управляющие символы, которые
+    openpyxl не принимает (IllegalCharacterError)."""
+    s = "" if value is None else str(value)
+    return ILLEGAL_CHARACTERS_RE.sub("", s)
+
+
+def _set_text(ws, row: int, column: int, value):
+    """Записать ВНЕШНИЙ текст в ячейку строго как текст.
+
+    Строка, начинающаяся с '=', интерпретируется openpyxl/Excel как формула
+    (formula injection: '=HYPERLINK(...)', DDE '=cmd|...' — см. code-review
+    2026-06-10, V5). Форсируем data_type='s'."""
+    cell = ws.cell(row=row, column=column, value=_txt(value))
+    if isinstance(cell.value, str) and cell.value.startswith("="):
+        cell.data_type = "s"
+    return cell
+
+
 def render_pnl_xlsx(
     *,
     pnl: dict,
@@ -90,7 +111,7 @@ def render_pnl_xlsx(
     ws["A1"].font = Font(bold=True, size=14)
     ws["A2"] = f"Период: {period_label}"
     ws["A3"] = f"Метод: {'начисление' if method == 'accrual' else 'кассовый'}"
-    ws["A4"] = "Проекты: " + (", ".join(selected_project_names) if selected_project_names else "—")
+    ws["A4"] = _txt("Проекты: " + (", ".join(selected_project_names) if selected_project_names else "—"))
     ws["A4"].alignment = Alignment(wrap_text=True)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=4)
@@ -109,7 +130,7 @@ def render_pnl_xlsx(
     headers.append("Итого")
 
     for col_idx, h in enumerate(headers, start=1):
-        cell = ws.cell(row=header_row, column=col_idx, value=h)
+        cell = _set_text(ws, header_row, col_idx, h)
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
         cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -134,7 +155,7 @@ def render_pnl_xlsx(
             is_pct_row = display_kind == "pct"
 
             indent = "    " * depth
-            ws.cell(row=row, column=1, value=indent + (n.get("title") or ""))
+            _set_text(ws, row, 1, indent + (n.get("title") or ""))
 
             # Стилизация
             if is_header:
@@ -203,7 +224,7 @@ def render_pnl_xlsx(
                 pass
             else:
                 indent = "    "
-            ws.cell(row=row, column=1, value=indent + (ln.get("label") or ""))
+            _set_text(ws, row, 1, indent + (ln.get("label") or ""))
             if kind in ("header", "summary"):
                 for c in range(1, len(headers) + 1):
                     ws.cell(row=row, column=c).fill = _SECTION_FILL
@@ -265,9 +286,9 @@ def render_operations_xlsx(
     # Шапка
     ws["A1"] = "Операции"
     ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"] = f"Период: {period_label}"
-    ws["A3"] = f"Проект: {project_label}"
-    ws["A4"] = f"Статья: {category_label}"
+    ws["A2"] = _txt(f"Период: {period_label}")
+    ws["A3"] = _txt(f"Проект: {project_label}")
+    ws["A4"] = _txt(f"Статья: {category_label}")
     ws["A5"] = f"Операций: {len(items)} · Сумма: {sum_value:,.2f}".replace(",", " ")
     ws["A5"].font = Font(bold=True)
 
@@ -304,11 +325,11 @@ def render_operations_xlsx(
             date_cell.value = parsed
             date_cell.number_format = "DD.MM.YYYY"
         else:
-            date_cell.value = raw or ""
-        ws.cell(row=row, column=2, value=op.get("category") or "")
-        ws.cell(row=row, column=3, value=op.get("project") or "")
-        ws.cell(row=row, column=4, value=op.get("contrAgent") or "")
-        ws.cell(row=row, column=5, value=op.get("comment") or "")
+            date_cell.value = _txt(raw or "")
+        _set_text(ws, row, 2, op.get("category") or "")
+        _set_text(ws, row, 3, op.get("project") or "")
+        _set_text(ws, row, 4, op.get("contrAgent") or "")
+        _set_text(ws, row, 5, op.get("comment") or "")
         cell = ws.cell(row=row, column=6, value=op.get("value"))
         if isinstance(op.get("value"), (int, float)):
             cell.number_format = _FMT_RUB

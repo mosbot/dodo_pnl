@@ -46,6 +46,13 @@ class PlanfactKey(Base):
     live_months_window: Mapped[int] = mapped_column(
         Integer, nullable=False, default=2, server_default=text("2"),
     )
+    # Источник P&L-агрегата (миграция S20 на v2 reports/opu):
+    #   'raw'    — GET /operations + ручная агрегация (legacy, default)
+    #   'shadow' — отвечает raw, параллельно в фоне сверяется v2 (лог дельт)
+    #   'v2'     — POST /api/v2/reports/opu (fallback на raw при ошибке)
+    pnl_source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="raw", server_default=text("'raw'"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )
