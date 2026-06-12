@@ -631,6 +631,34 @@ function showRevHistoryLoading(on) {
   }
 }
 
+// Модалка увеличенного графика. Переиспускаем config исходного Chart
+// (тип/данные/опции) в большом canvas. datasets shallow-клонируем, чтобы
+// Chart.js не путал meta двух инстансов с общим config.data.
+let modalChart = null;
+function openChartModal(chartId) {
+  const src = state.charts?.[chartId];
+  if (!src || !src.config) return;
+  const box = document.querySelector(`.chart-box[data-chart-id="${chartId}"]`);
+  el('chartModalTitle').textContent = box?.querySelector('h3')?.textContent || '';
+  el('chartModal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+  const cfg = src.config;
+  modalChart = new Chart(el('chartModalCanvas'), {
+    type: cfg.type,
+    data: {
+      labels: cfg.data.labels,
+      datasets: (cfg.data.datasets || []).map(d => ({ ...d })),
+    },
+    options: { ...cfg.options, maintainAspectRatio: false, responsive: true },
+  });
+}
+function closeChartModal() {
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+  el('chartModal')?.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
 // Дружелюбный empty-state — когда ни одной пиццерии не выбрано.
 // 3-шаговая визуальная инструкция с пометкой «выполнен» для первого
 // шага (период всегда задан по умолчанию). Параллельно поднимаем
@@ -2599,6 +2627,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('resize', _setTopbarHVar);
   // Шрифты могут догрузиться — ещё раз через тик
   setTimeout(_setTopbarHVar, 100);
+
+  // Клик по карточке графика → увеличенная версия в модалке.
+  el('chartsGrid')?.addEventListener('click', (e) => {
+    const box = e.target.closest('.chart-box[data-chart-id]');
+    if (box) openChartModal(box.dataset.chartId);
+  });
+  el('chartModalBackdrop')?.addEventListener('click', closeChartModal);
+  el('chartModalClose')?.addEventListener('click', closeChartModal);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el('chartModal')?.classList.contains('hidden')) closeChartModal();
+  });
 
   // Попап «⚙ Графики» — список + кнопки «Показать все / Скрыть все».
   // Применяем visibility сразу, чтобы скрытые графики не мелькали при первом
