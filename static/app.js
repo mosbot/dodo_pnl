@@ -91,16 +91,19 @@ function initMonthSelect() {
     syncDateRangeFromMode();
     loadPnl();
   });
+  // В режиме «Период» смена месяца НЕ дёргает бэк сразу — ждём, пока юзер
+  // выберет оба конца и нажмёт «Применить» (иначе выбор «с» уже грузил
+  // данные, не дождавшись «по»). Селекторы только обновляют state +
+  // подсвечивают кнопку как «есть несохранённые изменения».
   el('monthSelectFrom').addEventListener('change', (e) => {
     state.periodFrom = e.target.value;
-    // если from стал > to — поднимаем to до from
     if (state.periodFrom > state.periodTo) {
       state.periodTo = state.periodFrom;
       el('monthSelectTo').value = state.periodTo;
     }
     savePeriodRange();
     syncDateRangeFromMode();
-    loadPnl();
+    markPeriodDirty();
   });
   el('monthSelectTo').addEventListener('change', (e) => {
     state.periodTo = e.target.value;
@@ -110,6 +113,10 @@ function initMonthSelect() {
     }
     savePeriodRange();
     syncDateRangeFromMode();
+    markPeriodDirty();
+  });
+  el('periodApplyBtn')?.addEventListener('click', () => {
+    el('periodApplyBtn').classList.remove('is-dirty');
     loadPnl();
   });
 
@@ -172,6 +179,11 @@ function loadModeAndRangeFromStorage() {
 
 // Применяет режим: переключает кнопки, видимость полей и контролов
 // (LFL/⟳ Метрики/freshness/график 12мес скрыты в Период), синхронизирует
+// Подсветить кнопку «Применить» — диапазон изменён, но ещё не загружен.
+function markPeriodDirty() {
+  el('periodApplyBtn')?.classList.add('is-dirty');
+}
+
 // dateStart/dateEnd. Не вызывает loadPnl — это решение caller'а.
 function applyMode(mode) {
   state.mode = mode;
@@ -186,6 +198,12 @@ function applyMode(mode) {
   el('monthFieldSingle')?.classList.toggle('hidden', mode === 'period');
   el('monthFieldFrom')?.classList.toggle('hidden', mode !== 'period');
   el('monthFieldTo')?.classList.toggle('hidden', mode !== 'period');
+  // Кнопка «Применить» — только в режиме Период. При входе сбрасываем dirty.
+  const applyBtn = el('periodApplyBtn');
+  if (applyBtn) {
+    applyBtn.classList.toggle('hidden', mode !== 'period');
+    applyBtn.classList.remove('is-dirty');
+  }
   // В Период: прячем LFL toggle, freshness, ⟳ Метрики, график 12мес.
   // Они все привязаны к концепции «один месяц».
   el('lflToggleWrap')?.classList.toggle('hidden', mode === 'period');

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>P&L по проектам · PlanFact</title>
-<link rel="stylesheet" href="/static/styles.css?v=3">
+<link rel="stylesheet" href="/static/styles.css?v=4">
 <script src="/static/vendor/chart-4.5.0.umd.js"></script>
 </head>
 <body>
@@ -47,6 +47,8 @@
         <span>по</span>
         <select id="monthSelectTo" class="month-select"></select>
       </label>
+      <button id="periodApplyBtn" class="btn-primary period-apply-btn hidden"
+              title="Применить выбранный диапазон">Применить</button>
       <label class="lfl-toggle" id="lflToggleWrap" title="Сравнить с тем же месяцем годом ранее">
         <input type="checkbox" id="compareToggle">
         <span class="lfl-pill">
@@ -197,6 +199,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=20"></script>
-<script src="/static/app.js?v=22"></script>
+<script src="/static/app.js?v=23"></script>
 </body>
 </html>

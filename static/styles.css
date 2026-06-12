@@ -273,6 +273,11 @@ button:hover { background: var(--bg); }
   background: var(--primary); color: white; border-color: var(--primary);
 }
 .btn-primary:hover { background: var(--primary-dark); }
+/* Кнопка «Применить» в режиме «Период»: приглушена, пока диапазон не
+   менялся; акцент + кольцо, когда есть несохранённый выбор. */
+.period-apply-btn { white-space: nowrap; }
+.period-apply-btn:not(.is-dirty) { opacity: 0.55; }
+.period-apply-btn.is-dirty { box-shadow: 0 0 0 3px rgba(37,99,235,0.28); }
 .btn-secondary { border-color: var(--border); }
 /* <a class="btn-secondary"> должен выглядеть как кнопка, не как ссылка.
    Используется для «⚙ Настройки» в правом кластере топбара. */
