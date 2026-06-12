@@ -36,9 +36,29 @@ docs/
 - Креды: `/home/claude/pnl-service/.env`
 - nginx → uvicorn 127.0.0.1:5759
 
-**Деплой code**: `scp app/*.py claude@dodotool.ru:/home/claude/pnl-service/app/`
-**Деплой migrations**: `scp alembic/versions/*.py ...` + `ssh ... '.venv/bin/alembic upgrade head'`
-**Деплой статики**: `scp static/* ... ; (без рестарта, версионируется ?v=N)`
+### Деплой — через git (`scripts/deploy.sh`)
+
+Прод под git (remote `origin` = `git@github-dodo:mosbot/dodo_pnl.git`,
+SSH deploy key `~/.ssh/dodo_pnl_deploy`, alias `github-dodo` в `~/.ssh/config`).
+
+Процесс: правки скопировать на VPS (`scp ...`), затем **один** скрипт:
+```bash
+ssh claude@dodotool.ru 'cd /home/claude/pnl-service && ./scripts/deploy.sh "feat: описание"'
+```
+deploy.sh атомарно: `git commit` → `git push origin main` (журнал деплоев в
+GitHub) → `pip install` (только если менялся requirements.txt) →
+`alembic upgrade head` → рестарт → health-check `127.0.0.1:5759/api/health`.
+**При провале health-check — автооткат кода** (`git reset --hard` на
+прошлый коммит) + рестарт.
+
+Откат вручную на любой коммит:
+```bash
+ssh claude@dodotool.ru 'cd /home/claude/pnl-service && git reset --hard <sha> && sudo systemctl restart pnl-uvicorn'
+```
+
+NB: автооткат возвращает только КОД. Если деплой содержал миграцию БД, она
+остаётся применённой — откат БД (`alembic downgrade`) делается вручную.
+Статика версионируется `?v=N` в html (кэш-бастинг), отдельного шага нет.
 
 ## Aлембик / DB
 
