@@ -295,9 +295,10 @@ def _aggregate_channels(by_ch: dict[str, float]) -> dict[str, float]:
     }
 
 
-def _delta_pct(current: float, baseline: float) -> Optional[float]:
-    """((cur / base) − 1). None если baseline <= 0."""
-    if baseline is None or baseline <= 0:
+def _delta_pct(current: Optional[float], baseline: Optional[float]) -> Optional[float]:
+    """((cur / base) − 1). None если current нет (сегодня без данных —
+    например смена не открыта) или baseline <= 0."""
+    if current is None or baseline is None or baseline <= 0:
         return None
     return current / baseline - 1.0
 
