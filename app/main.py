@@ -787,6 +787,7 @@ async def _maybe_override_revenue_from_dodois(
     session: AsyncSession,
     user: User,
     aggregates: dict,
+    cat_index: dict,
     date_start: str,
     date_end: str,
     period_month: str | None,
@@ -799,11 +800,20 @@ async def _maybe_override_revenue_from_dodois(
       - не live-режим (cache_mode != 'off' → закрытый месяц, immutable PF);
       - период не равен текущему полному календарному месяцу;
       - флаг ключа live_revenue_from_dodois выключен;
-      - у ключа нет привязанных Dodo-юнитов;
+      - у ключа нет привязанных Dodo-юнитов или категорий выручки;
       - Dodo IS недоступен / любая ошибка.
     НИКОГДА не бросает — выручка PlanFact остаётся страховкой.
+
+    ВАЖНО про слой инъекции: отображаемая строка REVENUE считается
+    _apply_metric_formulas из шаблона ПланФакт, который строится из
+    CAT_TOTALS (а не из totals[(pid,'REVENUE')]). Поэтому подменяем именно
+    cat_totals категорий выручки: канал Dodo → категория с тем же
+    revenue_channel; «прочие» revenue-категории зануляем (туда попадает
+    артефакт «Нераспределенный доход»). totals и revenue_by_channel
+    выставляем согласованно, чтобы знаменатели % и канальные пиллы совпали.
     """
     import logging
+    from collections import defaultdict
     log = logging.getLogger("uvicorn.error")
 
     if cache_mode != "off":
@@ -842,38 +852,84 @@ async def _maybe_override_revenue_from_dodois(
         return aggregates
 
     # Агрегируем продажи Dodo и каналы по project_id.
-    dodo_total: dict[str, float] = {}
     dodo_ch: dict[str, dict[str, float]] = {}
     for r in rows:
         pid = uuid_to_pid.get(board_module._normalize_uuid(r.get("unitId", "")))
         if not pid:
             continue
-        dodo_total[pid] = dodo_total.get(pid, 0.0) + float(r.get("sales") or 0)
         chd = dodo_ch.setdefault(
             pid, {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS},
         )
         for b in (r.get("salesBreakdown") or []):
             ch = _DODO_CHANNEL_MAP.get(b.get("salesChannel"), "other")
             chd[ch] += float(b.get("sales") or 0)
-    if not dodo_total:
+    if not dodo_ch:
         return aggregates
 
-    # Переопределяем агрегаты ТОЛЬКО для точек с данными Dodo. build_pnl
-    # пересчитает все pct_of_revenue / прибыль консистентно — REVENUE-строка
-    # и знаменатель процентов берутся из totals[(pid,'REVENUE')]. Прочие
-    # доходы вне продаж пиццы для live-месяца сознательно опускаем (решение
-    # пользователя, S22): продажи Dodo = полная выручка точки.
+    # REVENUE-категории шаблона, сгруппированные по каналу (из cat_index).
+    rev_cids_by_channel: dict[str, list[str]] = defaultdict(list)
+    all_rev_cids: list[str] = []
+    for cid, info in cat_index.items():
+        if (info or {}).get("pnl_code") == "REVENUE":
+            ch = info.get("revenue_channel") or "other"
+            rev_cids_by_channel[ch].append(str(cid))
+            all_rev_cids.append(str(cid))
+    if not all_rev_cids:
+        log.warning(
+            "S22 dodo-revenue %s: у ключа %s нет REVENUE-категорий — "
+            "подмена невозможна, оставляем PlanFact", period_month, pf_key_id,
+        )
+        return aggregates
+    # Детерминированный приоритет cid внутри канала: cid с наибольшей текущей
+    # суммой по ключу (стабильный «основной» счёт канала).
+    cat_totals = aggregates.setdefault("cat_totals", {})
+    _key_cid_weight: dict[str, float] = defaultdict(float)
+    for k, v in cat_totals.items():
+        try:
+            _, cid = k.split("|", 1)
+        except ValueError:
+            continue
+        _key_cid_weight[cid] += abs(float(v or 0))
+    for ch in rev_cids_by_channel:
+        rev_cids_by_channel[ch].sort(key=lambda c: -_key_cid_weight.get(c, 0.0))
+
+    def _primary_cid(ch: str) -> str | None:
+        """cid для размещения суммы канала: своя категория канала → иначе
+        delivery → restaurant → любой revenue cid (чтобы итог не потерялся)."""
+        for cand in (ch, "delivery", "restaurant", "takeaway", "other"):
+            if rev_cids_by_channel.get(cand):
+                return rev_cids_by_channel[cand][0]
+        return all_rev_cids[0] if all_rev_cids else None
+
     totals = aggregates.setdefault("totals", {})
     rbc = aggregates.setdefault("revenue_by_channel", {})
     apids = set(aggregates.get("active_project_ids") or [])
-    for pid, amt in dodo_total.items():
-        totals[f"{pid}|REVENUE"] = amt
-        rbc[pid] = dodo_ch[pid]
+
+    for pid, chans in dodo_ch.items():
+        # 1) обнуляем ВСЕ revenue-категории точки (в т.ч. артефакт «прочих»).
+        for cid in all_rev_cids:
+            kk = f"{pid}|{cid}"
+            if kk in cat_totals:
+                cat_totals[kk] = 0.0
+        # 2) раскладываем суммы каналов Dodo по соответствующим категориям.
+        for ch, amt in chans.items():
+            if not amt:
+                continue
+            target = _primary_cid(ch)
+            if target is None:
+                continue
+            kk = f"{pid}|{target}"
+            cat_totals[kk] = cat_totals.get(kk, 0.0) + amt
+        # 3) согласованные totals (знаменатель %) и каналы (пиллы).
+        totals[f"{pid}|REVENUE"] = sum(chans.values())
+        rbc[pid] = {c: chans.get(c, 0.0) for c in pnl_module.REVENUE_CHANNELS}
         apids.add(pid)
+
     aggregates["active_project_ids"] = sorted(apids)
     log.info(
         "S22 dodo-revenue %s: переопределено %d точек, total=%.0f",
-        period_month, len(dodo_total), sum(dodo_total.values()),
+        period_month, len(dodo_ch),
+        sum(sum(c.values()) for c in dodo_ch.values()),
     )
     return aggregates
 
@@ -928,7 +984,7 @@ async def _build_pnl_v2_result(
     # (PlanFact подтягивает день к ~23:15). No-op для закрытых месяцев и при
     # выключенном флаге ключа; сбой Dodo не ломает ответ.
     aggregates = await _maybe_override_revenue_from_dodois(
-        session=session, user=user, aggregates=aggregates,
+        session=session, user=user, aggregates=aggregates, cat_index=cat_index,
         date_start=date_start, date_end=date_end,
         period_month=period_month, cache_mode=cache_mode,
     )
