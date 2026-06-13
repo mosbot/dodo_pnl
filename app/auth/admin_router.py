@@ -856,7 +856,7 @@ class LiveMonthsWindowUpdate(BaseModel):
 )
 async def admin_list_key_cache(
     key_id: int,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_key("key_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Список замороженных месяцев под ключом + кто и когда заморозил."""
@@ -892,7 +892,7 @@ async def admin_list_key_cache(
 async def admin_delete_key_cache(
     key_id: int, period_month: str,
     kind: str = "planfact_pnl",
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_key("key_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Переоткрытие месяца. Следующий запрос за этот период пересоберёт
@@ -912,7 +912,7 @@ async def admin_delete_key_cache(
 async def admin_update_live_months_window(
     key_id: int,
     body: LiveMonthsWindowUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_key("key_id")),
     session: AsyncSession = Depends(get_session),
 ):
     """Глубина live-окна — сколько последних месяцев читаются live из PF

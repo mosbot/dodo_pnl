@@ -2483,7 +2483,13 @@ async def template_preview(
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Ожидается .xlsx-файл (экспорт из ПланФакт).")
-    content = await file.read()
+    # M1 (security-audit 2026-06-13): кап размера — экспорт ОПУ из ПланФакт
+    # сильно меньше 10 МБ; читаем не больше лимита, чтобы недоверенный файл
+    # (или zip-bomb через openpyxl) не выжрал память.
+    _MAX_UPLOAD = 10 * 1024 * 1024
+    content = await file.read(_MAX_UPLOAD + 1)
+    if len(content) > _MAX_UPLOAD:
+        raise HTTPException(413, "Файл слишком большой (макс. 10 МБ).")
     try:
         parsed = parse_pnl_export(content)
     except ExportParseError as e:
