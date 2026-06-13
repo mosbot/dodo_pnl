@@ -61,10 +61,6 @@ a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"] {
 .back-btn:hover { background: rgba(0,0,0,0.04); }
 .topbar-title { flex: 1; font-size: 14px; font-weight: 600; }
 .topbar-title .muted { color: var(--muted); font-weight: 400; }
-.topbar-refresh { font-size: 12px; color: var(--muted); white-space: nowrap;
-                  padding: 4px 8px; }
-/* Счётчик стареет: после 5 мин подкрашиваем amber — пора обновить. */
-.topbar-refresh.stale { color: #b45309; font-weight: 600; }
 /* Явная кнопка «Обновить» (auto-refresh отключён сознательно —
    rate-limit Dodo IS; «перезагрузите страницу» — слабый affordance). */
 .refresh-btn {
@@ -623,12 +619,17 @@ section.cards-wrap { padding: 14px 14px 4px; }
 /* ── Узкие экраны (360–640px): topbar в один ряд без переноса.
    Стратегия как на index: прячем brand, имя юзера и текст «Настройки». */
 @media (max-width: 640px) {
-  .topbar { gap: 8px; padding: 0 10px; }
+  /* Уместить топбар на ширину iPhone 13 (390px): прячем бренд и текст,
+     поджимаем переключатель режима и кнопки. */
+  .topbar { gap: 6px; padding: 0 8px; }
   .brand { display: none; }
   .settings-label { display: none; }
   .user-menu-name { display: none; }
-  .topbar-refresh { font-size: 11px; padding: 4px 2px; }
-  .mode-toggle-btn { padding: 6px 10px; }
+  .mode-toggle { gap: 1px; }
+  .mode-toggle-btn { padding: 6px 9px; font-size: 13px; }
+  .refresh-btn { min-width: 32px; min-height: 32px; }
+  .topbar-right { gap: 4px; }
+  .topbar-right .btn-secondary { padding: 6px 8px; }
 }
 
 /* ─── Brand ─── */
@@ -843,7 +844,6 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
   </div>
   <button type="button" id="refreshNowBtn" class="refresh-btn hidden"
           aria-label="Обновить данные" title="Обновить данные">⟳</button>
-  <div class="topbar-refresh" id="boardRefresh" role="status" aria-live="off"></div>
   <div class="topbar-right">
     <a href="/settings" class="btn-secondary" style="text-decoration:none"
        title="Настройки" aria-label="Настройки">⚙<span class="settings-label"> Настройки</span></a>
@@ -953,6 +953,6 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
 </footer>
 
 <script src="/static/topbar.js?v=20"></script>
-<script src="/static/board.js?v=42"></script>
+<script src="/static/board.js?v=43"></script>
 </body>
 </html>

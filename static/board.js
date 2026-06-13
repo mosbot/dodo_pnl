@@ -80,7 +80,6 @@ function dayMonth(dateIso) {
 
 let lastPayload = null;
 let lastFetchAt = 0;
-let counterTimer = null;
 
 // Вид: "compact" (table-style карточки) или "rich" (детальный).
 // Запоминается в localStorage.
@@ -1006,26 +1005,13 @@ async function load() {
 }
 
 function startCounters() {
-  if (counterTimer) clearInterval(counterTimer);
-  // Авторефреш отключён — пользователь обновляет данные кнопкой ⟳.
-  // Счётчик «обн. N с/мин» показывает свежесть данных.
-  counterTimer = setInterval(updateCounters, 1000);
-  updateCounters();
+  // Счётчик давности «обн. N мин» убран — свежесть видна по таймстампу
+  // «данные до HH:MM MSK» в подзаголовке. Здесь только показываем кнопку
+  // ⟳ и подсказку в футере (статичные, тикать нечему).
   const btn = el("refreshNowBtn");
   if (btn) btn.classList.remove("hidden");
-}
-
-function updateCounters() {
-  if (!lastFetchAt) return;
-  const sinceSec = Math.floor((Date.now() - lastFetchAt) / 1000);
-  const counter = el("boardRefresh");
-  counter.textContent =
-    sinceSec < 60
-      ? `обн. ${sinceSec} с`
-      : `обн. ${Math.floor(sinceSec / 60)} мин ${sinceSec % 60} с`;
-  // После 5 минут — amber: данные пора освежить (кнопка ⟳ рядом).
-  counter.classList.toggle("stale", sinceSec >= 300);
-  el("nextRefresh").textContent = "данные обновляются кнопкой ⟳ наверху";
+  const nx = el("nextRefresh");
+  if (nx) nx.textContent = "данные обновляются кнопкой ⟳ наверху";
 }
 
 // Явное обновление данных кнопкой (auto-refresh отключён осознанно —
