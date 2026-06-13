@@ -53,6 +53,13 @@ class PlanfactKey(Base):
     pnl_source: Mapped[str] = mapped_column(
         String(16), nullable=False, default="raw", server_default=text("'raw'"),
     )
+    # S22: для ТЕКУЩЕГО (live) полного месяца брать REVENUE и разбивку по
+    # каналам из Dodo IS (/finances/sales/units/monthly) вместо PlanFact —
+    # PlanFact подтягивает продажи дня лишь к ~23:15. Закрытые месяцы всегда
+    # из PlanFact. Сбой Dodo → graceful fallback на PlanFact. Default FALSE.
+    live_revenue_from_dodois: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )

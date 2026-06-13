@@ -778,6 +778,106 @@ async def _build_pnl_for_period(
     return raw_result
 
 
+# S22: маппинг каналов Dodo IS → наши revenue_channel.
+_DODO_CHANNEL_MAP = {"Delivery": "delivery", "Dine-in": "restaurant", "Takeaway": "takeaway"}
+
+
+async def _maybe_override_revenue_from_dodois(
+    *,
+    session: AsyncSession,
+    user: User,
+    aggregates: dict,
+    date_start: str,
+    date_end: str,
+    period_month: str | None,
+    cache_mode: str,
+) -> dict:
+    """S22: для live ТЕКУЩЕГО полного месяца заменить REVENUE и разбивку по
+    каналам на данные Dodo IS (/finances/sales/units/monthly).
+
+    No-op (возвращает aggregates без изменений), если:
+      - не live-режим (cache_mode != 'off' → закрытый месяц, immutable PF);
+      - период не равен текущему полному календарному месяцу;
+      - флаг ключа live_revenue_from_dodois выключен;
+      - у ключа нет привязанных Dodo-юнитов;
+      - Dodo IS недоступен / любая ошибка.
+    НИКОГДА не бросает — выручка PlanFact остаётся страховкой.
+    """
+    import logging
+    log = logging.getLogger("uvicorn.error")
+
+    if cache_mode != "off":
+        return aggregates
+    if not (period_month and period_month == _current_month_str()
+            and _is_full_month(date_start, date_end, period_month)):
+        return aggregates
+    pf_key_id = user.planfact_key_id
+    if pf_key_id is None:
+        return aggregates
+
+    try:
+        from .auth.models import PlanfactKey
+        pk = await session.get(PlanfactKey, pf_key_id)
+        if not getattr(pk, "live_revenue_from_dodois", False):
+            return aggregates
+        cfg = await store.list_projects_config(session, pf_key_id)
+        uuid_to_pid: dict[str, str] = {}
+        uuids: list[str] = []
+        for pid, c in cfg.items():
+            uu = c.get("dodo_unit_uuid")
+            if c.get("is_active") and uu:
+                uuid_to_pid[board_module._normalize_uuid(uu)] = pid
+                uuids.append(uu)
+        if not uuids:
+            return aggregates
+        token = await get_dodois_token(session, user)
+        rows = await dodois_client.fetch_finance_sales_monthly(
+            token, uuids, date_start, date_end,
+        )
+    except Exception:
+        log.exception(
+            "S22 dodo-revenue %s: fetch failed — оставляем выручку PlanFact",
+            period_month,
+        )
+        return aggregates
+
+    # Агрегируем продажи Dodo и каналы по project_id.
+    dodo_total: dict[str, float] = {}
+    dodo_ch: dict[str, dict[str, float]] = {}
+    for r in rows:
+        pid = uuid_to_pid.get(board_module._normalize_uuid(r.get("unitId", "")))
+        if not pid:
+            continue
+        dodo_total[pid] = dodo_total.get(pid, 0.0) + float(r.get("sales") or 0)
+        chd = dodo_ch.setdefault(
+            pid, {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS},
+        )
+        for b in (r.get("salesBreakdown") or []):
+            ch = _DODO_CHANNEL_MAP.get(b.get("salesChannel"), "other")
+            chd[ch] += float(b.get("sales") or 0)
+    if not dodo_total:
+        return aggregates
+
+    # Переопределяем агрегаты ТОЛЬКО для точек с данными Dodo. build_pnl
+    # пересчитает все pct_of_revenue / прибыль консистентно — REVENUE-строка
+    # и знаменатель процентов берутся из totals[(pid,'REVENUE')]. Прочие
+    # доходы вне продаж пиццы для live-месяца сознательно опускаем (решение
+    # пользователя, S22): продажи Dodo = полная выручка точки.
+    totals = aggregates.setdefault("totals", {})
+    rbc = aggregates.setdefault("revenue_by_channel", {})
+    apids = set(aggregates.get("active_project_ids") or [])
+    for pid, amt in dodo_total.items():
+        totals[f"{pid}|REVENUE"] = amt
+        rbc[pid] = dodo_ch[pid]
+        apids.add(pid)
+    aggregates["active_project_ids"] = sorted(apids)
+    log.info(
+        "S22 dodo-revenue %s: переопределено %d точек, total=%.0f",
+        period_month, len(dodo_total), sum(dodo_total.values()),
+    )
+    return aggregates
+
+
 async def _build_pnl_v2_result(
     *,
     session: AsyncSession,
@@ -823,6 +923,15 @@ async def _build_pnl_v2_result(
         log.exception("pnl-v2 %s..%s: unhandled — fallback на raw",
                       date_start, date_end)
         return None
+
+    # S22: для live текущего месяца подменяем REVENUE на свежие продажи Dodo IS
+    # (PlanFact подтягивает день к ~23:15). No-op для закрытых месяцев и при
+    # выключенном флаге ключа; сбой Dodo не ломает ответ.
+    aggregates = await _maybe_override_revenue_from_dodois(
+        session=session, user=user, aggregates=aggregates,
+        date_start=date_start, date_end=date_end,
+        period_month=period_month, cache_mode=cache_mode,
+    )
 
     result = await pnl_module.build_pnl(
         session=session, owner_id=user.id,
