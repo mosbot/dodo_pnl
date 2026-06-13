@@ -10,10 +10,6 @@ const RU_MONTH_GEN = [
   "января", "февраля", "марта", "апреля", "мая", "июня",
   "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ];
-const RU_WEEKDAY_GEN = [
-  "воскресенье", "понедельник", "вторник", "среду", "четверг",
-  "пятницу", "субботу",
-];
 const RU_WEEKDAY_NOM = [
   "Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг",
   "Пятница", "Суббота",
@@ -61,11 +57,6 @@ function ruMonth(monthIsoYM, form = "nom") {
   return RU_MONTH_NOM_PL[m];
 }
 
-// "среду" из dateIso. Используется в фразе «vs прошл. среду».
-function weekdayGen(dateIso) {
-  const d = new Date(dateIso + "T00:00:00+03:00");
-  return RU_WEEKDAY_GEN[d.getDay()];
-}
 // "Среда" — именительный, для заголовков.
 function weekdayNom(dateIso) {
   const d = new Date(dateIso + "T00:00:00+03:00");
@@ -464,7 +455,7 @@ function renderHero(p) {
   const dm = dayMonth(p.today_date);
   el("pageSubtitle").innerHTML =
     `<span class="accent">${esc(wd)}, ${esc(dm)}</span>` +
-    ` · данные до <span class="accent">${esc(p.to_hour)}</span> MSK`;
+    ` · данные на <span class="accent">${esc(p.to_hour)}</span> MSK`;
   el("pageHeader").classList.remove("hidden");
 
   // === День ===
@@ -477,7 +468,7 @@ function renderHero(p) {
   el("dayDelta").className = "panel-delta " + dayD.cls;
   el("dayDelta").textContent = dayD.text;
   el("dayBaseline").innerHTML =
-    `vs прошл. ${weekdayGen(p.last_week_date)} · ${fmt(day.baseline)} ₽`;
+    `vs неделю назад · ${fmt(day.baseline)} ₽`;
   renderChannels("dayChannels", day.channels);
 
   // === Месяц LFL ===
@@ -574,7 +565,7 @@ function renderCard(b, n) {
         </span>
       </div>
 
-      <div class="r-section-label">День · vs ${esc(weekdayGen(lastPayload?.last_week_date))}</div>
+      <div class="r-section-label">День · vs неделю назад</div>
       <div class="r-revenue">
         <span class="num">${fmt(day.value)} <span class="unit">₽</span></span>
         <span class="base">vs ${fmt(day.baseline)}</span>
