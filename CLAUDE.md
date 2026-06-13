@@ -62,16 +62,42 @@ NB: автооткат возвращает только КОД. Если деп
 
 ## Aлембик / DB
 
-Migrations 0001–0022. Последние:
+Migrations 0001–0027. Последние:
 - `0019` — KC_LIVE колонки в ops_metrics
 - `0021` — `monthly_revenue_history` (immutable cache закрытых месяцев для прогноза)
 - `0022` — `dodois_units_cache` (имена пиццерий, TTL 24h)
+- `0025` — `planfact_keys.pnl_source` (raw|shadow|v2)
+- `0026` — `dodois_window_cache` (immutable baseline-окна /board)
+- `0027` — `planfact_keys.live_revenue_from_dodois` (S22, см. ниже)
 
 Локально:
 ```bash
 .venv/bin/alembic upgrade head
 .venv/bin/alembic revision -m "S19: …" --rev-id 0023
 ```
+
+## S22 — live-выручка текущего месяца из Dodo IS
+
+Флаг `planfact_keys.live_revenue_from_dodois` (default FALSE; включён для
+PiX=1, Xfood=3). Когда TRUE, для ТЕКУЩЕГО (live, незакрытого) полного месяца
+строка REVENUE и разбивка по каналам берутся из Dodo IS
+(`/finances/sales/units/monthly`, 1 батч-запрос ≤30 юнитов, ~1.5с холодный),
+а не из PlanFact. Причина: PF подтягивает продажи дня лишь к ~23:15 + ловит
+артефакты разнесения («Нераспределенный доход»). Закрытые месяцы и частичные
+диапазоны — всегда PlanFact.
+
+Реализация: `main._maybe_override_revenue_from_dodois` (вызов в
+`_build_pnl_v2_result` перед `build_pnl`, только при `cache_mode=="off"` и
+`period_month == текущий`). **Слой инъекции — cat_totals, а не totals**:
+строка REVENUE считается `pnl._apply_metric_formulas` из шаблона ПланФакт,
+который строится из cat_totals; totals[(pid,'REVENUE')] это лишь знаменатель.
+Канал Dodo (Delivery/Dine-in/Takeaway) → revenue-категория с тем же
+`revenue_channel`; «прочие» revenue-категории зануляются. totals и
+revenue_by_channel выставляются согласованно. build_pnl пересчитывает все
+pct_of_revenue / прибыль консистентно. Сбой Dodo / любая ошибка → graceful
+fallback на выручку PlanFact (страница не ломается). Работает только на
+v2-пути; raw-fallback отдаёт PF-выручку. Kill-switch — выключить флаг (без
+деплоя). Валидация: REVENUE==Dodo по точкам, net profit сдвиг = Δвыручки.
 
 ## OAuth scopes (Dodo IS, ask530 token)
 
