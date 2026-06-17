@@ -471,6 +471,13 @@ async def fetch_finance_sales_monthly(
 ) -> list[dict[str, Any]]:
     """BATCHED. Месячные продажи по заведениям. Даты 'YYYY-MM-DD'.
     Channels — Delivery / Dine-in / Takeaway (готовая разбивка)."""
+    # Defense-in-depth: monthly — критический путь board (не обёрнут в
+    # graceful). На from==to (1-е число) Dodo отдаёт 200, но на from>to —
+    # 400. Окна board такого не дают, но реверс-диапазон от любого будущего
+    # вызова не должен ронять board → пустой результат. Строки 'YYYY-MM-DD'
+    # сравниваются лексикографически корректно.
+    if not unit_uuids or from_date > to_date:
+        return []
     return await _batched_get(
         op_name="finance-monthly",
         url=f"{settings.dodo_is_base_url}/finances/sales/units/monthly",
