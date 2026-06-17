@@ -412,6 +412,15 @@ async def fetch_sales_by_channel(
         for u in unit_uuids
     }
 
+    # Нулевое/вырожденное окно (from >= to). Бывает в первые ~30 мин суток:
+    # baseline-окно last_week (now−7д, округлённое к ближайшему часу) схлопывается
+    # в [00:00, 00:00], а ровно в 00:00:xx — и today. Dodo /accounting/sales на
+    # такой диапазон отдаёт 400 «From should be less than To», и весь /board
+    # падает в 502 (sales — критический путь, без graceful degrade). За пустое
+    # окно данных всё равно нет — возвращаем нули, не дёргая Dodo.
+    if from_date >= to_date:
+        return out
+
     url = f"{settings.dodo_is_base_url}/accounting/sales"
     take = 1000
 
