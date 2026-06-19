@@ -491,6 +491,33 @@ section.cards-wrap { padding: 14px 14px 4px; }
 .r-card .warn-body .crit-sub-label { color: #b45309; opacity: 0.8; }
 .r-card .warn-body .crit-row .dur { color: #b45309; }
 
+/* ─── История стопов за день (таймлайн) ─── */
+.r-card details.stop-hist { margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.r-card details.stop-hist summary {
+  list-style: none; cursor: pointer; padding: 7px 14px;
+  font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px;
+}
+.r-card details.stop-hist summary::-webkit-details-marker { display: none; }
+.r-card details.stop-hist summary:hover { background: rgba(127,127,127,0.05); }
+.r-card details.stop-hist .sh-sum { color: var(--text); font-weight: 500; }
+.r-card details.stop-hist .sh-sum .sep { color: var(--muted-2); margin: 0 3px; font-weight: 400; }
+.r-card details.stop-hist summary .chev {
+  margin-left: auto; font-size: 10px; color: var(--muted-2); transition: transform .15s;
+}
+.r-card details.stop-hist[open] summary .chev { transform: rotate(180deg); }
+.r-card .stop-hist-body { padding: 2px 14px 10px; }
+.r-card .sh-grp { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted-2); margin: 8px 0 3px; }
+.r-card .sh-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 8px;
+  align-items: baseline; padding: 2px 0; font-size: 12px;
+}
+.r-card .sh-row .sh-nm { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-card .sh-row .sh-iv { color: var(--muted); font-variant-numeric: tabular-nums; }
+.r-card .sh-row .sh-dur { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.r-card .sh-row.active .sh-dur { color: var(--neg); }
+.r-card .sh-row.active .sh-nm::before { content: "● "; color: var(--neg); font-size: 9px; }
+
 /* ─── Ops-grid внутри rich-card ─── */
 .r-ops-grid {
   display: grid;
@@ -953,6 +980,6 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
 </footer>
 
 <script src="/static/topbar.js?v=20"></script>
-<script src="/static/board.js?v=44"></script>
+<script src="/static/board.js?v=45"></script>
 </body>
 </html>

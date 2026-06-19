@@ -714,6 +714,55 @@ function renderStops(stops) {
   return "";
 }
 
+// "2026-06-18T13:45:00" → "13:45"
+function hhmm(iso) {
+  const m = String(iso || "").match(/T(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : "";
+}
+
+// История стопов за день (таймлайн интервалов). Показывается независимо от
+// наличия активных стопов — если за сегодня были стопы каналов/секторов.
+function renderStopHistory(stops) {
+  const h = stops?.history || {};
+  const ch = h.channels || [];
+  const sec = h.sectors || [];
+  if (!ch.length && !sec.length) return "";
+
+  const dt = h.downtime_by_channel || {};
+  const sumParts = Object.keys(dt)
+    .filter((k) => dt[k] > 0)
+    .map((k) => `${esc(k)} ${esc(fmtMinutes(dt[k]))}`);
+  const sep = `<span class="sep">·</span>`;
+  const summary = sumParts.length ? sumParts.join(sep) : "стопы были";
+
+  const row = (it) => {
+    const end = it.active ? "сейчас" : hhmm(it.ended_at);
+    const start = `${it.carried ? "↤" : ""}${hhmm(it.started_at)}`;
+    const tail = it.active
+      ? `идёт ${esc(fmtMinutes(it.minutes))}`
+      : esc(fmtMinutes(it.minutes));
+    return `
+      <div class="sh-row${it.active ? " active" : ""}">
+        <span class="sh-nm">${esc(it.name)}</span>
+        <span class="sh-iv"${it.carried ? ' title="стоп начался вчера"' : ""}>${start}–${end}</span>
+        <span class="sh-dur">${tail}</span>
+      </div>`;
+  };
+
+  const sectorBlock = sec.length
+    ? `<div class="sh-grp">Секторы доставки</div>${sec.map(row).join("")}`
+    : "";
+
+  return `
+    <details class="stop-hist">
+      <summary>🕓 История стопов <span class="sh-sum">${summary}</span><span class="chev">▾</span></summary>
+      <div class="stop-hist-body">
+        ${ch.map(row).join("")}
+        ${sectorBlock}
+      </div>
+    </details>`;
+}
+
 // ─── Ops-grid (Кухня + Доставка) ──────────────────────────────────
 // Метрика-объект из API: {value, baseline, delta, delta_pct, lower_is_better, is_time}.
 
@@ -902,6 +951,7 @@ function renderRichCard(b) {
         </span>
       </div>
       ${renderStops(stops)}
+      ${renderStopHistory(stops)}
       <div class="r-revenue">
         <span class="num">${fmt(day.value)} <span class="unit">₽</span></span>
         <span class="base">vs ${fmt(day.baseline)}</span>

@@ -229,10 +229,57 @@ def _stop_duration_minutes(
     return sec // 60
 
 
+def _stop_history(
+    rows: list[dict], *, uid_norm: str, name_field: str,
+    day_start: datetime, now: datetime, name_map: Optional[dict] = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Все стопы юнита за сегодня (активные + завершённые) как интервалы,
+    обрезанные по [day_start, now]. Для таймлайна «история за день».
+
+    Возвращает [{name, started_at, ended_at, minutes, active}], в
+    хронологическом порядке (по фактическому началу в пределах дня).
+    Стопы, целиком закончившиеся до day_start (вчерашние), отбрасываем.
+    """
+    out: list[dict] = []
+    for r in rows:
+        if _normalize_uuid(r.get("unitId", "")) != uid_norm:
+            continue
+        started = _parse_iso_local(r.get("startedAtLocal"))
+        if started is None:
+            continue
+        ended = _parse_iso_local(r.get("endedAtLocal"))
+        end_eff = ended or now
+        if end_eff <= day_start:
+            continue  # стоп целиком до начала дня
+        start_eff = max(started, day_start)
+        minutes = max(0, int((end_eff - start_eff).total_seconds()) // 60)
+        nm = r.get(name_field) or "—"
+        if name_map:
+            nm = name_map.get(nm, nm)
+        carried = started < day_start  # стоп начался вчера, тянется в сегодня
+        out.append({
+            "name": nm,
+            # Для дневного таймлайна показываем НАЧАЛО В ПРЕДЕЛАХ ДНЯ
+            # (обрезанное к 00:00), чтобы интервал и длительность сходились.
+            "started_at": start_eff.strftime("%Y-%m-%dT%H:%M:%S"),
+            "ended_at": r.get("endedAtLocal"),
+            "minutes": minutes,
+            "active": ended is None,
+            "carried": carried,
+            "_sort": start_eff,
+        })
+    out.sort(key=lambda x: x["_sort"])
+    for x in out:
+        x.pop("_sort", None)
+    return out[:limit]
+
+
 def _build_stops_for_unit(
     *,
     uid_norm: str,
     now_msk: datetime,
+    day_start: datetime,
     raw_channels: list[dict],
     raw_sectors: list[dict],
     raw_products: list[dict],
@@ -240,7 +287,11 @@ def _build_stops_for_unit(
 ) -> dict:
     """Собирает блок stops для одного проекта, оставляя только АКТИВНЫЕ
     стопы (endedAtLocal == null). Сортирует от старых к новым (более
-    длительные стопы — выше)."""
+    длительные стопы — выше).
+
+    Дополнительно собирает `history` — все стопы за сегодня (активные и
+    завершённые) с интервалами, для таймлайна, плюс суммарный простой по
+    каналам за день (`downtime_by_channel`)."""
     def _active(rows: list[dict], name_field: str, extra_fields: tuple = ()) -> list[dict]:
         out: list[dict] = []
         for r in rows:
@@ -275,11 +326,31 @@ def _build_stops_for_unit(
         raw_ingredients, "ingredientName",
         extra_fields=("ingredientCategoryName",),
     )
+
+    # История за день (интервалы) — каналы и секторы доставки. Продукты/
+    # ингредиенты в таймлайн не тащим (детальный шум), оставляем как active.
+    hist_channels = _stop_history(
+        raw_channels, uid_norm=uid_norm, name_field="salesChannelName",
+        day_start=day_start, now=now_msk, name_map=_CHANNEL_RU,
+    )
+    hist_sectors = _stop_history(
+        raw_sectors, uid_norm=uid_norm, name_field="sectorName",
+        day_start=day_start, now=now_msk,
+    )
+    downtime_by_channel: dict[str, int] = {}
+    for it in hist_channels:
+        downtime_by_channel[it["name"]] = downtime_by_channel.get(it["name"], 0) + it["minutes"]
+
     return {
         "channels": channels,
         "sectors": sectors,
         "products": products,
         "ingredients": ingredients,
+        "history": {
+            "channels": hist_channels,
+            "sectors": hist_sectors,
+            "downtime_by_channel": downtime_by_channel,
+        },
     }
 
 
@@ -793,6 +864,7 @@ async def build_board_payload(
         stops = _build_stops_for_unit(
             uid_norm=uid,
             now_msk=windows.now,
+            day_start=windows.today.from_,
             raw_channels=stops_channels_raw,
             raw_sectors=stops_sectors_raw,
             raw_products=stops_products_raw,
