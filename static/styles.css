@@ -666,17 +666,22 @@ body.drawer-open .panel { transform: translateX(0); }
 .tile-fin.tile-pos .tile-value { color: var(--success); }
 .tile-fin.tile-neg .tile-value { color: var(--danger); }
 
-/* S23: плитка «Заказы» — штуки, не ₽. Каналы обязательны (2 строки). */
+/* S23: плитка «Заказы» — штуки, не ₽. Каналы: подпись · текущее · LY · Δ. */
 .tile-orders .ord-channels {
-  display: flex; flex-direction: column; gap: 1px;
-  margin-top: 4px; font-size: 10px; color: var(--text); line-height: 1.3;
+  display: flex; flex-direction: column; gap: 2px; margin-top: 4px;
 }
-.tile-orders .ord-channels .ord-lbl { color: var(--muted); }
-.tile-orders .ord-channels b { font-weight: 600; font-variant-numeric: tabular-nums; }
-.tile-orders .ord-channels .tile-delta { font-size: 10px; }
-/* Плитка «Заказы» чуть выше (блок каналов) → центрируем содержимое
- * фин-плиток по вертикали, чтобы ряд «Выручка | Заказы» смотрелся ровно. */
-.tile-grid-fin .tile { justify-content: center; }
+.tile-orders .ord-row {
+  display: grid; grid-template-columns: 1fr auto auto auto;
+  gap: 7px; align-items: baseline; font-size: 10px; white-space: nowrap;
+}
+.tile-orders .ord-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.tile-orders .ord-cur { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile-orders .ord-ly { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tile-orders .ord-d .tile-delta { font-size: 10px; }
+/* Фин-плитки выравниваем по ВЕРХУ: значения Выручки и Заказов оказываются
+ * на одной горизонтали, а блок каналов «Заказов» уходит вниз, не сдвигая
+ * само значение. */
+.tile-grid-fin .tile { justify-content: flex-start; }
 .tile-grid-fin .tile-label { flex: 0 0 auto; }
 
 .pos { color: var(--success); }

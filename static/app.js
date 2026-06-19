@@ -1077,17 +1077,23 @@ function ordersTile(o, lfl) {
     return `<span class="tile-delta ${cls}">${sign}${Math.abs(d).toFixed(1).replace('.', ',')}%</span>`;
   };
   const ch = o.channels || {};
-  const dt = ch.delivery_takeaway || {};
-  const rest = ch.restaurant || {};
-  const chDelta = (c) => (lfl && typeof c.delta_pct === 'number') ? ' ' + delta(c.delta_pct) : '';
+  // Строка канала: подпись · текущее · (LY прошлый год) · дельта — последние
+  // два только при включённом сравнении. «Самовывоз» в подписи убран (входит
+  // в число «Доставки»), чтобы не было переноса строки.
+  const row = (label, c) => {
+    const ly = lfl ? `<span class="ord-ly">${intf(c.prev)}</span>` : '';
+    const d = lfl ? `<span class="ord-d">${delta(c.delta_pct)}</span>` : '';
+    return `<div class="ord-row"><span class="ord-lbl">${label}</span>`
+      + `<span class="ord-cur">${intf(c.value)}</span>${ly}${d}</div>`;
+  };
   const valDelta = (lfl && typeof o.delta_pct === 'number') ? ' ' + delta(o.delta_pct) : '';
   return `
     <div class="tile tile-fin tile-orders" title="Заказы">
       <div class="tile-label">Заказы</div>
       <div class="tile-value">${intf(o.value)}<span class="tile-unit">шт</span>${valDelta}</div>
       <div class="ord-channels">
-        <span><span class="ord-lbl">Доставка+самовывоз</span> <b>${intf(dt.value)}</b>${chDelta(dt)}</span>
-        <span><span class="ord-lbl">Ресторан</span> <b>${intf(rest.value)}</b>${chDelta(rest)}</span>
+        ${row('Доставка', ch.delivery_takeaway || {})}
+        ${row('Ресторан', ch.restaurant || {})}
       </div>
     </div>`;
 }
