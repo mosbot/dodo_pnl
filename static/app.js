@@ -1063,6 +1063,33 @@ function finTile(label, proj, opts = {}) {
     </div>`;
 }
 
+// S23: большая плитка «Заказы» (количество) с LFL год-к-году + разбивкой
+// по каналам (доставка+самовывоз / ресторан). o = orders.projects[pid].
+function ordersTile(o) {
+  if (!o || (!o.value && !o.prev)) return '';
+  const intf = (n) => (Number(n) || 0).toLocaleString('ru-RU');
+  const delta = (dp) => {
+    if (typeof dp !== 'number') return '<span class="tile-delta muted">—</span>';
+    const d = dp * 100;
+    const cls = d >= 0 ? 'pos' : 'neg';
+    const sign = d > 0 ? '+' : (d < 0 ? '−' : '');
+    return `<span class="tile-delta ${cls}">${sign}${Math.abs(d).toFixed(1).replace('.', ',')}%</span>`;
+  };
+  const ch = o.channels || {};
+  const dt = ch.delivery_takeaway || {};
+  const rest = ch.restaurant || {};
+  return `
+    <div class="tile tile-fin tile-orders" title="Заказы">
+      <div class="tile-label">Заказы</div>
+      <div class="tile-value">${intf(o.value)}<span class="tile-unit">шт</span></div>
+      <div class="tile-hint">${delta(o.delta_pct)} · <span class="tile-ly muted">LY ${intf(o.prev)}</span></div>
+      <div class="ord-channels">
+        <span>Дост.+сам. <b>${intf(dt.value)}</b> ${delta(dt.delta_pct)}</span>
+        <span>Ресторан <b>${intf(rest.value)}</b> ${delta(rest.delta_pct)}</span>
+      </div>
+    </div>`;
+}
+
 function renderCards() {
   const box = el('kpiCards');
   box.innerHTML = '';
@@ -1136,16 +1163,26 @@ function renderCards() {
     // Финансовый блок: визуально первая плитка — Выручка (большая, без
     // подзаголовка %). Остальные format='rub' метрики после неё с %.
     // Если юзер скрыл REVENUE из настроек, она просто не попадает сюда.
+    // S23: плитку «Заказы» ставим сразу СПРАВА от Выручки. Если Выручка
+    // скрыта пользователем — добавим в конец фин-блока (fallback ниже).
+    const ordersHtml = ordersTile((state.pnl?.orders?.projects || {})[p.id]);
+    let ordersInserted = false;
     const finTiles = finMetrics.map(m => {
       const ln = findLine(m.code);
       if (!ln) return '';   // строка фильтруется backend'ом по visibility
       const isRevenue = m.code === 'REVENUE';
-      return finTile(
+      const tile = finTile(
         m.label,
         ln.projects[p.id],
         isRevenue ? { colorize: false, hideSub: true } : {},
       );
-    }).filter(Boolean).join('');
+      if (isRevenue && ordersHtml) {
+        ordersInserted = true;
+        return tile + ordersHtml;  // Заказы сразу после Выручки
+      }
+      return tile;
+    }).filter(Boolean).join('')
+      + (ordersInserted ? '' : ordersHtml);
 
     // Блок метрик: format=pct/x → плитка %, плюс ops-плитки в конце.
     const pctTiles = pctMetrics.map(m => {

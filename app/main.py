@@ -1152,6 +1152,119 @@ def _months_between(date_start: str, date_end: str) -> list[str]:
     return out
 
 
+# ── S23: количество заказов из Dodo IS (с LFL год-к-году) для карточек ──
+# Каналы Dodo → 2 группы как в Dodo IS UI: «Доставка+самовывоз» и «Ресторан».
+_ORDERS_CH_GROUP = {
+    "Delivery": "delivery_takeaway",
+    "Takeaway": "delivery_takeaway",
+    "Dine-in": "restaurant",
+}
+_ORDERS_CACHE: dict[tuple, tuple[float, dict]] = {}
+_ORDERS_TTL_LIVE = 120.0     # период включает сегодня — короткий кэш
+_ORDERS_TTL_PAST = 3600.0    # закрытый период immutable — длинный
+
+
+async def _fetch_monthly_orders(
+    token: str, uuids: list[str], date_start: str, date_end: str,
+    *, pf_key_id: int, live: bool,
+) -> dict[str, dict[str, int]]:
+    """{uuid_norm → {total, delivery_takeaway, restaurant}} из Dodo
+    /finances/sales/units/monthly за [date_start..date_end]. С TTL-кэшем."""
+    import time as _t
+    key = (pf_key_id, date_start, date_end, tuple(sorted(uuids)))
+    ttl = _ORDERS_TTL_LIVE if live else _ORDERS_TTL_PAST
+    hit = _ORDERS_CACHE.get(key)
+    if hit and (_t.time() - hit[0]) < ttl:
+        return hit[1]
+    rows = await dodois_client.fetch_finance_sales_monthly(
+        token, uuids, date_start, date_end,
+    )
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        u = board_module._normalize_uuid(r.get("unitId", ""))
+        if not u:
+            continue
+        d = out.setdefault(u, {"total": 0, "delivery_takeaway": 0, "restaurant": 0})
+        d["total"] += int(r.get("ordersCount") or 0)
+        for b in (r.get("salesBreakdown") or []):
+            grp = _ORDERS_CH_GROUP.get(b.get("salesChannel"))
+            if grp:
+                d[grp] += int(b.get("ordersCount") or 0)
+    if len(_ORDERS_CACHE) > 500:
+        for k in sorted(_ORDERS_CACHE, key=lambda k: _ORDERS_CACHE[k][0])[:250]:
+            _ORDERS_CACHE.pop(k, None)
+    _ORDERS_CACHE[key] = (_t.time(), out)
+    return out
+
+
+async def _attach_orders(
+    *, session: AsyncSession, user: User, result: dict,
+    date_start: str, date_end: str, effective_projects: list[str] | None,
+) -> None:
+    """S23: добавить result['orders'] (per-project + total) с LFL (тот же
+    период −1 год). Никогда не бросает — при сбое блок просто отсутствует,
+    страница не ломается. Требует привязанных Dodo-юнитов у активных точек."""
+    import logging
+    from datetime import date as _date
+    from .day_window import _shift_year
+    log = logging.getLogger("uvicorn.error")
+    pf_key_id = user.planfact_key_id
+    if pf_key_id is None:
+        return
+    try:
+        cfg = await store.list_projects_config(session, pf_key_id)
+        allow = set(effective_projects) if effective_projects is not None else None
+        uuid_to_pid: dict[str, str] = {}
+        uuids: list[str] = []
+        for pid, c in cfg.items():
+            uu = c.get("dodo_unit_uuid")
+            if not (c.get("is_active") and uu):
+                continue
+            if allow is not None and pid not in allow:
+                continue
+            uuid_to_pid[board_module._normalize_uuid(uu)] = pid
+            uuids.append(uu)
+        if not uuids:
+            return
+        ly_start = _shift_year(_date.fromisoformat(date_start), -1).isoformat()
+        ly_end = _shift_year(_date.fromisoformat(date_end), -1).isoformat()
+        live = date_end >= _date.today().isoformat()
+        token = await get_dodois_token(session, user)
+        cur, prev = await asyncio.gather(
+            _fetch_monthly_orders(
+                token, uuids, date_start, date_end, pf_key_id=pf_key_id, live=live),
+            _fetch_monthly_orders(
+                token, uuids, ly_start, ly_end, pf_key_id=pf_key_id, live=False),
+        )
+    except Exception:
+        log.exception("S23 orders: fetch failed — пропускаем блок заказов")
+        return
+
+    def _blk(cd: dict, pd: dict, field: str) -> dict:
+        v = int((cd or {}).get(field, 0))
+        p = int((pd or {}).get(field, 0))
+        return {"value": v, "prev": p, "delta_pct": (v / p - 1.0) if p > 0 else None}
+
+    def _full(cd: dict, pd: dict) -> dict:
+        b = _blk(cd, pd, "total")
+        b["channels"] = {
+            "delivery_takeaway": _blk(cd, pd, "delivery_takeaway"),
+            "restaurant": _blk(cd, pd, "restaurant"),
+        }
+        return b
+
+    projects: dict[str, dict] = {}
+    tot_c = {"total": 0, "delivery_takeaway": 0, "restaurant": 0}
+    tot_p = {"total": 0, "delivery_takeaway": 0, "restaurant": 0}
+    for u, pid in uuid_to_pid.items():
+        cd, pd = cur.get(u) or {}, prev.get(u) or {}
+        for f in tot_c:
+            tot_c[f] += int(cd.get(f, 0))
+            tot_p[f] += int(pd.get(f, 0))
+        projects[pid] = _full(cd, pd)
+    result["orders"] = {"projects": projects, "total": _full(tot_c, tot_p)}
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -1291,6 +1404,14 @@ async def get_pnl(
         monthly_map: dict[str, dict] = {m: data for (m, data) in month_results}
         result["monthly"] = monthly_map
         result["months_in_range"] = months_in_range
+
+    # S23: блок «Заказы» с LFL (год к году) из Dodo IS. Graceful — при сбое
+    # отсутствует, страница работает.
+    await _attach_orders(
+        session=session, user=user, result=result,
+        date_start=date_start, date_end=date_end,
+        effective_projects=effective_projects,
+    )
 
     return result
 

@@ -666,6 +666,14 @@ body.drawer-open .panel { transform: translateX(0); }
 .tile-fin.tile-pos .tile-value { color: var(--success); }
 .tile-fin.tile-neg .tile-value { color: var(--danger); }
 
+/* S23: плитка «Заказы» — как фин, но это штуки, не ₽. Канальная подстрока. */
+.tile-orders .ord-channels {
+  display: flex; flex-direction: column; gap: 1px;
+  margin-top: 5px; font-size: 10px; color: var(--muted); line-height: 1.35;
+}
+.tile-orders .ord-channels b { color: var(--text); font-weight: 600; }
+.tile-orders .ord-channels .tile-delta { font-size: 10px; }
+
 .pos { color: var(--success); }
 .neg { color: var(--danger); }
 
