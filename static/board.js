@@ -733,7 +733,8 @@ function renderStopHistory(stops) {
     .filter((k) => dt[k] > 0)
     .map((k) => `${esc(k)} ${esc(fmtMinutes(dt[k]))}`);
   const sep = `<span class="sep">·</span>`;
-  const summary = sumParts.length ? sumParts.join(sep) : "стопы были";
+  // Сам факт появления иконки истории = стопы были; fallback-текст не нужен.
+  const summary = sumParts.join(sep);
 
   const row = (it) => {
     const end = it.active ? "сейчас" : hhmm(it.ended_at);
