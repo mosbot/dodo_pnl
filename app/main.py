@@ -1164,6 +1164,28 @@ _ORDERS_TTL_LIVE = 120.0     # период включает сегодня — 
 _ORDERS_TTL_PAST = 3600.0    # закрытый период immutable — длинный
 
 
+def _mtd_aligned_compare_end(date_end: str, compare_end: str) -> str:
+    """MTD-выравнивание окна сравнения для НЕЗАКРЫТОГО месяца.
+
+    Если текущий период включает сегодня (date_end >= сегодня по MSK), то по
+    нему есть данные только до сегодняшнего числа. Чтобы сравнение было
+    честным, конец compare-периода тоже обрезаем до того же числа месяца
+    (напр. текущий 1–19 июня → прошлый 1–19 июня, а не весь июнь). Закрытый
+    период (date_end < сегодня) не трогаем. Возвращает дату 'YYYY-MM-DD'."""
+    from datetime import date as _d
+    from calendar import monthrange
+    from .day_window import now_msk
+    today = now_msk().date()
+    if date_end < today.isoformat():
+        return compare_end  # период закрыт целиком
+    try:
+        ce = _d.fromisoformat(compare_end)
+    except ValueError:
+        return compare_end
+    day = min(today.day, monthrange(ce.year, ce.month)[1])
+    return _d(ce.year, ce.month, day).isoformat()
+
+
 async def _fetch_monthly_orders(
     token: str, uuids: list[str], date_start: str, date_end: str,
     *, pf_key_id: int, live: bool,
@@ -1229,22 +1251,13 @@ async def _attach_orders(
         if not uuids:
             return
         from .day_window import now_msk
-        from calendar import monthrange
-        today = now_msk().date()
-        live = date_end >= today.isoformat()
+        live = date_end >= now_msk().date().isoformat()
         token = await get_dodois_token(session, user)
         lfl = bool(compare_start and compare_end)
         if lfl:
-            # MTD-выравнивание: если текущий месяц не закрыт, Dodo по текущему
-            # периоду отдаёт данные только до сегодня (1..N). Чтобы сравнение
-            # было честным, у compare-периода тоже обрезаем конец до того же
-            # числа месяца (напр. 1–19 июня 2025, а не весь июнь). Иначе
-            # частичный месяц сравнивается с полным и падение завышается.
-            cmp_end = compare_end
-            if live:
-                ce = _date.fromisoformat(compare_end)
-                day = min(today.day, monthrange(ce.year, ce.month)[1])
-                cmp_end = _date(ce.year, ce.month, day).isoformat()
+            # MTD-выравнивание окна сравнения для незакрытого месяца (общий
+            # хелпер — та же логика, что у финансового LFL).
+            cmp_end = _mtd_aligned_compare_end(date_end, compare_end)
             cur, prev = await asyncio.gather(
                 _fetch_monthly_orders(
                     token, uuids, date_start, date_end, pf_key_id=pf_key_id, live=live),
@@ -1350,17 +1363,21 @@ async def get_pnl(
             project_filter=effective_projects, method=method,
         )
         if compare_start and compare_end:
-            prev_pm = _derive_period_month(compare_start, compare_end)
+            # MTD-выравнивание: для незакрытого текущего месяца обрезаем конец
+            # окна сравнения до сегодняшнего числа (частичный месяц нельзя
+            # честно сравнивать с полным прошлым — иначе падение завышается).
+            cmp_end = _mtd_aligned_compare_end(date_end, compare_end)
+            prev_pm = _derive_period_month(compare_start, cmp_end)
             prev = await _build_pnl_for_period(
                 session=session, user=user, pf=pf,
-                date_start=compare_start, date_end=compare_end,
+                date_start=compare_start, date_end=cmp_end,
                 period_month=prev_pm,
                 project_filter=effective_projects, method=method,
             )
             result = pnl_module.compare_pnl(result, prev, mode=compare_mode)
             result["period"] = {
                 "current": {"start": date_start, "end": date_end},
-                "previous": {"start": compare_start, "end": compare_end},
+                "previous": {"start": compare_start, "end": cmp_end},
                 "compare_mode": compare_mode,
             }
         else:
