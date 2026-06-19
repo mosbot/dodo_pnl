@@ -666,13 +666,18 @@ body.drawer-open .panel { transform: translateX(0); }
 .tile-fin.tile-pos .tile-value { color: var(--success); }
 .tile-fin.tile-neg .tile-value { color: var(--danger); }
 
-/* S23: плитка «Заказы» — как фин, но это штуки, не ₽. Канальная подстрока. */
+/* S23: плитка «Заказы» — штуки, не ₽. Каналы обязательны (2 строки). */
 .tile-orders .ord-channels {
   display: flex; flex-direction: column; gap: 1px;
-  margin-top: 5px; font-size: 10px; color: var(--muted); line-height: 1.35;
+  margin-top: 4px; font-size: 10px; color: var(--text); line-height: 1.3;
 }
-.tile-orders .ord-channels b { color: var(--text); font-weight: 600; }
+.tile-orders .ord-channels .ord-lbl { color: var(--muted); }
+.tile-orders .ord-channels b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .tile-orders .ord-channels .tile-delta { font-size: 10px; }
+/* Плитка «Заказы» чуть выше (блок каналов) → центрируем содержимое
+ * фин-плиток по вертикали, чтобы ряд «Выручка | Заказы» смотрелся ровно. */
+.tile-grid-fin .tile { justify-content: center; }
+.tile-grid-fin .tile-label { flex: 0 0 auto; }
 
 .pos { color: var(--success); }
 .neg { color: var(--danger); }

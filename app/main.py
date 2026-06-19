@@ -1200,13 +1200,15 @@ async def _fetch_monthly_orders(
 async def _attach_orders(
     *, session: AsyncSession, user: User, result: dict,
     date_start: str, date_end: str, effective_projects: list[str] | None,
+    compare_start: str | None = None, compare_end: str | None = None,
 ) -> None:
-    """S23: добавить result['orders'] (per-project + total) с LFL (тот же
-    период −1 год). Никогда не бросает — при сбое блок просто отсутствует,
-    страница не ломается. Требует привязанных Dodo-юнитов у активных точек."""
+    """S23: добавить result['orders'] (per-project + total). Заказы за период
+    из Dodo IS. Сравнение (LFL) считаем ТОЛЬКО когда страница передала
+    compare-период (кнопка LFL) — тогда тянем заказы и за сравниваемый период
+    и даём delta. Никогда не бросает — при сбое блок отсутствует, страница
+    работает. Требует привязанных Dodo-юнитов у активных точек."""
     import logging
     from datetime import date as _date
-    from .day_window import _shift_year
     log = logging.getLogger("uvicorn.error")
     pf_key_id = user.planfact_key_id
     if pf_key_id is None:
@@ -1226,16 +1228,20 @@ async def _attach_orders(
             uuids.append(uu)
         if not uuids:
             return
-        ly_start = _shift_year(_date.fromisoformat(date_start), -1).isoformat()
-        ly_end = _shift_year(_date.fromisoformat(date_end), -1).isoformat()
         live = date_end >= _date.today().isoformat()
         token = await get_dodois_token(session, user)
-        cur, prev = await asyncio.gather(
-            _fetch_monthly_orders(
-                token, uuids, date_start, date_end, pf_key_id=pf_key_id, live=live),
-            _fetch_monthly_orders(
-                token, uuids, ly_start, ly_end, pf_key_id=pf_key_id, live=False),
-        )
+        lfl = bool(compare_start and compare_end)
+        if lfl:
+            cur, prev = await asyncio.gather(
+                _fetch_monthly_orders(
+                    token, uuids, date_start, date_end, pf_key_id=pf_key_id, live=live),
+                _fetch_monthly_orders(
+                    token, uuids, compare_start, compare_end, pf_key_id=pf_key_id, live=False),
+            )
+        else:
+            cur = await _fetch_monthly_orders(
+                token, uuids, date_start, date_end, pf_key_id=pf_key_id, live=live)
+            prev = {}
     except Exception:
         log.exception("S23 orders: fetch failed — пропускаем блок заказов")
         return
@@ -1262,7 +1268,9 @@ async def _attach_orders(
             tot_c[f] += int(cd.get(f, 0))
             tot_p[f] += int(pd.get(f, 0))
         projects[pid] = _full(cd, pd)
-    result["orders"] = {"projects": projects, "total": _full(tot_c, tot_p)}
+    result["orders"] = {
+        "projects": projects, "total": _full(tot_c, tot_p), "lfl": lfl,
+    }
 
 
 @app.get("/api/pnl")
@@ -1411,6 +1419,7 @@ async def get_pnl(
         session=session, user=user, result=result,
         date_start=date_start, date_end=date_end,
         effective_projects=effective_projects,
+        compare_start=compare_start, compare_end=compare_end,
     )
 
     return result
