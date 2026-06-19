@@ -666,18 +666,26 @@ body.drawer-open .panel { transform: translateX(0); }
 .tile-fin.tile-pos .tile-value { color: var(--success); }
 .tile-fin.tile-neg .tile-value { color: var(--danger); }
 
-/* S23: плитка «Заказы» — штуки, не ₽. Каналы: подпись · текущее · LY · Δ. */
+/* S23: плитка «Заказы» — штуки, не ₽. Каналы — ЕДИНЫЙ грид (обе строки
+ * делят колонки), числа right-align + tabular, колонка % фикс-ширины →
+ * при процентах разного порядка числовые значения не сдвигаются. */
 .tile-orders .ord-channels {
-  display: flex; flex-direction: column; gap: 2px; margin-top: 4px;
+  display: grid; grid-template-columns: 1fr auto;
+  column-gap: 7px; row-gap: 2px; align-items: baseline;
+  margin-top: 4px; font-size: 10px;
 }
-.tile-orders .ord-row {
-  display: grid; grid-template-columns: 1fr auto auto auto;
-  gap: 7px; align-items: baseline; font-size: 10px; white-space: nowrap;
-}
-.tile-orders .ord-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-.tile-orders .ord-cur { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-.tile-orders .ord-ly { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tile-orders .ord-channels.lfl { grid-template-columns: 1fr auto auto auto; }
+.tile-orders .ord-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-orders .ord-cur,
+.tile-orders .ord-ly,
+.tile-orders .ord-d { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.tile-orders .ord-cur { color: var(--text); font-weight: 600; }
+.tile-orders .ord-ly { color: var(--muted); }
+.tile-orders .ord-d { min-width: 3.6em; }
 .tile-orders .ord-d .tile-delta { font-size: 10px; }
+/* Большой LFL-% итога — прижимаем к правому краю плитки. */
+.tile-orders .tile-value { display: flex; align-items: baseline; }
+.tile-orders .tile-value .tile-delta { margin-left: auto; font-size: 12px; }
 /* Фин-плитки выравниваем по ВЕРХУ: значения Выручки и Заказов оказываются
  * на одной горизонтали, а блок каналов «Заказов» уходит вниз, не сдвигая
  * само значение. */

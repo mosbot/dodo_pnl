@@ -1077,23 +1077,25 @@ function ordersTile(o, lfl) {
     return `<span class="tile-delta ${cls}">${sign}${Math.abs(d).toFixed(1).replace('.', ',')}%</span>`;
   };
   const ch = o.channels || {};
-  // Строка канала: подпись · текущее · (LY прошлый год) · дельта — последние
-  // два только при включённом сравнении. «Самовывоз» в подписи убран (входит
-  // в число «Доставки»), чтобы не было переноса строки.
-  const row = (label, c) => {
-    const ly = lfl ? `<span class="ord-ly">${intf(c.prev)}</span>` : '';
-    const d = lfl ? `<span class="ord-d">${delta(c.delta_pct)}</span>` : '';
-    return `<div class="ord-row"><span class="ord-lbl">${label}</span>`
-      + `<span class="ord-cur">${intf(c.value)}</span>${ly}${d}</div>`;
+  // Каналы рендерим как ЕДИНЫЙ грид (а не строка = свой грид), чтобы колонки
+  // (текущее / LY / %) выравнивались по вертикали и числа не «дёргались» при
+  // процентах разной длины. «Самовывоз» в подписи убран (входит в «Доставку»).
+  const cells = (label, c) => {
+    const base = `<span class="ord-lbl">${label}</span>`
+      + `<span class="ord-cur">${intf(c.value)}</span>`;
+    if (!lfl) return base;
+    return base
+      + `<span class="ord-ly">${intf(c.prev)}</span>`
+      + `<span class="ord-d">${delta(c.delta_pct)}</span>`;
   };
   const valDelta = (lfl && typeof o.delta_pct === 'number') ? ' ' + delta(o.delta_pct) : '';
   return `
     <div class="tile tile-fin tile-orders" title="Заказы">
       <div class="tile-label">Заказы</div>
       <div class="tile-value">${intf(o.value)}<span class="tile-unit">шт</span>${valDelta}</div>
-      <div class="ord-channels">
-        ${row('Доставка', ch.delivery_takeaway || {})}
-        ${row('Ресторан', ch.restaurant || {})}
+      <div class="ord-channels${lfl ? ' lfl' : ''}">
+        ${cells('Доставка', ch.delivery_takeaway || {})}
+        ${cells('Ресторан', ch.restaurant || {})}
       </div>
     </div>`;
 }
