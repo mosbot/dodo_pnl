@@ -1228,15 +1228,28 @@ async def _attach_orders(
             uuids.append(uu)
         if not uuids:
             return
-        live = date_end >= _date.today().isoformat()
+        from .day_window import now_msk
+        from calendar import monthrange
+        today = now_msk().date()
+        live = date_end >= today.isoformat()
         token = await get_dodois_token(session, user)
         lfl = bool(compare_start and compare_end)
         if lfl:
+            # MTD-выравнивание: если текущий месяц не закрыт, Dodo по текущему
+            # периоду отдаёт данные только до сегодня (1..N). Чтобы сравнение
+            # было честным, у compare-периода тоже обрезаем конец до того же
+            # числа месяца (напр. 1–19 июня 2025, а не весь июнь). Иначе
+            # частичный месяц сравнивается с полным и падение завышается.
+            cmp_end = compare_end
+            if live:
+                ce = _date.fromisoformat(compare_end)
+                day = min(today.day, monthrange(ce.year, ce.month)[1])
+                cmp_end = _date(ce.year, ce.month, day).isoformat()
             cur, prev = await asyncio.gather(
                 _fetch_monthly_orders(
                     token, uuids, date_start, date_end, pf_key_id=pf_key_id, live=live),
                 _fetch_monthly_orders(
-                    token, uuids, compare_start, compare_end, pf_key_id=pf_key_id, live=False),
+                    token, uuids, compare_start, cmp_end, pf_key_id=pf_key_id, live=False),
             )
         else:
             cur = await _fetch_monthly_orders(
