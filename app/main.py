@@ -2849,6 +2849,69 @@ async def upsert_board_metric_visibility(
     return {"status": "ok"}
 
 
+# ─── Расчётные KC/DC (из Dodo IS) — настройки тенанта ──────────────────
+# Налоговые коэффициенты + показ DC. Привязаны к PF-ключу, но это
+# операционная настройка тенанта (не секрет), поэтому правит network_admin
+# своего ключа — на вкладке «Метрики» (а не в super-only каталоге ключей).
+
+@app.get("/api/calc-settings")
+async def get_calc_settings(
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    if not user.planfact_key_id:
+        return {
+            "no_planfact_key": True,
+            "kc_tax_coefficient": 1.0, "dc_tax_coefficient": 1.0,
+            "dc_live_enabled": False,
+        }
+    from .auth.models import PlanfactKey
+    pk = await session.get(PlanfactKey, user.planfact_key_id)
+    return {
+        "kc_tax_coefficient": float(getattr(pk, "kc_tax_coefficient", 1.0) or 1.0),
+        "dc_tax_coefficient": float(getattr(pk, "dc_tax_coefficient", 1.0) or 1.0),
+        "dc_live_enabled": bool(getattr(pk, "dc_live_enabled", False)),
+    }
+
+
+@app.put("/api/calc-settings")
+async def update_calc_settings(
+    payload: dict,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Сохранить коэффициенты налогов KC/DC и флаг показа DC для своего ключа."""
+    pf_key_id = _require_user_pf_key(user)
+    from .auth.models import PlanfactKey
+    pk = await session.get(PlanfactKey, pf_key_id)
+    if pk is None:
+        raise HTTPException(404, "PF-ключ не найден")
+
+    def _coef(key):
+        if key not in payload or payload[key] is None:
+            return None
+        try:
+            v = float(payload[key])
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"{key}: не число")
+        if not (0 <= v <= 10):
+            raise HTTPException(400, f"{key}: вне диапазона 0..10")
+        return v
+
+    kc = _coef("kc_tax_coefficient")
+    dc = _coef("dc_tax_coefficient")
+    if kc is not None:
+        pk.kc_tax_coefficient = kc
+    if dc is not None:
+        pk.dc_tax_coefficient = dc
+    if "dc_live_enabled" in payload:
+        pk.dc_live_enabled = bool(payload["dc_live_enabled"])
+    from datetime import datetime, timezone
+    pk.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+    return {"status": "ok"}
+
+
 @app.post("/api/metrics/preview")
 async def preview_metric(
     payload: schemas.FormulaPreviewIn,

@@ -1347,9 +1347,6 @@ function openPfKeyModal(existing) {
     : '';
   document.getElementById('pkApiKey').required = !isEdit;
   document.getElementById('pkNote').value = existing?.note || '';
-  document.getElementById('pkKcTax').value = existing?.kc_tax_coefficient ?? 1;
-  document.getElementById('pkDcTax').value = existing?.dc_tax_coefficient ?? 1;
-  document.getElementById('pkDcEnabled').checked = !!existing?.dc_live_enabled;
   document.getElementById('pkDelete').style.display = isEdit ? '' : 'none';
   setMsg('pkMsg', '', '');
   openModal('pfKeyModal');
@@ -1369,9 +1366,6 @@ function initPfKeysCatalog() {
       if (id) {
         const body = { name, note: note || null };
         if (apiKey) body.api_key = apiKey;
-        body.kc_tax_coefficient = parseFloat(document.getElementById('pkKcTax').value) || 1;
-        body.dc_tax_coefficient = parseFloat(document.getElementById('pkDcTax').value) || 1;
-        body.dc_live_enabled = document.getElementById('pkDcEnabled').checked;
         await api(`/api/admin/planfact-keys/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -2331,6 +2325,43 @@ function insertLineRefIntoFormula(lineNo) {
   target.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+// ─── Расчётные KC/DC (из Dodo IS): коэффициенты налогов + показ DC ───
+async function initCalcSettings() {
+  const box = document.getElementById('calcSettingsBox');
+  if (!box) return;
+  const kc = document.getElementById('csKcTax');
+  const dc = document.getElementById('csDcTax');
+  const dcEn = document.getElementById('csDcEnabled');
+  const msg = document.getElementById('csMsg');
+  try {
+    const s = await api('/api/calc-settings');
+    kc.value = s.kc_tax_coefficient ?? 1;
+    dc.value = s.dc_tax_coefficient ?? 1;
+    dcEn.checked = !!s.dc_live_enabled;
+    if (s.no_planfact_key) msg.textContent = 'Нет привязанного PF-ключа';
+  } catch (e) {
+    msg.textContent = 'Ошибка загрузки: ' + e.message;
+  }
+  document.getElementById('csSave')?.addEventListener('click', async () => {
+    msg.textContent = 'Сохранение…';
+    try {
+      await api('/api/calc-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kc_tax_coefficient: parseFloat(kc.value) || 1,
+          dc_tax_coefficient: parseFloat(dc.value) || 1,
+          dc_live_enabled: dcEn.checked,
+        }),
+      });
+      msg.textContent = 'Сохранено ✓';
+      toast('Настройки KC/DC сохранены');
+    } catch (e) {
+      msg.textContent = 'Ошибка: ' + e.message;
+    }
+  });
+}
+
 async function initMetricsTab() {
   const isAdmin = !!(state.me && state.me.is_admin);
   if (!isAdmin) return;
@@ -2340,6 +2371,7 @@ async function initMetricsTab() {
   renderMetrics();
   renderBoardMetrics();
   renderMetricsLineList();
+  await initCalcSettings();
   document.getElementById('metricsLineSearch')?.addEventListener('input', (e) => {
     renderMetricsLineList(e.target.value);
   });
