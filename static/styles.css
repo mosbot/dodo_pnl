@@ -587,6 +587,14 @@ body.drawer-open .panel { transform: translateX(0); }
   padding: 6px 8px;
   display: flex; flex-direction: column; gap: 1px;
   min-width: 0;
+  position: relative;
+}
+/* Красная «K» в углу плитки — применён налоговый коэффициент (KC/DC). */
+.tile-coeff-badge {
+  position: absolute;
+  top: 3px; right: 5px;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  color: #dc2626;
 }
 .tile-label {
   font-size: 10px; font-weight: 600; color: var(--muted);

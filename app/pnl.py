@@ -945,6 +945,14 @@ async def build_pnl(
     else:
         ops_targets = {}
         ops_overrides = {}
+    # Налог. коэффициенты + флаг DC ключа — для меты ops (флаг coeff_applied +
+    # гейт DC). Значения KC/DC уже ×коэф. внутри list_ops_metrics.
+    if planfact_key_id is not None:
+        kc_coeff, dc_coeff, dc_enabled = await store.get_calc_settings(
+            session, planfact_key_id,
+        )
+    else:
+        kc_coeff, dc_coeff, dc_enabled = 1.0, 1.0, False
     ops_target_report: list[dict] = []
     for pid in shown_project_ids:
         values = ops_data.get(pid) or {}
@@ -1031,7 +1039,9 @@ async def build_pnl(
         "default_targets": default_targets,
         "ops_targets": ops_targets,
         "ops_project_targets": ops_overrides,     # {pid: {code: value}} — per-project override
-        "ops_metrics_meta": store.OPS_METRICS,  # чтобы фронт знал labels/units/direction
+        "ops_metrics_meta": store.ops_metrics_meta(  # labels/units/direction + coeff_applied
+            dc_enabled, kc_coeff=kc_coeff, dc_coeff=dc_coeff,
+        ),
         "ops_freshness": ops_freshness,        # см. _compute_ops_freshness — для бейджа на топбаре
         # Список настроенных пользовательских метрик (code/label/format/sort_order/
         # is_visible/min_visibility_level/is_target). Фронт использует это для

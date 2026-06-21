@@ -134,7 +134,7 @@ OPS_METRICS: list[dict] = [
     # так что в KC_LIVE его нет; будет расхождение с PF-строкой KC.
     {
         "code": "KC_LIVE",
-        "label": "KC расчётный",
+        "label": "KC из DodoIs",
         "unit": "%",
         "field": "kc_live_pct",
         "direction": "lower",
@@ -147,7 +147,7 @@ OPS_METRICS: list[dict] = [
     # чтении применяется dc_tax_coefficient (KC — kc_tax_coefficient).
     {
         "code": "DC_LIVE",
-        "label": "DC расчётный",
+        "label": "DC из DodoIs",
         "unit": "%",
         "field": "dc_live_pct",
         "direction": "lower",
@@ -157,12 +157,38 @@ OPS_METRICS: list[dict] = [
 OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
 
 
-def ops_metrics_meta(dc_enabled: bool) -> list[dict]:
-    """Мета ops-метрик для конкретного тенанта. DC_LIVE показываем только
-    если у ключа включён dc_live_enabled (иначе строка не рисуется вовсе)."""
-    if dc_enabled:
-        return OPS_METRICS
-    return [m for m in OPS_METRICS if m["code"] != "DC_LIVE"]
+def ops_metrics_meta(
+    dc_enabled: bool, *, kc_coeff: float = 1.0, dc_coeff: float = 1.0,
+) -> list[dict]:
+    """Мета ops-метрик для конкретного тенанта. DC_LIVE показываем только если
+    dc_live_enabled. На KC_LIVE/DC_LIVE проставляем `coeff_applied` (коэф.≠1.0)
+    — фронт рисует красную «K» в углу плитки, когда применён налог. коэффициент."""
+    out: list[dict] = []
+    for m in OPS_METRICS:
+        if m["code"] == "DC_LIVE" and not dc_enabled:
+            continue
+        item = dict(m)
+        if m["code"] == "KC_LIVE":
+            item["coeff_applied"] = abs(float(kc_coeff) - 1.0) > 1e-9
+        elif m["code"] == "DC_LIVE":
+            item["coeff_applied"] = abs(float(dc_coeff) - 1.0) > 1e-9
+        out.append(item)
+    return out
+
+
+async def get_calc_settings(
+    session: AsyncSession, planfact_key_id: int,
+) -> tuple[float, float, bool]:
+    """(kc_tax_coefficient, dc_tax_coefficient, dc_live_enabled) ключа."""
+    from .auth.models import PlanfactKey
+    pk = await session.get(PlanfactKey, planfact_key_id)
+    if pk is None:
+        return (1.0, 1.0, False)
+    return (
+        float(getattr(pk, "kc_tax_coefficient", 1.0) or 1.0),
+        float(getattr(pk, "dc_tax_coefficient", 1.0) or 1.0),
+        bool(getattr(pk, "dc_live_enabled", False)),
+    )
 OPS_METRIC_FIELD_BY_CODE: dict[str, str] = {m["code"]: m["field"] for m in OPS_METRICS}
 
 

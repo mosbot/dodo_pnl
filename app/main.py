@@ -1349,7 +1349,7 @@ async def get_pnl(
                 ))[0]
                 if user.planfact_key_id else {}
             ),
-            "ops_metrics_meta": store.OPS_METRICS,
+            "ops_metrics_meta": store.ops_metrics_meta(False),
             "period": {"current": {"start": date_start, "end": date_end}},
         }
 
@@ -2057,15 +2057,17 @@ async def get_ops_metrics(
 ):
     if not user.planfact_key_id:
         return {"metrics": {}, "meta": store.ops_metrics_meta(False), "targets": {}}
-    from .auth.models import PlanfactKey
-    pk = await session.get(PlanfactKey, user.planfact_key_id)
-    dc_enabled = bool(getattr(pk, "dc_live_enabled", False))
+    kc_coeff, dc_coeff, dc_enabled = await store.get_calc_settings(
+        session, user.planfact_key_id,
+    )
     return {
         "metrics": await store.list_ops_metrics(
             session, user.planfact_key_id,
             period_month=period_month, project_id=project_id,
         ),
-        "meta": store.ops_metrics_meta(dc_enabled),
+        "meta": store.ops_metrics_meta(
+            dc_enabled, kc_coeff=kc_coeff, dc_coeff=dc_coeff,
+        ),
         "targets": await store.list_ops_targets(session, user.planfact_key_id),
     }
 
