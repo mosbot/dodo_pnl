@@ -140,8 +140,9 @@ OPS_METRICS: list[dict] = [
         "direction": "lower",
         "digits": 1,
     },
-    # DC расчётный — net wage курьерских смен / выручка × 100 (зеркало KC).
-    # Источник тот же: /staff/incentives-by-members, фильтр staffType=='Courier'.
+    # DC расчётный — net wage курьерских смен / выручка ДОСТАВКИ × 100.
+    # Источник ФОТ: /staff/incentives-by-members, фильтр staffType=='Courier';
+    # знаменатель — канал 'Delivery' из /finances/sales/units/monthly.
     # Показывается, только если у ключа dc_live_enabled=TRUE. К значению на
     # чтении применяется dc_tax_coefficient (KC — kc_tax_coefficient).
     {

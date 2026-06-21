@@ -2514,6 +2514,33 @@ async def _run_ops_sync(
                     period, e,
                 )
 
+            # DC: знаменатель — выручка ДОСТАВКИ (курьеры обслуживают только
+            # доставку). Берём канал 'Delivery' из salesBreakdown monthly.
+            # Non-critical: сбой → DC будет null, остальные плитки идут.
+            delivery_rev_by_unit: dict[str, float] = {}
+            try:
+                from calendar import monthrange
+                d_start = f"{period}-01"
+                d_end = f"{period}-{monthrange(y, m)[1]:02d}"
+                monthly_rows = await _timed("finance-monthly", with_dodois_retry(
+                    session, user,
+                    dodois_client.fetch_finance_sales_monthly,
+                    unit_uuids, d_start, d_end,
+                ))
+                for r in monthly_rows:
+                    uid_raw = (r.get("unitId") or "").lower().replace("-", "")
+                    for b in (r.get("salesBreakdown") or []):
+                        if b.get("salesChannel") == "Delivery":
+                            delivery_rev_by_unit[uid_raw] = (
+                                delivery_rev_by_unit.get(uid_raw, 0.0)
+                                + float(b.get("sales") or 0)
+                            )
+            except (DodoISError, NoTokenError) as e:
+                log.warning(
+                    "ops sync %s: finance-monthly FAILED (DC_LIVE will be null): %s",
+                    period, e,
+                )
+
             log.info(
                 "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d/handover-rest=%d/incentives=%d",
                 period, time.monotonic() - t0, len(unit_uuids),
@@ -2600,15 +2627,17 @@ async def _run_ops_sync(
                 kitchen_wage = kc_wage_by_unit.get(key, 0.0)
                 courier_wage = dc_wage_by_unit.get(key, 0.0)
                 sales_total = float(s.get("sales") or 0) if s else 0.0
+                delivery_rev = delivery_rev_by_unit.get(key, 0.0)
+                # KC% = ФОТ кухни / ОБЩАЯ выручка (кухня готовит на все каналы).
                 kc_live_pct = (
                     kitchen_wage / sales_total * 100.0
                     if sales_total > 0 and kitchen_wage > 0 else None
                 )
-                # DC = (courier_wage / sales) × 100 (зеркало KC). Налоговый
-                # коэффициент применяется на чтении в store.list_ops_metrics.
+                # DC% = ФОТ курьеров / выручка ДОСТАВКИ (курьеры обслуживают
+                # только доставку). Налог. коэффициент — на чтении (store).
                 dc_live_pct = (
-                    courier_wage / sales_total * 100.0
-                    if sales_total > 0 and courier_wage > 0 else None
+                    courier_wage / delivery_rev * 100.0
+                    if delivery_rev > 0 and courier_wage > 0 else None
                 )
 
                 if not s:
