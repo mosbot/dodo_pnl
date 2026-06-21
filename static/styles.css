@@ -414,6 +414,7 @@ a.btn-secondary:hover { background: var(--bg); }
   left: 0;
   width: min(280px, 80vw);
   height: calc(100vh - var(--topbar-h, 56px));
+  height: calc(100dvh - var(--topbar-h, 56px)); /* dvh = видимая высота на мобиле (тулбары браузера), иначе sticky «Применить» уезжает за экран */
   background: white;
   border-right: 1px solid var(--border);
   padding: 16px;
@@ -1259,6 +1260,7 @@ body.drawer-open .drawer-backdrop {
     left: 0;
     width: min(280px, 80vw);
     height: calc(100vh - var(--topbar-h, 56px));
+    height: calc(100dvh - var(--topbar-h, 56px)); /* dvh: видимая высота на мобиле — sticky «Применить» остаётся на экране */
     overflow-y: auto;
     background: white;
     border-right: 1px solid var(--border);

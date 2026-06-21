@@ -37,5 +37,16 @@ class Settings(BaseSettings):
     # Имя схемы для наших таблиц. Менять не надо.
     db_schema: str = "pnl_service"
 
+    # --- Токен-брокер sa (платформенный сервис авторизации) ---
+    # Когда задан sa_token_broker_url, Dodo IS access-токен берём у sa
+    # (GET {url}?sub=<sub>, заголовок X-Admin-Token), а не из таблицы
+    # public.dodois_credentials. sa тихо рефрешит токен по offline_access.
+    # dodois_sub_map — соответствие нашего dodois_credentials_name → sub
+    # аккаунта в sa (JSON в .env). Если брокер не настроен или имя не
+    # в карте — фолбэк на legacy-чтение dodois_credentials (старый VPS).
+    sa_token_broker_url: str = ""
+    sa_internal_token: str = ""
+    dodois_sub_map: dict[str, str] = {}
+
 
 settings = Settings()

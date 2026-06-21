@@ -1,0 +1,19 @@
+# pnl-service на SA-VPS: контейнер в общей docker-сети SA (доступ к postgres),
+# наружу проксируется Caddy SA (vhost pnl.dodotool.ru → pnl-api:8000).
+# Запуск: docker compose -f docker-compose.pnl.yml up -d --build
+services:
+  pnl-api:
+    build: .
+    image: dodotool-pnl:local
+    container_name: dodotool-pnl-api-1
+    env_file: .env
+    restart: unless-stopped
+    expose:
+      - "8000"
+    networks:
+      - sa
+
+networks:
+  sa:
+    external: true
+    name: dodotool-sa_default
