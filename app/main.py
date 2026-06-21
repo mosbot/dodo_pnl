@@ -2057,6 +2057,7 @@ async def get_ops_metrics(
 ):
     if not user.planfact_key_id:
         return {"metrics": {}, "meta": store.ops_metrics_meta(False), "targets": {}}
+    from .auth.models import PlanfactKey
     pk = await session.get(PlanfactKey, user.planfact_key_id)
     dc_enabled = bool(getattr(pk, "dc_live_enabled", False))
     return {
