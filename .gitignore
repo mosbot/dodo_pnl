@@ -1,4 +1,5 @@
 .env
+.claude-ssh/
 __pycache__/
 *.pyc
 *.pyo
