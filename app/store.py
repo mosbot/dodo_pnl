@@ -134,7 +134,7 @@ OPS_METRICS: list[dict] = [
     # так что в KC_LIVE его нет; будет расхождение с PF-строкой KC.
     {
         "code": "KC_LIVE",
-        "label": "KC",
+        "label": "KC DODOIS",
         "unit": "%",
         "field": "kc_live_pct",
         "direction": "lower",
@@ -147,7 +147,7 @@ OPS_METRICS: list[dict] = [
     # чтении применяется dc_tax_coefficient (KC — kc_tax_coefficient).
     {
         "code": "DC_LIVE",
-        "label": "DC",
+        "label": "DC DODOIS",
         "unit": "%",
         "field": "dc_live_pct",
         "direction": "lower",
