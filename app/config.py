@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     sa_token_broker_url: str = ""
     sa_internal_token: str = ""
     dodois_sub_map: dict[str, str] = {}
+    # База sa для SSO: pnl форвардит sa-куку в GET {sa_base_url}/me и
+    # /entitlements (внутренний адрес в общей docker-сети). Если пусто — SSO
+    # выключен (работает только локальный логин).
+    sa_base_url: str = ""
+    # Внешний URL OAuth-входа sa (кнопка «Войти через Dodo IS» и редирект при
+    # первом входе) + внешний базовый URL pnl для return_to.
+    sa_login_url: str = ""        # напр. https://sa.dodotool.ru/dodois/login
+    public_base_url: str = ""     # напр. https://pnl.dodotool.ru
 
 
 settings = Settings()

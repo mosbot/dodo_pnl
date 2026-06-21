@@ -90,8 +90,16 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    # NULL для SSO-юзеров (вход через Dodo IS, без локального пароля).
+    password_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+    # SSO: стабильный sub Dodo-аккаунта (из sa). NULL у локальных юзеров.
+    # Уникален — один pnl-юзер на Dodo-аккаунт. По нему резолвим SSO-вход
+    # и берём Dodo-токен у брокера sa напрямую (см. auth/tokens).
+    dodois_sub: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
 
     # Имя в соседской таблице public.dodois_credentials, по которому
     # резолвим access_token. Может быть пустым, если юзер пока не привязан.

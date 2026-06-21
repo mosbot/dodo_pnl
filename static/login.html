@@ -78,6 +78,14 @@
     display: none;
   }
   .login-error.visible { display: block; }
+  .login-or { text-align:center; color:var(--muted); font-size:12px; margin:16px 0 10px; }
+  .login-sso {
+    display:block; text-align:center; padding:10px 16px;
+    border:1px solid var(--border); border-radius:6px;
+    font-size:14px; font-weight:600; color:var(--text); text-decoration:none;
+    background:#fff;
+  }
+  .login-sso:hover { background: var(--bg); }
 </style>
 </head>
 <body class="login-body">
@@ -98,9 +106,26 @@
       <div id="loginError" class="login-error"></div>
       <button type="submit" id="loginSubmit" class="login-submit">Войти</button>
     </form>
+    <div class="login-or">или</div>
+    <a href="/auth/sso" class="login-sso">Войти через Dodo IS</a>
   </div>
 </div>
 
 <script src="/static/login.js"></script>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search).get('sso');
+    if (!p) return;
+    var msg = {
+      nolicense: 'У этого аккаунта Dodo IS нет лицензии на Финансы. Обратитесь к администратору.',
+      invalid: 'Сессия Dodo IS недействительна — войдите заново.',
+      nosession: 'Войдите через Dodo IS.'
+    }[p];
+    if (msg) {
+      var e = document.getElementById('loginError');
+      e.textContent = msg; e.classList.add('visible');
+    }
+  })();
+</script>
 </body>
 </html>

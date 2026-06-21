@@ -94,6 +94,12 @@ async def get_dodois_token(session: AsyncSession, user: User) -> str:
       3) env-fallback (settings.dodo_is_access_token) — ТОЛЬКО когда у юзера
          нет привязки (пустой name), чтобы не отдать токен чужого аккаунта.
     """
+    # SSO-юзер: его Dodo sub известен напрямую → токен у брокера sa по sub
+    # (без карты DODOIS_SUB_MAP — она для ручных/legacy юзеров).
+    sso_sub = (getattr(user, "dodois_sub", None) or "").strip()
+    if sso_sub and settings.sa_token_broker_url:
+        return await _fetch_token_from_broker(sso_sub, sso_sub)
+
     name = (user.dodois_credentials_name or "").strip()
     if not name:
         fallback = (settings.dodo_is_access_token or "").strip()

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -138,6 +139,51 @@ async def login(
         httponly=True, secure=True, samesite="strict", path="/",
     )
     return UserPublic.from_user(u)
+
+
+@router.get("/auth/sso")
+async def auth_sso(
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    """SSO-вход через sa: общая кука .dodotool.ru → sa /me → pnl-сессия.
+    Новый тенант провижится автоматически при наличии лицензии pnl (JIT)."""
+    from . import sso as sso_mod
+    from ..config import settings
+
+    sa_cookie = request.cookies.get(sso_mod.SA_COOKIE_NAME)
+    if not sa_cookie:
+        # Нет сессии sa → на OAuth-вход sa с возвратом на /auth/sso.
+        if settings.sa_login_url and settings.public_base_url:
+            rt = settings.public_base_url.rstrip("/") + "/auth/sso"
+            return RedirectResponse(
+                f"{settings.sa_login_url}?return_to={rt}", status_code=302,
+            )
+        return RedirectResponse("/login?sso=nosession", status_code=302)
+    sa_user = await sso_mod.resolve_sa_user(sa_cookie)
+    if not sa_user:
+        return RedirectResponse("/login?sso=invalid", status_code=302)
+    u = await sso_mod.get_or_provision_user(
+        db, sa_cookie, sa_user["sub"], sa_user["name"],
+    )
+    if u is None:
+        return RedirectResponse("/login?sso=nolicense", status_code=302)
+
+    ip = request.client.host if request.client else None
+    s = await create_session(
+        db, u, user_agent=request.headers.get("user-agent"), ip=ip,
+    )
+    await audit.log_audit(
+        db, audit.ACTION_LOGIN_SUCCESS, user_id=u.id, request=request,
+    )
+    await db.commit()
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie(
+        key=SESSION_COOKIE, value=s.plain_token,
+        max_age=SESSION_TTL_DAYS * 24 * 3600,
+        httponly=True, secure=True, samesite="lax", path="/",
+    )
+    return resp
 
 
 @router.post("/auth/logout")

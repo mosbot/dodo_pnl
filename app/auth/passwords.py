@@ -23,8 +23,13 @@ def hash_password(password: str) -> str:
     return _ph.hash(password)
 
 
-def verify_password(password: str, password_hash: str) -> bool:
-    """Проверить пароль против хеша. Возвращает True/False, не бросает."""
+def verify_password(password: str, password_hash: str | None) -> bool:
+    """Проверить пароль против хеша. Возвращает True/False, не бросает.
+
+    password_hash может быть None/пустым у SSO-юзеров (вход через Dodo IS, без
+    локального пароля) — такой локальный логин всегда отклоняем."""
+    if not password_hash:
+        return False
     try:
         _ph.verify(password_hash, password)
         return True
