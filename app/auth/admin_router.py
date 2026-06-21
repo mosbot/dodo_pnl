@@ -690,6 +690,10 @@ class PlanfactKeyPublic(BaseModel):
     used_by_count: int   # сколько юзеров привязано
     live_months_window: int  # глубина live-окна для cache_history (S3.4)
     pnl_source: str = "raw"  # S20: 'raw' | 'shadow' | 'v2'
+    live_revenue_from_dodois: bool = False  # S22
+    kc_tax_coefficient: float = 1.0  # DC: налог. коэф. к расчётному KC%
+    dc_tax_coefficient: float = 1.0  # DC: налог. коэф. к расчётному DC%
+    dc_live_enabled: bool = False    # DC: показывать расчётный DC
     created_at: str
     updated_at: str
 
@@ -706,6 +710,11 @@ class PlanfactKeyUpdate(BaseModel):
     note: Optional[str] = None
     # S20: переключение источника P&L без деплоя (см. v2-reports-migration-plan)
     pnl_source: Optional[str] = Field(default=None, pattern="^(raw|shadow|v2)$")
+    # S22 + DC: per-tenant флаги/коэффициенты (правятся из админки)
+    live_revenue_from_dodois: Optional[bool] = None
+    dc_live_enabled: Optional[bool] = None
+    kc_tax_coefficient: Optional[float] = Field(default=None, ge=0, le=10)
+    dc_tax_coefficient: Optional[float] = Field(default=None, ge=0, le=10)
 
 
 def _mask_key(s: str) -> str:
@@ -721,6 +730,22 @@ async def _key_usage_count(session: AsyncSession, key_id: int) -> int:
         select(func.count(User.id)).where(User.planfact_key_id == key_id)
     )
     return int(res.scalar_one() or 0)
+
+
+def _pk_public(k: PlanfactKey, cnt: int) -> PlanfactKeyPublic:
+    """Единая сборка PlanfactKeyPublic из модели (getattr — backward-safe)."""
+    return PlanfactKeyPublic(
+        id=k.id, name=k.name, api_key_masked=_mask_key(k.api_key),
+        note=k.note, used_by_count=cnt,
+        live_months_window=k.live_months_window,
+        pnl_source=getattr(k, "pnl_source", "raw") or "raw",
+        live_revenue_from_dodois=bool(getattr(k, "live_revenue_from_dodois", False)),
+        kc_tax_coefficient=float(getattr(k, "kc_tax_coefficient", 1.0) or 1.0),
+        dc_tax_coefficient=float(getattr(k, "dc_tax_coefficient", 1.0) or 1.0),
+        dc_live_enabled=bool(getattr(k, "dc_live_enabled", False)),
+        created_at=k.created_at.isoformat(),
+        updated_at=k.updated_at.isoformat(),
+    )
 
 
 @admin_router.get("/api/admin/planfact-keys", response_model=list[PlanfactKeyPublic])
@@ -740,14 +765,7 @@ async def admin_list_planfact_keys(
     out: list[PlanfactKeyPublic] = []
     for k in items:
         cnt = await _key_usage_count(session, k.id)
-        out.append(PlanfactKeyPublic(
-            id=k.id, name=k.name, api_key_masked=_mask_key(k.api_key),
-            note=k.note, used_by_count=cnt,
-            live_months_window=k.live_months_window,
-            pnl_source=getattr(k, "pnl_source", "raw") or "raw",
-            created_at=k.created_at.isoformat(),
-            updated_at=k.updated_at.isoformat(),
-        ))
+        out.append(_pk_public(k, cnt))
     return out
 
 
@@ -768,14 +786,7 @@ async def admin_create_planfact_key(
     except IntegrityError:
         await session.rollback()
         raise HTTPException(409, f"Ключ с именем {body.name!r} уже существует")
-    return PlanfactKeyPublic(
-        id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
-        note=pk.note, used_by_count=0,
-        live_months_window=pk.live_months_window,
-        pnl_source=getattr(pk, "pnl_source", "raw") or "raw",
-        created_at=pk.created_at.isoformat(),
-        updated_at=pk.updated_at.isoformat(),
-    )
+    return _pk_public(pk, 0)
 
 
 @admin_router.patch("/api/admin/planfact-keys/{key_id}", response_model=PlanfactKeyPublic)
@@ -798,6 +809,14 @@ async def admin_update_planfact_key(
         pk.note = body.note.strip() or None
     if body.pnl_source is not None:
         pk.pnl_source = body.pnl_source
+    if body.live_revenue_from_dodois is not None:
+        pk.live_revenue_from_dodois = body.live_revenue_from_dodois
+    if body.dc_live_enabled is not None:
+        pk.dc_live_enabled = body.dc_live_enabled
+    if body.kc_tax_coefficient is not None:
+        pk.kc_tax_coefficient = float(body.kc_tax_coefficient)
+    if body.dc_tax_coefficient is not None:
+        pk.dc_tax_coefficient = float(body.dc_tax_coefficient)
     pk.updated_at = datetime.now(timezone.utc)
     try:
         await session.commit()
@@ -805,14 +824,7 @@ async def admin_update_planfact_key(
         await session.rollback()
         raise HTTPException(409, "Ключ с таким именем уже существует")
     cnt = await _key_usage_count(session, pk.id)
-    return PlanfactKeyPublic(
-        id=pk.id, name=pk.name, api_key_masked=_mask_key(pk.api_key),
-        note=pk.note, used_by_count=cnt,
-        live_months_window=pk.live_months_window,
-        pnl_source=getattr(pk, "pnl_source", "raw") or "raw",
-        created_at=pk.created_at.isoformat(),
-        updated_at=pk.updated_at.isoformat(),
-    )
+    return _pk_public(pk, cnt)
 
 
 @admin_router.delete("/api/admin/planfact-keys/{key_id}")

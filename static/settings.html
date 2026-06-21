@@ -411,6 +411,16 @@
       <label>Заметка (опционально)
         <input type="text" id="pkNote" maxlength="500" placeholder="например, для какого юзера / какой компании">
       </label>
+      <label>Налоговый коэф. KC (расчётный KC × множитель, напр. 1.3)
+        <input type="number" id="pkKcTax" step="0.01" min="0" max="10" placeholder="1.0">
+      </label>
+      <label style="flex-direction:row;align-items:center;gap:8px;">
+        <input type="checkbox" id="pkDcEnabled" style="width:auto;">
+        Показывать расчётный DC (зарплата курьеров из Dodo IS)
+      </label>
+      <label>Налоговый коэф. DC (расчётный DC × множитель, напр. 1.3)
+        <input type="number" id="pkDcTax" step="0.01" min="0" max="10" placeholder="1.0">
+      </label>
       <div id="pkMsg" class="profile-msg"></div>
       <div class="modal-footer" style="justify-content:space-between;">
         <button type="button" class="btn-secondary" id="pkDelete" style="display:none;background:#fef2f2;border-color:#fecaca;color:#b91c1c;">Удалить</button>
@@ -493,6 +503,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=24"></script>
-<script src="/static/settings.js?v=24"></script>
+<script src="/static/settings.js?v=25"></script>
 </body>
 </html>

@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection"
+      content="telephone=no, address=no, email=no, date=no">
+<title>Сеть · карточки — мокап v2</title>
+<style>
+:root {
+  --bg:        #fafaf9;
+  --card:      #ffffff;
+  --border:    #e7e5e0;
+  --border-strong: #d4d4cf;
+  --text:      #18181b;
+  --muted:     #6e6e6a;        /* AA на белом */
+  --muted-2:   #8a8a86;        /* поднял с #a3a39e ради контраста */
+  --pos:       #15803d;
+  --pos-bg:    #ecfdf5;
+  --neg:       #b91c1c;
+  --neg-bg:    #fef2f2;
+  --warn:      #b45309;
+  --warn-bg:   #fffbeb;
+  --warn-border: #fcd34d;
+  --crit-bg:   #fef2f2;
+  --crit-border: #fca5a5;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text",
+               "Segoe UI", system-ui, sans-serif;
+  font-size: 15px; line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"] {
+  color: inherit; text-decoration: none; pointer-events: none;
+}
+
+.topbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  background: rgba(250,250,249,0.92);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+  backdrop-filter: blur(10px);
+}
+.topbar-title {
+  flex: 1; font-weight: 600; font-size: 15px;
+  padding: 8px 12px;
+}
+.view-switch {
+  display: flex; gap: 0; background: rgba(0,0,0,0.04);
+  border-radius: 8px; padding: 3px; font-size: 13px;
+}
+.view-switch button {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 8px 12px; border-radius: 6px; min-height: 32px;
+  font-family: inherit; color: var(--muted); font-weight: 500;
+}
+.view-switch button.active {
+  background: white; color: var(--text);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+.page-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #ffffff;
+}
+.page-h1 {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0 0 4px; line-height: 1.15;
+}
+.page-subtitle {
+  font-size: 13px; color: var(--muted);
+}
+.page-subtitle .accent { color: var(--text); font-weight: 500; }
+
+/* ─── Network summary strip ─── */
+.net-strip {
+  margin: 12px 14px 0;
+  padding: 12px 16px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+.net-strip .label {
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); font-weight: 700; display: block;
+}
+.net-strip .value {
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  display: inline-flex; align-items: baseline; gap: 6px;
+}
+.net-strip .value .unit { color: var(--muted); font-size: 13px; font-weight: 500; }
+.net-strip .pill {
+  font-size: 12.5px; padding: 2px 7px; border-radius: 5px;
+  font-weight: 600;
+}
+.net-strip .pill.pos { color: var(--pos); background: var(--pos-bg); }
+.net-strip .pill.neg { color: var(--neg); background: var(--neg-bg); }
+.net-strip .pill.neutral { color: var(--muted); background: rgba(0,0,0,0.04); }
+.net-strip .item { flex: 1; min-width: 130px; }
+
+/* ─── Card grid ─── */
+.cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+@media (min-width: 720px) {
+  .cards { grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px; }
+}
+@media (min-width: 1280px) {
+  .cards { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.1s;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  overflow: hidden;
+}
+.card:hover { border-color: var(--border-strong); }
+
+.card.crit { border-left: 3px solid var(--neg); }
+.card.warn { border-left: 3px solid var(--warn); }
+.card.ok   { border-left: 3px solid var(--pos); }
+
+/* ─── Head ─── */
+.card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 14px 16px 4px; gap: 10px;
+}
+.card-name {
+  font-size: 17px; font-weight: 700; letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; flex: 1;
+}
+.card-head-meta {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  flex-shrink: 0;
+}
+.month-mini {
+  font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums; font-weight: 500;
+  white-space: nowrap;
+}
+.month-mini .v { font-weight: 600; }
+.month-mini.pos .v { color: var(--pos); }
+.month-mini.neg .v { color: var(--neg); }
+.month-mini.neutral .v { color: var(--text); }
+.card-day-delta {
+  font-size: 14px; font-weight: 700;
+  padding: 3px 8px; border-radius: 5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.card-day-delta.pos { color: var(--pos); background: var(--pos-bg); }
+.card-day-delta.neg { color: var(--neg); background: var(--neg-bg); }
+.card-day-delta.neutral { color: var(--muted); background: rgba(0,0,0,0.04); }
+
+/* Crit alert — раскрывающийся <details> */
+.crit-alert {
+  margin: 0; padding: 0;
+}
+.crit-alert summary {
+  list-style: none;
+  padding: 4px 16px 6px;
+  cursor: pointer;
+  font-size: 13px; color: var(--neg);
+  font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  user-select: none;
+}
+.crit-alert summary::-webkit-details-marker { display: none; }
+.crit-alert summary:hover { background: rgba(185,28,28,0.04); }
+.crit-alert summary .sep { color: var(--muted-2); margin: 0 2px; font-weight: 400; }
+.crit-alert summary .chev {
+  margin-left: auto; font-size: 10px; color: var(--neg);
+  transition: transform 0.15s; opacity: 0.7;
+}
+.crit-alert[open] summary .chev { transform: rotate(180deg); }
+
+.crit-alert-body {
+  padding: 2px 16px 8px;
+  background: rgba(185,28,28,0.025);
+  border-top: 1px dashed var(--crit-border);
+}
+.crit-sub {
+  padding: 6px 0 4px;
+}
+.crit-sub + .crit-sub { border-top: 1px dashed rgba(185,28,28,0.15); }
+.crit-sub-label {
+  font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--neg); opacity: 0.75; font-weight: 700;
+  display: block; padding-bottom: 4px;
+}
+.crit-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 8px; align-items: baseline;
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+  padding: 1px 0;
+}
+.crit-row .nm { color: var(--text); }
+.crit-row .dur {
+  color: var(--neg); font-weight: 600; font-size: 12px;
+}
+
+/* Выручка */
+.card-revenue {
+  padding: 4px 16px 4px;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+.card-revenue .num {
+  font-size: 24px; font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.card-revenue .unit { color: var(--muted); font-size: 14px; font-weight: 500; }
+.card-revenue .base {
+  font-size: 13px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Каналы — одна inline-строка */
+.card-channels-inline {
+  padding: 0 16px 10px;
+  font-size: 13px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.card-channels-inline .ch-name { color: var(--muted); }
+.card-channels-inline .ch-val { color: var(--text); font-weight: 600; }
+.card-channels-inline .delta { font-weight: 600; }
+.card-channels-inline .delta.pos { color: var(--pos); }
+.card-channels-inline .delta.neg { color: var(--neg); }
+.card-channels-inline .delta.neutral { color: var(--muted); }
+.card-channels-inline .sep { color: var(--muted-2); margin: 0 6px; }
+
+/* Warn-чипы (только для не-crit точек) */
+.card-warn-chips {
+  padding: 0 16px 8px;
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.warn-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 5px;
+  font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--warn-bg); color: var(--warn);
+}
+.warn-chip.empty { background: rgba(0,0,0,0.03); color: var(--muted); font-weight: 500; }
+
+/* Ops grid */
+.ops-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--border);
+}
+.ops-col {
+  padding: 8px 14px 10px;
+}
+.ops-col + .ops-col {
+  border-left: 1px solid var(--border);
+}
+.ops-label {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); font-weight: 700;
+  padding-bottom: 5px;
+}
+.ops-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto auto;
+  gap: 6px; align-items: baseline;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+  padding: 3px 0;
+}
+.ops-row .nm { color: var(--muted); font-size: 12px; }
+.ops-row .vl { font-weight: 600; text-align: right; }
+.ops-row .vl .u { color: var(--muted); font-weight: 400; font-size: 11px; }
+.ops-row .dl { font-weight: 600; font-size: 12px; min-width: 44px; text-align: right; }
+.ops-row .dl.pos { color: var(--pos); }
+.ops-row .dl.neg { color: var(--neg); }
+.ops-row .dl.neutral { color: var(--muted); }
+
+.page-foot {
+  text-align: center; padding: 18px;
+  font-size: 11px; color: var(--muted);
+}
+
+.mock-mark {
+  position: fixed; bottom: 8px; left: 8px;
+  background: rgba(0,0,0,0.04); color: var(--muted);
+  font-size: 10px; padding: 4px 8px; border-radius: 4px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-title">Сеть «Подмосковье-Запад»</div>
+  <div class="view-switch">
+    <button>строки</button>
+    <button class="active">карточки</button>
+  </div>
+</header>
+
+<header class="page-header">
+  <h1 class="page-h1">Сегодня в сети</h1>
+  <p class="page-subtitle">
+    <span class="accent">Среда, 4 июня</span> ·
+    данные до <span class="accent">13:43</span> MSK ·
+    <span class="accent">12 пиццерий</span>
+  </p>
+</header>
+
+<div class="net-strip">
+  <div class="item">
+    <span class="label">Выручка сети</span>
+    <span class="value">2 980 000 <span class="unit">₽</span>
+      <span class="pill neg">−4,2%</span></span>
+  </div>
+  <div class="item">
+    <span class="label">Доставка</span>
+    <span class="value">1 920 000 <span class="unit">₽</span>
+      <span class="pill neg">−5,1%</span></span>
+  </div>
+  <div class="item">
+    <span class="label">Ресторан</span>
+    <span class="value">1 060 000 <span class="unit">₽</span>
+      <span class="pill neutral">−2,7%</span></span>
+  </div>
+  <div class="item">
+    <span class="label">Месяц LFL</span>
+    <span class="value"><span class="pill pos">+3,2%</span></span>
+  </div>
+</div>
+
+<div class="cards">
+
+  <!-- 1: CRIT — Кубинка-1 −18% (alert поднят в head-area + раскрывается) -->
+  <div class="card crit">
+    <div class="card-head">
+      <span class="card-name">Кубинка-1</span>
+      <span class="card-head-meta">
+        <span class="month-mini pos">мес <span class="v">+4,1%</span></span>
+        <span class="card-day-delta neg">−18%</span>
+      </span>
+    </div>
+    <details class="crit-alert">
+      <summary>
+        🛑 Доставка 31 мин<span class="sep">·</span>2 сектора<span class="sep">·</span>7 стопов
+        <span class="chev">▾</span>
+      </summary>
+      <div class="crit-alert-body">
+        <div class="crit-sub">
+          <span class="crit-sub-label">Каналы</span>
+          <div class="crit-row"><span class="nm">Доставка — с 13:12</span><span class="dur">31 мин</span></div>
+        </div>
+        <div class="crit-sub">
+          <span class="crit-sub-label">Сектора в стопе</span>
+          <div class="crit-row"><span class="nm">Сектор 3 «Северный»</span><span class="dur">2:35</span></div>
+          <div class="crit-row"><span class="nm">Сектор 7 «Запад»</span><span class="dur">53 мин</span></div>
+        </div>
+        <div class="crit-sub">
+          <span class="crit-sub-label">Стопы продуктов и ингредиентов</span>
+          <div class="crit-row"><span class="nm">Сыр моцарелла</span><span class="dur">2:01</span></div>
+          <div class="crit-row"><span class="nm">Курица соус</span><span class="dur">53 мин</span></div>
+          <div class="crit-row"><span class="nm">Маргарита 30</span><span class="dur">38 мин</span></div>
+          <div class="crit-row"><span class="nm">Тесто 30 см</span><span class="dur">22 мин</span></div>
+          <div class="crit-row"><span class="nm">Пеперони 30</span><span class="dur">13 мин</span></div>
+          <div class="crit-row"><span class="nm">Острый соус</span><span class="dur">10 мин</span></div>
+          <div class="crit-row"><span class="nm">Ананас консерв.</span><span class="dur">4:28</span></div>
+        </div>
+      </div>
+    </details>
+    <div class="card-revenue">
+      <span class="num">73 254 <span class="unit">₽</span></span>
+      <span class="base">vs 89 410</span>
+    </div>
+    <div class="card-channels-inline">
+      <span class="ch-name">Дост</span> <span class="ch-val">51 135</span>
+      <span class="delta neg">−22%</span>
+      <span class="sep">·</span>
+      <span class="ch-name">Рест</span> <span class="ch-val">22 119</span>
+      <span class="delta neg">−8%</span>
+    </div>
+    <div class="ops-grid">
+      <div class="ops-col">
+        <div class="ops-label">Кухня</div>
+        <div class="ops-row"><span class="nm">₽/чел·ч</span><span class="vl">3 580</span><span class="dl pos">+7,8</span></div>
+        <div class="ops-row"><span class="nm">шт/чел·ч</span><span class="vl">12,4</span><span class="dl pos">+5,1</span></div>
+        <div class="ops-row"><span class="nm">Готовка зал</span><span class="vl">3:42</span><span class="dl neg">+18с</span></div>
+        <div class="ops-row"><span class="nm">Готовка дост</span><span class="vl">4:55</span><span class="dl neutral">−12с</span></div>
+      </div>
+      <div class="ops-col">
+        <div class="ops-label">Доставка</div>
+        <div class="ops-row"><span class="nm">заказ/курьер</span><span class="vl">2,45</span><span class="dl pos">+6,1</span></div>
+        <div class="ops-row"><span class="nm">Среднее доставки</span><span class="vl">38:20</span><span class="dl neg">+2:15</span></div>
+        <div class="ops-row"><span class="nm">Сертификаты</span><span class="vl">3<span class="u"> шт</span></span><span class="dl neg">+2</span></div>
+        <div class="ops-row"><span class="nm">Курьеров</span><span class="vl">5<span class="u">/0</span></span><span class="dl neutral">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2: CRIT — ВНИИССОК-1 −12% -->
+  <div class="card crit">
+    <div class="card-head">
+      <span class="card-name">ВНИИССОК-1</span>
+      <span class="card-head-meta">
+        <span class="month-mini neg">мес <span class="v">−2,3%</span></span>
+        <span class="card-day-delta neg">−12%</span>
+      </span>
+    </div>
+    <details class="crit-alert">
+      <summary>
+        🛑 1 сектор<span class="sep">·</span>3 стопа продуктов
+        <span class="chev">▾</span>
+      </summary>
+      <div class="crit-alert-body">
+        <div class="crit-sub">
+          <span class="crit-sub-label">Сектора в стопе</span>
+          <div class="crit-row"><span class="nm">Сектор 5 «Перхушково»</span><span class="dur">1:12</span></div>
+        </div>
+        <div class="crit-sub">
+          <span class="crit-sub-label">Стопы продуктов</span>
+          <div class="crit-row"><span class="nm">Бекон</span><span class="dur">2:48</span></div>
+          <div class="crit-row"><span class="nm">Цезарь соус</span><span class="dur">45 мин</span></div>
+          <div class="crit-row"><span class="nm">Чикен-ранч 30</span><span class="dur">22 мин</span></div>
+        </div>
+      </div>
+    </details>
+    <div class="card-revenue">
+      <span class="num">95 820 <span class="unit">₽</span></span>
+      <span class="base">vs 108 950</span>
+    </div>
+    <div class="card-channels-inline">
+      <span class="ch-name">Дост</span> <span class="ch-val">62 100</span>
+      <span class="delta neg">−15%</span>
+      <span class="sep">·</span>
+      <span class="ch-name">Рест</span> <span class="ch-val">33 720</span>
+      <span class="delta neg">−6%</span>
+    </div>
+    <div class="ops-grid">
+      <div class="ops-col">
+        <div class="ops-label">Кухня</div>
+        <div class="ops-row"><span class="nm">₽/чел·ч</span><span class="vl">4 120</span><span class="dl neutral">+3,2</span></div>
+        <div class="ops-row"><span class="nm">шт/чел·ч</span><span class="vl">14,1</span><span class="dl neutral">+2,4</span></div>
+        <div class="ops-row"><span class="nm">Готовка зал</span><span class="vl">3:18</span><span class="dl neutral">−5с</span></div>
+        <div class="ops-row"><span class="nm">Готовка дост</span><span class="vl">5:12</span><span class="dl neutral">+8с</span></div>
+      </div>
+      <div class="ops-col">
+        <div class="ops-label">Доставка</div>
+        <div class="ops-row"><span class="nm">заказ/курьер</span><span class="vl">2,18</span><span class="dl neg">−4,2</span></div>
+        <div class="ops-row"><span class="nm">Среднее доставки</span><span class="vl">41:10</span><span class="dl neg">+3:40</span></div>
+        <div class="ops-row"><span class="nm">Сертификаты</span><span class="vl">1<span class="u"> шт</span></span><span class="dl neutral">±0</span></div>
+        <div class="ops-row"><span class="nm">Курьеров</span><span class="vl">4<span class="u">/1</span></span><span class="dl neutral">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3: WARN — Голицыно-1 −6% (нет crit-alert, есть warn-chip) -->
+  <a class="card warn" href="#">
+    <div class="card-head">
+      <span class="card-name">Голицыно-1</span>
+      <span class="card-head-meta">
+        <span class="month-mini neutral">мес <span class="v">+1,8%</span></span>
+        <span class="card-day-delta neg">−6%</span>
+      </span>
+    </div>
+    <div class="card-revenue">
+      <span class="num">142 350 <span class="unit">₽</span></span>
+      <span class="base">vs 151 460</span>
+    </div>
+    <div class="card-channels-inline">
+      <span class="ch-name">Дост</span> <span class="ch-val">88 400</span>
+      <span class="delta neg">−8%</span>
+      <span class="sep">·</span>
+      <span class="ch-name">Рест</span> <span class="ch-val">53 950</span>
+      <span class="delta neutral">−3%</span>
+    </div>
+    <div class="card-warn-chips">
+      <span class="warn-chip">⚠ 2 стопа продуктов</span>
+    </div>
+    <div class="ops-grid">
+      <div class="ops-col">
+        <div class="ops-label">Кухня</div>
+        <div class="ops-row"><span class="nm">₽/чел·ч</span><span class="vl">4 350</span><span class="dl neutral">+1,8</span></div>
+        <div class="ops-row"><span class="nm">шт/чел·ч</span><span class="vl">15,2</span><span class="dl neutral">+0,9</span></div>
+        <div class="ops-row"><span class="nm">Готовка зал</span><span class="vl">3:05</span><span class="dl neutral">−12с</span></div>
+        <div class="ops-row"><span class="nm">Готовка дост</span><span class="vl">4:48</span><span class="dl neutral">−9с</span></div>
+      </div>
+      <div class="ops-col">
+        <div class="ops-label">Доставка</div>
+        <div class="ops-row"><span class="nm">заказ/курьер</span><span class="vl">2,62</span><span class="dl neutral">+3,1</span></div>
+        <div class="ops-row"><span class="nm">Среднее доставки</span><span class="vl">35:40</span><span class="dl neutral">−25с</span></div>
+        <div class="ops-row"><span class="nm">Сертификаты</span><span class="vl">0<span class="u"> шт</span></span><span class="dl pos">−1</span></div>
+        <div class="ops-row"><span class="nm">Курьеров</span><span class="vl">6<span class="u">/0</span></span><span class="dl neutral">—</span></div>
+      </div>
+    </div>
+  </a>
+
+  <!-- 4: WARN — Одинцово-3 −4% (без стопов вообще) -->
+  <a class="card warn" href="#">
+    <div class="card-head">
+      <span class="card-name">Одинцово-3</span>
+      <span class="card-head-meta">
+        <span class="month-mini pos">мес <span class="v">+5,4%</span></span>
+        <span class="card-day-delta neutral">−4%</span>
+      </span>
+    </div>
+    <div class="card-revenue">
+      <span class="num">186 200 <span class="unit">₽</span></span>
+      <span class="base">vs 194 250</span>
+    </div>
+    <div class="card-channels-inline">
+      <span class="ch-name">Дост</span> <span class="ch-val">112 400</span>
+      <span class="delta neutral">−5%</span>
+      <span class="sep">·</span>
+      <span class="ch-name">Рест</span> <span class="ch-val">73 800</span>
+      <span class="delta neutral">−2%</span>
+    </div>
+    <div class="card-warn-chips">
+      <span class="warn-chip empty">всё открыто</span>
+    </div>
+    <div class="ops-grid">
+      <div class="ops-col">
+        <div class="ops-label">Кухня</div>
+        <div class="ops-row"><span class="nm">₽/чел·ч</span><span class="vl">4 680</span><span class="dl neutral">+2,4</span></div>
+        <div class="ops-row"><span class="nm">шт/чел·ч</span><span class="vl">16,4</span><span class="dl neutral">+1,2</span></div>
+        <div class="ops-row"><span class="nm">Готовка зал</span><span class="vl">2:58</span><span class="dl neutral">−8с</span></div>
+        <div class="ops-row"><span class="nm">Готовка дост</span><span class="vl">4:32</span><span class="dl neutral">−14с</span></div>
+      </div>
+      <div class="ops-col">
+        <div class="ops-label">Доставка</div>
+        <div class="ops-row"><span class="nm">заказ/курьер</span><span class="vl">2,84</span><span class="dl neutral">+2,8</span></div>
+        <div class="ops-row"><span class="nm">Среднее доставки</span><span class="vl">33:15</span><span class="dl pos">−1:30</span></div>
+        <div class="ops-row"><span class="nm">Сертификаты</span><span class="vl">0<span class="u"> шт</span></span><span class="dl neutral">±0</span></div>
+        <div class="ops-row"><span class="nm">Курьеров</span><span class="vl">8<span class="u">/0</span></span><span class="dl neutral">—</span></div>
+      </div>
+    </div>
+  </a>
+
+  <!-- 5: OK — Звенигород-1 +1% (нейтральная) -->
+  <a class="card ok" href="#">
+    <div class="card-head">
+      <span class="card-name">Звенигород-1</span>
+      <span class="card-head-meta">
+        <span class="month-mini pos">мес <span class="v">+3,7%</span></span>
+        <span class="card-day-delta neutral">+1%</span>
+      </span>
+    </div>
+    <div class="card-revenue">
+      <span class="num">128 600 <span class="unit">₽</span></span>
+      <span class="base">vs 127 200</span>
+    </div>
+    <div class="card-channels-inline">
+      <span class="ch-name">Дост</span> <span class="ch-val">81 100</span>
+      <span class="delta neutral">+2%</span>
+      <span class="sep">·</span>
+      <span class="ch-name">Рест</span> <span class="ch-val">47 500</span>
+      <span class="delta neutral">−1%</span>
+    </div>
+    <div class="card-warn-chips">
+      <span class="warn-chip empty">всё открыто</span>
+    </div>
+    <div class="ops-grid">
+      <div class="ops-col">
+        <div class="ops-label">Кухня</div>
+        <div class="ops-row"><span class="nm">₽/чел·ч</span><span class="vl">4 250</span><span class="dl neutral">+0,5</span></div>
+        <div class="ops-row"><span class="nm">шт/чел·ч</span><span class="vl">14,8</span><span class="dl neutral">±0</span></div>
+        <div class="ops-row"><span class="nm">Готовка зал</span><span class="vl">3:12</span><span class="dl neutral">+2с</span></div>
+        <div class="ops-row"><span class="nm">Готовка дост</span><span class="vl">4:58</span><span class="dl neutral">+3с</span></div>
+      </div>
+      <div class="ops-col">
+        <div class="ops-label">Доставка</div>
+        <div class="ops-row"><span class="nm">заказ/курьер</span><span class="vl">2,55</span><span class="dl neutral">+1,2</span></div>
+        <div class="ops-row"><span class="nm">Среднее доставки</span><span class="vl">36:20</span><span class="dl neutral">−10с</span></div>
+        <div class="ops-row"><span class="nm">Сертификаты</span><span class="vl">1<span class="u"> шт</span></span><span class="dl neutral">±0</span></div>
+        <div class="ops-row"><span class="nm">Курьеров</span><span class="vl">5<span class="u">/0</span></span><span class="dl neutral">—</span></div>
+      </div>
+    </div>
+  </a>
+
+  <!-- 6: OK — Краснознаменск-1 +9% (тут зелёный реально работает) -->
+  <a class="card ok" href="#">
+    <div class="card-head">
+      <span class="card-name">Краснознаменск-1</span>
+      <span class="card-head-meta">
+        <span class="month-mini pos">мес <span class="v">+8,1%</span></span>
+        <span class="card-day-delta pos">+9%</span>
+      </span>
+    </div>
+    <div class="card-revenue">
+      <span class="num">214 500 <span class="unit">₽</span></span>
+      <span class="base">vs 196 800</span>
+    </div>
+    <div class="card-channels-inline">
+      <span class="ch-name">Дост</span> <span class="ch-val">142 300</span>
+      <span class="delta pos">+11%</span>
+      <span class="sep">·</span>
+      <span class="ch-name">Рест</span> <span class="ch-val">72 200</span>
+      <span class="delta pos">+6%</span>
+    </div>
+    <div class="card-warn-chips">
+      <span class="warn-chip empty">всё открыто</span>
+    </div>
+    <div class="ops-grid">
+      <div class="ops-col">
+        <div class="ops-label">Кухня</div>
+        <div class="ops-row"><span class="nm">₽/чел·ч</span><span class="vl">5 120</span><span class="dl pos">+8,4</span></div>
+        <div class="ops-row"><span class="nm">шт/чел·ч</span><span class="vl">17,8</span><span class="dl pos">+6,1</span></div>
+        <div class="ops-row"><span class="nm">Готовка зал</span><span class="vl">2:48</span><span class="dl pos">−18с</span></div>
+        <div class="ops-row"><span class="nm">Готовка дост</span><span class="vl">4:22</span><span class="dl pos">−21с</span></div>
+      </div>
+      <div class="ops-col">
+        <div class="ops-label">Доставка</div>
+        <div class="ops-row"><span class="nm">заказ/курьер</span><span class="vl">3,12</span><span class="dl pos">+9,8</span></div>
+        <div class="ops-row"><span class="nm">Среднее доставки</span><span class="vl">31:45</span><span class="dl pos">−3:20</span></div>
+        <div class="ops-row"><span class="nm">Сертификаты</span><span class="vl">0<span class="u"> шт</span></span><span class="dl pos">−2</span></div>
+        <div class="ops-row"><span class="nm">Курьеров</span><span class="vl">9<span class="u">/0</span></span><span class="dl neutral">—</span></div>
+      </div>
+    </div>
+  </a>
+
+</div>
+
+<footer class="page-foot">
+  Авто-обновление каждую минуту · 6 из 12 показаны
+</footer>
+
+<div class="mock-mark">mock · v2 · применены критические правки</div>
+
+</body>
+</html>

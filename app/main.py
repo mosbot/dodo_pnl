@@ -2056,13 +2056,15 @@ async def get_ops_metrics(
     session: AsyncSession = Depends(get_session),
 ):
     if not user.planfact_key_id:
-        return {"metrics": {}, "meta": store.OPS_METRICS, "targets": {}}
+        return {"metrics": {}, "meta": store.ops_metrics_meta(False), "targets": {}}
+    pk = await session.get(PlanfactKey, user.planfact_key_id)
+    dc_enabled = bool(getattr(pk, "dc_live_enabled", False))
     return {
         "metrics": await store.list_ops_metrics(
             session, user.planfact_key_id,
             period_month=period_month, project_id=project_id,
         ),
-        "meta": store.OPS_METRICS,
+        "meta": store.ops_metrics_meta(dc_enabled),
         "targets": await store.list_ops_targets(session, user.planfact_key_id),
     }
 
@@ -2527,29 +2529,38 @@ async def _run_ops_sync(
             # Управляющий в Dodo IS не платится (это отдельный оклад через PF),
             # так что KC_LIVE будет ≈ kitchen + cashiers без управляющего и
             # без налогов. Это «факт по сменам».
+            # KC = смены staffType != 'Courier'; DC = смены staffType == 'Courier'.
+            # Один проход, два «ведра» (зеркально). Premiums относим в то ведро,
+            # где у сотрудника были смены в этом юните.
             kc_wage_by_unit: dict[str, float] = {}
             kc_staff_by_unit: dict[str, set[str]] = {}
+            dc_wage_by_unit: dict[str, float] = {}
+            dc_staff_by_unit: dict[str, set[str]] = {}
             COURIER_TYPE = "Courier"
             for sm in incentives:
                 staff_id = sm.get("staffId") or ""
                 for sh in sm.get("shiftsDetailing") or []:
-                    if (sh.get("staffType") or "") == COURIER_TYPE:
-                        continue
                     uid_raw = (sh.get("unitId") or "").lower().replace("-", "")
                     if not uid_raw:
                         continue
                     wage = float(sh.get("totalWage") or 0)
-                    kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + wage
-                    kc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
-                # Premiums (вне-сменные) учитываем тем сотрудникам, у которых
-                # были не-курьерские смены в том же юните.
+                    if (sh.get("staffType") or "") == COURIER_TYPE:
+                        dc_wage_by_unit[uid_raw] = dc_wage_by_unit.get(uid_raw, 0.0) + wage
+                        dc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
+                    else:
+                        kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + wage
+                        kc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
+                # Premiums (вне-сменные) — в то ведро (KC/DC), где у сотрудника
+                # были смены в том же юните (редко может попасть в оба).
                 for pr in sm.get("premiums") or []:
                     uid_raw = (pr.get("unitId") or "").lower().replace("-", "")
                     if not uid_raw:
                         continue
+                    amount = float(pr.get("amount") or 0)
                     if staff_id in kc_staff_by_unit.get(uid_raw, set()):
-                        amount = float(pr.get("amount") or 0)
                         kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + amount
+                    if staff_id in dc_staff_by_unit.get(uid_raw, set()):
+                        dc_wage_by_unit[uid_raw] = dc_wage_by_unit.get(uid_raw, 0.0) + amount
             for pid, uuid in targets:
                 key = (uuid or "").lower().replace("-", "")
                 s = by_uuid.get(key) or by_uuid.get(uuid.lower())
@@ -2586,10 +2597,17 @@ async def _run_ops_sync(
                 # sales берём из productivity.sales за тот же период.
                 # Если нет ни одной кухонной смены ИЛИ нет выручки — None.
                 kitchen_wage = kc_wage_by_unit.get(key, 0.0)
+                courier_wage = dc_wage_by_unit.get(key, 0.0)
                 sales_total = float(s.get("sales") or 0) if s else 0.0
                 kc_live_pct = (
                     kitchen_wage / sales_total * 100.0
                     if sales_total > 0 and kitchen_wage > 0 else None
+                )
+                # DC = (courier_wage / sales) × 100 (зеркало KC). Налоговый
+                # коэффициент применяется на чтении в store.list_ops_metrics.
+                dc_live_pct = (
+                    courier_wage / sales_total * 100.0
+                    if sales_total > 0 and courier_wage > 0 else None
                 )
 
                 if not s:
@@ -2608,6 +2626,7 @@ async def _run_ops_sync(
                     avg_cooking_time_delivery_sec=avg_cook_delivery_sec,
                     avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
                     kc_live_pct=kc_live_pct,
+                    dc_live_pct=dc_live_pct,
                 )
             await session.commit()
             log.info("ops sync %s: committed", period)

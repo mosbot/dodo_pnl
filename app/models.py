@@ -250,6 +250,9 @@ class OpsMetric(Base):
     avg_cooking_time_restaurant_sec: Mapped[Optional[int]] = mapped_column(Integer)
     # S16.3: расчётный KC% — net wage кухонных смен / выручка × 100
     kc_live_pct: Mapped[Optional[float]] = mapped_column(Float)
+    # DC: расчётный Delivery Cost% — net wage курьерских смен / выручка × 100
+    # (зеркало KC, staffType == 'Courier'). См. миграцию 0028.
+    dc_live_pct: Mapped[Optional[float]] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

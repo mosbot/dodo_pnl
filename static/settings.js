@@ -1347,6 +1347,9 @@ function openPfKeyModal(existing) {
     : '';
   document.getElementById('pkApiKey').required = !isEdit;
   document.getElementById('pkNote').value = existing?.note || '';
+  document.getElementById('pkKcTax').value = existing?.kc_tax_coefficient ?? 1;
+  document.getElementById('pkDcTax').value = existing?.dc_tax_coefficient ?? 1;
+  document.getElementById('pkDcEnabled').checked = !!existing?.dc_live_enabled;
   document.getElementById('pkDelete').style.display = isEdit ? '' : 'none';
   setMsg('pkMsg', '', '');
   openModal('pfKeyModal');
@@ -1366,6 +1369,9 @@ function initPfKeysCatalog() {
       if (id) {
         const body = { name, note: note || null };
         if (apiKey) body.api_key = apiKey;
+        body.kc_tax_coefficient = parseFloat(document.getElementById('pkKcTax').value) || 1;
+        body.dc_tax_coefficient = parseFloat(document.getElementById('pkDcTax').value) || 1;
+        body.dc_live_enabled = document.getElementById('pkDcEnabled').checked;
         await api(`/api/admin/planfact-keys/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

@@ -19,6 +19,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -58,6 +59,19 @@ class PlanfactKey(Base):
     # PlanFact подтягивает продажи дня лишь к ~23:15. Закрытые месяцы всегда
     # из PlanFact. Сбой Dodo → graceful fallback на PlanFact. Default FALSE.
     live_revenue_from_dodois: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+    # DC: налоговые коэффициенты для расчётных KC%/DC% (множитель «налоги»).
+    # Применяются на чтении ops-метрик (raw в БД, ×коэф. на отдаче). Default
+    # 1.0 → KC не меняется, пока не задано. dc_live_enabled — показывать ли
+    # расчётный DC (default FALSE). См. миграцию 0028.
+    kc_tax_coefficient: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, server_default=text("1.0"),
+    )
+    dc_tax_coefficient: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, server_default=text("1.0"),
+    )
+    dc_live_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false"),
     )
     created_at: Mapped[datetime] = mapped_column(

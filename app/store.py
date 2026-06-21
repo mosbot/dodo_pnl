@@ -140,8 +140,28 @@ OPS_METRICS: list[dict] = [
         "direction": "lower",
         "digits": 1,
     },
+    # DC расчётный — net wage курьерских смен / выручка × 100 (зеркало KC).
+    # Источник тот же: /staff/incentives-by-members, фильтр staffType=='Courier'.
+    # Показывается, только если у ключа dc_live_enabled=TRUE. К значению на
+    # чтении применяется dc_tax_coefficient (KC — kc_tax_coefficient).
+    {
+        "code": "DC_LIVE",
+        "label": "DC расчётный",
+        "unit": "%",
+        "field": "dc_live_pct",
+        "direction": "lower",
+        "digits": 1,
+    },
 ]
 OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
+
+
+def ops_metrics_meta(dc_enabled: bool) -> list[dict]:
+    """Мета ops-метрик для конкретного тенанта. DC_LIVE показываем только
+    если у ключа включён dc_live_enabled (иначе строка не рисуется вовсе)."""
+    if dc_enabled:
+        return OPS_METRICS
+    return [m for m in OPS_METRICS if m["code"] != "DC_LIVE"]
 OPS_METRIC_FIELD_BY_CODE: dict[str, str] = {m["code"]: m["field"] for m in OPS_METRICS}
 
 
@@ -491,6 +511,15 @@ async def list_ops_metrics(
         stmt = stmt.where(OpsMetric.project_id == project_id)
     result = await session.execute(stmt)
 
+    # Налоговые коэффициенты ключа применяем к расчётным KC/DC на отдаче
+    # (в БД — net wage %, ×коэф. = «с налогами»). DC показываем только при
+    # dc_live_enabled (иначе None — UI не рисует строку).
+    from .auth.models import PlanfactKey
+    pk = await session.get(PlanfactKey, planfact_key_id)
+    kc_coeff = float(getattr(pk, "kc_tax_coefficient", 1.0) or 1.0) if pk else 1.0
+    dc_coeff = float(getattr(pk, "dc_tax_coefficient", 1.0) or 1.0) if pk else 1.0
+    dc_on = bool(getattr(pk, "dc_live_enabled", False)) if pk else False
+
     out: dict = {}
     for r in result.scalars():
         payload = {
@@ -506,7 +535,11 @@ async def list_ops_metrics(
             "avg_order_trip_time_sec": r.avg_order_trip_time_sec,
             "avg_cooking_time_delivery_sec": r.avg_cooking_time_delivery_sec,
             "avg_cooking_time_restaurant_sec": r.avg_cooking_time_restaurant_sec,
-            "kc_live_pct": r.kc_live_pct,
+            "kc_live_pct": (r.kc_live_pct * kc_coeff) if r.kc_live_pct is not None else None,
+            "dc_live_pct": (
+                r.dc_live_pct * dc_coeff
+                if (dc_on and r.dc_live_pct is not None) else None
+            ),
         }
         if period_month is None:
             out.setdefault(r.project_id, {})[r.period_month] = payload
@@ -531,6 +564,7 @@ async def upsert_ops_metric(
     avg_cooking_time_delivery_sec: Optional[int] = None,
     avg_cooking_time_restaurant_sec: Optional[int] = None,
     kc_live_pct: Optional[float] = None,
+    dc_live_pct: Optional[float] = None,
 ) -> None:
     if (
         late_delivery_certs_pct is None
@@ -564,6 +598,7 @@ async def upsert_ops_metric(
             avg_cooking_time_delivery_sec=int(avg_cooking_time_delivery_sec) if avg_cooking_time_delivery_sec is not None else None,
             avg_cooking_time_restaurant_sec=int(avg_cooking_time_restaurant_sec) if avg_cooking_time_restaurant_sec is not None else None,
             kc_live_pct=kc_live_pct,
+            dc_live_pct=dc_live_pct,
         ))
     else:
         if orders_per_courier_h is not None:
@@ -590,6 +625,8 @@ async def upsert_ops_metric(
             existing.avg_cooking_time_restaurant_sec = int(avg_cooking_time_restaurant_sec)
         if kc_live_pct is not None:
             existing.kc_live_pct = float(kc_live_pct)
+        if dc_live_pct is not None:
+            existing.dc_live_pct = float(dc_live_pct)
         existing.updated_at = datetime.now(timezone.utc)
 
 

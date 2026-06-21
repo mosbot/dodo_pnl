@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection"
+      content="telephone=no, address=no, email=no, date=no">
+<title>Кубинка-1 · день — мокап</title>
+<style>
+:root {
+  --bg:        #fafaf9;
+  --card:      #ffffff;
+  --border:    #e7e5e0;
+  --border-strong: #d4d4cf;
+  --text:      #18181b;
+  --muted:     #6e6e6a;
+  --muted-2:   #a3a39e;
+  --pos:       #15803d;
+  --pos-bg:    #ecfdf5;
+  --neg:       #b91c1c;
+  --neg-bg:    #fef2f2;
+  --warn:      #b45309;
+  --warn-bg:   #fffbeb;
+  --warn-border: #fcd34d;
+  --crit-bg:   #fef2f2;
+  --crit-border: #fca5a5;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text",
+               "Segoe UI", system-ui, sans-serif;
+  font-size: 15px; line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"] {
+  color: inherit; text-decoration: none; pointer-events: none;
+}
+
+/* ─── Top bar ─── */
+.topbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  background: rgba(250,250,249,0.92);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+  backdrop-filter: blur(10px);
+}
+.back-btn {
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  text-decoration: none; color: var(--text);
+  font-size: 22px; flex-shrink: 0;
+}
+.back-btn:hover { background: rgba(0,0,0,0.04); }
+.pizz-select {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 8px 12px;
+  font-family: inherit; font-size: 15px; font-weight: 600;
+  color: var(--text); cursor: pointer;
+  border-radius: 8px; text-align: left;
+  min-height: 36px;
+}
+.pizz-select:hover { background: rgba(0,0,0,0.04); }
+.pizz-select .chevron {
+  font-size: 13px; color: var(--muted); margin-left: 2px;
+}
+.topbar-refresh { font-size: 12px; color: var(--muted); white-space: nowrap;
+                  padding: 4px 8px; }
+
+/* ─── Page header ─── */
+.page-header {
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid var(--border);
+  background: #ffffff;
+}
+.page-h1 {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0 0 4px; line-height: 1.15;
+}
+.page-subtitle {
+  font-size: 13px; color: var(--muted);
+}
+.page-subtitle .accent { color: var(--text); font-weight: 500; }
+@media (min-width: 720px) {
+  .page-header { padding: 24px 24px 16px; }
+  .page-h1 { font-size: 26px; }
+  .page-subtitle { font-size: 14px; }
+}
+
+/* ─── Alert blocks ─── */
+.alert {
+  margin: 10px 14px 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  overflow: hidden;
+}
+.alert-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 14px;
+  font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+  font-weight: 700;
+}
+.alert-head .count {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px;
+  font-feature-settings: "tnum";
+}
+.alert-list {
+  padding: 0 14px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.alert-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  align-items: baseline; gap: 8px;
+  font-size: 14px; font-variant-numeric: tabular-nums;
+  padding: 4px 0;
+}
+.alert-row .since { color: var(--muted); font-size: 12px; }
+.alert-row .duration {
+  color: var(--text); font-size: 12px; font-weight: 600;
+  min-width: 52px; text-align: right;
+}
+
+/* подзаголовок внутри alert-list ("Сектора доставки") */
+.alert-subhead {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--neg); opacity: 0.7; font-weight: 700;
+  padding: 6px 0 2px;
+}
+.alert-subhead::before, .alert-subhead::after {
+  content: ""; flex: 1; height: 1px;
+  background: var(--crit-border); opacity: 0.5;
+}
+
+.alert.crit {
+  background: var(--crit-bg);
+  border-color: var(--crit-border);
+}
+.alert.crit .alert-head { color: var(--neg); }
+.alert.crit .alert-head .count { background: var(--neg); color: white; }
+
+.alert.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+.alert.warn .alert-head { color: var(--warn); }
+.alert.warn .alert-head .count {
+  background: var(--warn); color: white;
+}
+
+/* Раскрывающийся список «ещё N» в alert */
+.alert details {
+  margin: 0 0 6px;
+}
+.alert details summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 6px 14px 4px;
+  font-size: 12px; font-weight: 600;
+  color: var(--warn);
+  display: flex; align-items: center; gap: 6px;
+}
+.alert details summary::-webkit-details-marker { display: none; }
+.alert details summary:hover { text-decoration: underline; }
+.alert details summary .chev {
+  font-size: 11px; transition: transform 0.15s;
+}
+.alert details[open] summary .chev { transform: rotate(180deg); }
+.alert details summary .more-text {
+  flex: 1;
+}
+.alert details[open] summary { display: none; }
+.alert details .alert-list.extra {
+  padding-top: 0;
+  border-top: 1px dashed var(--warn-border);
+}
+
+/* ─── Section blocks (cards) ─── */
+.section {
+  margin: 12px 14px 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 12px 16px 6px;
+  gap: 8px;
+}
+.section-label {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); font-weight: 700;
+}
+.section-aside {
+  font-size: 11px; color: var(--muted);
+}
+
+/* Большая цифра выручки */
+.revenue-main {
+  padding: 4px 16px 4px;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.revenue-num {
+  font-size: 30px; font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.revenue-num .unit { color: var(--muted); font-weight: 500;
+                     font-size: 0.6em; margin-left: 2px; }
+.revenue-delta {
+  font-size: 15px; font-weight: 600;
+  padding: 2px 8px; border-radius: 5px;
+}
+.revenue-delta.pos { color: var(--pos); background: var(--pos-bg); }
+.revenue-delta.neg { color: var(--neg); background: var(--neg-bg); }
+.revenue-baseline {
+  padding: 0 16px 10px;
+  font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Канальная разбивка под выручкой */
+.channels-table {
+  border-top: 1px dashed var(--border);
+  padding: 8px 16px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ch-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  gap: 10px; align-items: baseline;
+  font-variant-numeric: tabular-nums; font-size: 13px;
+}
+.ch-row .ch-name { color: var(--muted); }
+.ch-row .ch-val  { font-weight: 500; text-align: right; }
+.ch-row .ch-base { color: var(--muted-2); font-size: 11px; }
+.ch-row .ch-delta { font-weight: 600; font-size: 12px;
+                    min-width: 50px; text-align: right; }
+.ch-row .ch-delta.pos { color: var(--pos); }
+.ch-row .ch-delta.neg { color: var(--neg); }
+
+/* Списки метрик (общий формат для Кухни и Доставки) */
+.metric-list {
+  padding: 0 16px 12px;
+  display: flex; flex-direction: column;
+}
+.metric-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.metric-row:last-child { border-bottom: 0; }
+.metric-name {
+  font-size: 13.5px; color: var(--text);
+}
+.metric-name .sub {
+  color: var(--muted); font-size: 11.5px;
+  display: block; margin-top: 1px; font-weight: 400;
+}
+.metric-val {
+  font-size: 17px; font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: right;
+}
+.metric-val .unit { color: var(--muted); font-weight: 500;
+                    font-size: 0.7em; margin-left: 2px; }
+.metric-meta {
+  text-align: right;
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-end;
+}
+.metric-delta {
+  font-size: 12px; font-weight: 600;
+  padding: 1px 6px; border-radius: 5px;
+  white-space: nowrap;
+}
+.metric-delta.pos { color: var(--pos); background: var(--pos-bg); }
+.metric-delta.neg { color: var(--neg); background: var(--neg-bg); }
+.metric-base {
+  font-size: 10.5px; color: var(--muted-2);
+  white-space: nowrap;
+}
+
+/* KC-row — особый «жирный» итог внутри секции Кухня */
+.kc-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 0 6px;
+  border-top: 2px solid var(--border);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.kc-row .metric-name { font-weight: 600; }
+.kc-row .metric-val { font-size: 22px; }
+.kc-target {
+  font-size: 11.5px; font-weight: 600;
+  padding: 2px 7px; border-radius: 5px;
+  background: var(--pos-bg); color: var(--pos);
+  white-space: nowrap;
+}
+.kc-target.miss { background: var(--neg-bg); color: var(--neg); }
+.kc-extra {
+  padding: 0 0 8px;
+  font-size: 11.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* МЕСЯЦ — collapsible */
+.month-block {
+  margin: 12px 14px 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.month-block summary {
+  list-style: none;
+  cursor: pointer; padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; font-weight: 600;
+  color: var(--text);
+}
+.month-block summary::-webkit-details-marker { display: none; }
+.month-block summary .chevron {
+  color: var(--muted); font-size: 14px;
+  transition: transform 0.15s;
+}
+.month-block[open] summary .chevron { transform: rotate(180deg); }
+.month-block summary .summary-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px; color: var(--muted); font-weight: 500;
+  margin-right: 8px;
+}
+.month-block[open] summary { border-bottom: 1px solid var(--border); }
+.month-body {
+  padding: 0 16px 14px;
+}
+
+.page-foot {
+  text-align: center; padding: 18px;
+  font-size: 11px; color: var(--muted);
+}
+
+.mock-mark {
+  position: fixed; bottom: 8px; left: 8px;
+  background: rgba(0,0,0,0.04); color: var(--muted);
+  font-size: 10px; padding: 4px 8px; border-radius: 4px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* Desktop — 2-column для Кухни и Доставки на широких */
+@media (min-width: 900px) {
+  .day-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 12px 14px 0;
+  }
+  .day-grid .section { margin: 0; }
+  .section.revenue { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="back-btn" href="/board" aria-label="К сети">←</a>
+  <button class="pizz-select" type="button">
+    Кубинка-1
+    <span class="chevron">▾</span>
+  </button>
+  <div class="topbar-refresh">обн. 8 с</div>
+</header>
+
+<header class="page-header">
+  <h1 class="page-h1">Сегодня в Кубинке-1</h1>
+  <p class="page-subtitle">
+    <span class="accent">Среда, 4 июня</span> ·
+    данные до <span class="accent">13:43</span> MSK
+  </p>
+</header>
+
+<!-- ALERT: каналы + сектора (критично) -->
+<div class="alert crit">
+  <div class="alert-head">
+    <span>🛑 Каналы в стопе</span>
+    <span class="count">3</span>
+  </div>
+  <div class="alert-list">
+    <div class="alert-row">
+      <span>Доставка</span>
+      <span class="since">с 13:12</span>
+      <span class="duration">31 мин</span>
+    </div>
+    <div class="alert-subhead">Сектора доставки</div>
+    <div class="alert-row">
+      <span>Сектор 3 «Северный»</span>
+      <span class="since">с 11:08</span>
+      <span class="duration">2:35</span>
+    </div>
+    <div class="alert-row">
+      <span>Сектор 7 «Запад»</span>
+      <span class="since">с 12:50</span>
+      <span class="duration">53 мин</span>
+    </div>
+  </div>
+</div>
+
+<!-- ALERT: продукты + ингредиенты (раскрывающиеся) -->
+<div class="alert warn">
+  <div class="alert-head">
+    <span>⚠️ Продукты и ингредиенты</span>
+    <span class="count">7</span>
+  </div>
+  <div class="alert-list">
+    <div class="alert-row">
+      <span>Сыр моцарелла</span>
+      <span class="since">с 11:42</span>
+      <span class="duration">2:01</span>
+    </div>
+    <div class="alert-row">
+      <span>Курица соус</span>
+      <span class="since">с 12:50</span>
+      <span class="duration">53 мин</span>
+    </div>
+    <div class="alert-row">
+      <span>Маргарита 30</span>
+      <span class="since">с 13:05</span>
+      <span class="duration">38 мин</span>
+    </div>
+  </div>
+  <details>
+    <summary>
+      <span class="more-text">+ ещё 4 позиции</span>
+      <span class="chev">▾</span>
+    </summary>
+    <div class="alert-list extra">
+      <div class="alert-row">
+        <span>Пеперони 30</span>
+        <span class="since">с 13:30</span>
+        <span class="duration">13 мин</span>
+      </div>
+      <div class="alert-row">
+        <span>Тесто 30 см</span>
+        <span class="since">с 13:21</span>
+        <span class="duration">22 мин</span>
+      </div>
+      <div class="alert-row">
+        <span>Острый соус</span>
+        <span class="since">с 13:33</span>
+        <span class="duration">10 мин</span>
+      </div>
+      <div class="alert-row">
+        <span>Ананас консерв.</span>
+        <span class="since">с 09:15</span>
+        <span class="duration">4:28</span>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- ВЫРУЧКА — главная цифра дня -->
+<section class="section revenue" style="margin-top:12px">
+  <div class="section-head">
+    <span class="section-label">Выручка</span>
+    <span class="section-aside">сегодня до 13:43</span>
+  </div>
+  <div class="revenue-main">
+    <span class="revenue-num">245 000 <span class="unit">₽</span></span>
+    <span class="revenue-delta pos">+8.4% ↗</span>
+  </div>
+  <div class="revenue-baseline">
+    vs прошл. среда (до 14:00) · 226 000 ₽
+  </div>
+  <div class="channels-table">
+    <div class="ch-row">
+      <span class="ch-name">Доставка</span>
+      <span class="ch-val">154 000 ₽
+        <span class="ch-base">vs 142 000</span></span>
+      <span class="ch-delta pos">+8.5%</span>
+    </div>
+    <div class="ch-row">
+      <span class="ch-name">Ресторан</span>
+      <span class="ch-val">91 000 ₽
+        <span class="ch-base">vs 84 000</span></span>
+      <span class="ch-delta pos">+8.3%</span>
+    </div>
+  </div>
+</section>
+
+<div class="day-grid">
+
+<!-- КУХНЯ -->
+<section class="section">
+  <div class="section-head">
+    <span class="section-label">🍕 Кухня</span>
+    <span class="section-aside">vs прошл. среда</span>
+  </div>
+  <div class="metric-list">
+    <div class="metric-row">
+      <span class="metric-name">
+        Выручка на чел/час
+        <span class="sub">₽/чел·ч</span>
+      </span>
+      <span class="metric-val">3 580 <span class="unit">₽</span></span>
+      <span class="metric-meta">
+        <span class="metric-delta pos">+7.8% ↗</span>
+        <span class="metric-base">vs 3 320</span>
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-name">
+        Продуктов в час
+        <span class="sub">шт/чел·ч</span>
+      </span>
+      <span class="metric-val">12.4</span>
+      <span class="metric-meta">
+        <span class="metric-delta pos">+5.1% ↗</span>
+        <span class="metric-base">vs 11.8</span>
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-name">
+        Готовка · зал
+        <span class="sub">от заказа до отдачи</span>
+      </span>
+      <span class="metric-val">3:42</span>
+      <span class="metric-meta">
+        <span class="metric-delta neg">+0:18</span>
+        <span class="metric-base">vs 3:24</span>
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-name">
+        Готовка · доставка
+        <span class="sub">от заказа до полки</span>
+      </span>
+      <span class="metric-val">4:55</span>
+      <span class="metric-meta">
+        <span class="metric-delta pos">−0:12</span>
+        <span class="metric-base">vs 5:07</span>
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ДОСТАВКА -->
+<section class="section">
+  <div class="section-head">
+    <span class="section-label">🛵 Доставка</span>
+    <span class="section-aside">vs прошл. среда</span>
+  </div>
+  <div class="metric-list">
+    <div class="metric-row">
+      <span class="metric-name">
+        Заказов на курьера
+        <span class="sub">заказ/курьер·ч</span>
+      </span>
+      <span class="metric-val">2.45</span>
+      <span class="metric-meta">
+        <span class="metric-delta pos">+6.1% ↗</span>
+        <span class="metric-base">vs 2.31</span>
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-name">
+        В пути (AOT)
+        <span class="sub">курьер с заказом</span>
+      </span>
+      <span class="metric-val">12:30</span>
+      <span class="metric-meta">
+        <span class="metric-delta neg">+0:45</span>
+        <span class="metric-base">vs 11:45</span>
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-name">
+        Сертификаты опоздания
+        <span class="sub">% от заказов доставки</span>
+      </span>
+      <span class="metric-val">3 <span class="unit">шт · 0,8 %</span></span>
+      <span class="metric-meta">
+        <span class="metric-delta neg">+2 шт</span>
+        <span class="metric-base">vs 1 шт · 0,3%</span>
+      </span>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- МЕСЯЦ — collapsible -->
+<details class="month-block">
+  <summary>
+    <span>
+      Месяц LFL · июнь
+      <span class="summary-num">4 850 000 ₽ · +4,1% к 2025</span>
+    </span>
+    <span class="chevron">▾</span>
+  </summary>
+  <div class="month-body">
+    <div class="revenue-main" style="padding: 10px 0 4px;">
+      <span class="revenue-num">4 850 000 <span class="unit">₽</span></span>
+      <span class="revenue-delta pos">+4.1% ↗</span>
+    </div>
+    <div class="revenue-baseline" style="padding-left:0;padding-right:0">
+      vs июнь 2025 (до 4 июня 14:00) · 4 660 000 ₽
+    </div>
+    <div class="channels-table" style="padding-left:0;padding-right:0">
+      <div class="ch-row">
+        <span class="ch-name">Доставка</span>
+        <span class="ch-val">3 080 000 ₽
+          <span class="ch-base">vs 2 928 000</span></span>
+        <span class="ch-delta pos">+5.2%</span>
+      </div>
+      <div class="ch-row">
+        <span class="ch-name">Ресторан</span>
+        <span class="ch-val">1 770 000 ₽
+          <span class="ch-base">vs 1 732 000</span></span>
+        <span class="ch-delta pos">+2.4%</span>
+      </div>
+    </div>
+    <div class="kc-extra" style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border)">
+      <strong style="color:var(--text);font-size:13.5px">Прогноз июня ≈ 31 200 000 ₽</strong>
+      &nbsp;<span class="metric-delta pos">+4.0%</span>&nbsp;
+      vs LY 30 000 000 ₽ · по LFL
+    </div>
+  </div>
+</details>
+
+<footer class="page-foot">
+  Авто-обновление каждую минуту · следующее через 52 с
+</footer>
+
+<div class="mock-mark">mock · фейковые данные</div>
+
+</body>
+</html>
