@@ -1222,7 +1222,18 @@ function renderCards() {
         : opsTile(om, ops[om.field], opsTargetFor(p.id, om.code), ops)
     ).join('');
 
-    const metricTiles = pctTiles + opsTiles;
+    // Метрики сегментируем по источнику: PnL (формулы из PlanFact/xls) и
+    // DodoIS (ops + расчётные KC/DC). Пустой блок не показываем.
+    const pnlMetricsBlock = pctTiles ? `
+      <div class="card-block">
+        <div class="card-block-head">Метрики PnL</div>
+        <div class="tile-grid tile-grid-metrics">${pctTiles}</div>
+      </div>` : '';
+    const dodoMetricsBlock = opsTiles ? `
+      <div class="card-block">
+        <div class="card-block-head">Метрики DodoIS</div>
+        <div class="tile-grid tile-grid-metrics">${opsTiles}</div>
+      </div>` : '';
 
     const div = document.createElement('div');
     div.className = 'card ' + cls;
@@ -1232,10 +1243,8 @@ function renderCards() {
         <div class="card-block-head">Финансовые показатели</div>
         <div class="tile-grid tile-grid-fin">${finTiles}</div>
       </div>
-      <div class="card-block">
-        <div class="card-block-head">Метрики</div>
-        <div class="tile-grid tile-grid-metrics">${metricTiles}</div>
-      </div>
+      ${pnlMetricsBlock}
+      ${dodoMetricsBlock}
     `;
     box.appendChild(div);
   });
