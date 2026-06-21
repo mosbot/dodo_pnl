@@ -1,8 +1,16 @@
 # pnl-service — контекст для Claude Code
 
-Многотенантный SaaS P&L Dashboard для франчайзи Dodo Pizza. FastAPI +
-SQLAlchemy 2.0 async + asyncpg + PostgreSQL. Прод-инсталляция —
-`pnl.dodotool.ru` на VPS `dodotool.ru`.
+Многотенантный SaaS P&L Dashboard для франчайзи Dodo Pizza. Модуль «Финансы»
+(P&L) + «Пульс» (/board) зонтичной платформы **Dodotool**. FastAPI +
+SQLAlchemy 2.0 async + asyncpg + PostgreSQL. Прод — `pnl.dodotool.ru`,
+Docker-контейнер на SA-VPS `94.26.246.138` (там же сервис авторизации `sa`).
+
+> Быстрый старт (деплой одной командой):
+> ```bash
+> ssh ask@94.26.246.138 'cd ~/pnl-service && ./scripts/deploy.sh "feat: …"'
+> ```
+> Логи: `ssh ask@94.26.246.138 'sudo docker logs -n 50 dodotool-pnl-api-1'`.
+> Подробности — раздел «Прод (SA-VPS, Docker)».
 
 ## Repo layout
 
@@ -17,48 +25,90 @@ app/
   auth/                — token management, sessions
   config.py            — settings (pydantic BaseSettings)
   ...
-alembic/versions/      — миграции, идут sequentially 0001 → 0022
+alembic/versions/      — миграции, идут sequentially 0001 → 0027
 static/
   board.html, board.js — рендер /board (compact + rich view-switch)
   *-mock.html          — статические мокапы для итераций дизайна
 docs/
   dodois-api.md        — снапшот Dodo IS API схем
   planfact-agent-kit/  — внешняя дока PlanFact
+scripts/deploy.sh      — деплой на SA-VPS (Docker; см. «Прод»)
+Dockerfile             — образ pnl (python:3.11-slim + uvicorn)
+docker-compose.pnl.yml — сервис pnl в общей docker-сети sa (Caddy + Postgres)
+.dockerignore
 ```
 
-## Прод
+## Прод (SA-VPS, Docker)
 
-- VPS: `claude@dodotool.ru`, проект в `/home/claude/pnl-service/`
-- Service: `pnl-uvicorn.service` (systemd). Рестарт: `sudo systemctl restart pnl-uvicorn`
-- DB: PostgreSQL local, схема `pnl_service`, соседняя `public` содержит
-  `dodois_credentials` (read-only mapping имя→access_token, refresh OAuth
-  делает соседний сервис).
-- Креды: `/home/claude/pnl-service/.env`
-- nginx → uvicorn 127.0.0.1:5759
+- VPS: `ask@94.26.246.138` — тот же сервер, что `sa` (репо `dodotool_sa_backend`,
+  `~/dodotool-sa`). Домен `pnl.dodotool.ru`, TLS — Caddy sa (авто Let's Encrypt).
+- Каталог = git-чекаут: `~/pnl-service` (`mosbot/dodo_pnl`, ветка `main`).
+- Запуск: Docker-контейнер `dodotool-pnl-api-1` (uvicorn :8000) в общей
+  docker-сети `dodotool-sa_default`. Compose: `docker-compose.pnl.yml`.
+- Reverse-proxy: Caddy sa (`~/dodotool-sa/Caddyfile`, vhost
+  `pnl.dodotool.ru → dodotool-pnl-api-1:8000`).
+- DB: PostgreSQL в контейнере `dodotool-sa-postgres-1`, **отдельная БД
+  `pnl_service`**, схема `pnl_service`. Из контейнера:
+  `postgresql+asyncpg://dodotool_sa:***@postgres:5432/pnl_service`.
+  (БД `dodois_credentials` принадлежит sa — это `dodotool_sa`, к ней pnl НЕ ходит.)
+- Креды: `~/pnl-service/.env` (gitignore). Важное: `SECRET_KEY` (Fernet для
+  PlanFact-ключей — **НЕ менять**, иначе ключи не расшифровать), `DATABASE_URL`,
+  `SA_TOKEN_BROKER_URL`, `SA_INTERNAL_TOKEN`, `DODOIS_SUB_MAP`.
 
-### Деплой — через git (`scripts/deploy.sh`)
+### Dodo IS токен — через брокер sa (НЕ из dodois_credentials напрямую)
 
-Прод под git (remote `origin` = `git@github-dodo:mosbot/dodo_pnl.git`,
-SSH deploy key `~/.ssh/dodo_pnl_deploy`, alias `github-dodo` в `~/.ssh/config`).
+pnl больше не читает `public.dodois_credentials`. Токен берётся у sa:
+`GET http://api:8000/internal/dodois-token?sub=<sub>` (заголовок
+`X-Admin-Token` = `SA_INTERNAL_TOKEN`); sa тихо рефрешит по offline_access.
+Резолвер `app/auth/tokens.get_dodois_token` — **гибрид**: брокер sa (если задан
+`SA_TOKEN_BROKER_URL` и имя в `DODOIS_SUB_MAP`) → legacy `dodois_credentials` →
+env. `DODOIS_SUB_MAP` — JSON `{"<dodois_credentials_name>": "<sub в sa>"}`
+(сейчас: `ask530`→Коваль Андрей, `loderan2`→Agent Dodotool). Брокер в sa —
+`app/routers/internal.py`.
 
-Процесс: правки скопировать на VPS (`scp ...`), затем **один** скрипт:
+### Деплой (Docker, `scripts/deploy.sh`)
+
+git-чекаут на VPS, remote `origin` = `git@github-dodo:mosbot/dodo_pnl.git`
+(deploy key `~/.ssh/dodo_pnl_deploy`, alias `github-dodo` в `~/.ssh/config`;
+ключ sa `dodotool_sa_backend` — отдельный, через `git@github.com`).
+
+Правки делаешь прямо в чекауте (`ssh` + редактор) или scp в него, затем:
 ```bash
-ssh claude@dodotool.ru 'cd /home/claude/pnl-service && ./scripts/deploy.sh "feat: описание"'
+ssh ask@94.26.246.138 'cd ~/pnl-service && ./scripts/deploy.sh "feat: описание"'
 ```
-deploy.sh атомарно: `git commit` → `git push origin main` (журнал деплоев в
-GitHub) → `pip install` (только если менялся requirements.txt) →
-`alembic upgrade head` → рестарт → health-check `127.0.0.1:5759/api/health`.
-**При провале health-check — автооткат кода** (`git reset --hard` на
-прошлый коммит) + рестарт.
+deploy.sh атомарно: `git commit` (если есть правки) → `git pull --ff-only` →
+`git push origin main` → `docker compose -f docker-compose.pnl.yml up -d --build`
+→ `alembic upgrade head` (в контейнере) → health-check `/api/health`.
+**При провале health-check — автооткат кода** (`git reset --hard` + rebuild).
 
-Откат вручную на любой коммит:
+Откат вручную:
 ```bash
-ssh claude@dodotool.ru 'cd /home/claude/pnl-service && git reset --hard <sha> && sudo systemctl restart pnl-uvicorn'
+ssh ask@94.26.246.138 'cd ~/pnl-service && git reset --hard <sha> && \
+  sudo docker compose -f docker-compose.pnl.yml up -d --build'
 ```
+NB: автооткат возвращает только КОД; миграцию БД откатывать вручную
+(`docker exec dodotool-pnl-api-1 alembic downgrade <rev>`). Статику кэш-бастим
+`?v=N` в html (отдельного шага нет).
 
-NB: автооткат возвращает только КОД. Если деплой содержал миграцию БД, она
-остаётся применённой — откат БД (`alembic downgrade`) делается вручную.
-Статика версионируется `?v=N` в html (кэш-бастинг), отдельного шага нет.
+### Тестовый контур (завести, когда появятся реальные юзеры)
+
+Сейчас контур один (прод). Рекомендуемая схема staging на том же VPS, чтобы
+проверять перед прод-деплоем:
+- ветка `staging` в репо + отдельный чекаут `~/pnl-staging`;
+- свой контейнер `dodotool-pnl-staging-1` (тот же Dockerfile, отдельный
+  `docker-compose.staging.yml`, project `pnl-staging`) в сети `dodotool-sa_default`;
+- отдельная БД `pnl_service_staging` (дамп прода → restore), свой `.env`
+  (тот же `SECRET_KEY`, если нужны те же PlanFact-ключи);
+- Caddy-vhost `staging.pnl.dodotool.ru → dodotool-pnl-staging-1:8000`;
+- деплой staging из ветки `staging`, прод — только из `main` после проверки.
+Завести по запросу (≈30 мин работы).
+
+### Старый VPS (выводится)
+
+`claude@dodotool.ru` (bare-metal `pnl-uvicorn`/systemd) — pnl остановлен и снят
+с автозапуска. Его Caddy (`/home/fintool/Caddyfile`) **временно проксирует**
+`pnl.dodotool.ru` на новый VPS (мост на период распространения DNS). После
+полного перехода DNS — убрать мост и вывести сервер.
 
 ## Aлембик / DB
 
@@ -99,18 +149,24 @@ fallback на выручку PlanFact (страница не ломается). 
 v2-пути; raw-fallback отдаёт PF-выручку. Kill-switch — выключить флаг (без
 деплоя). Валидация: REVENUE==Dodo по точкам, net profit сдвиг = Δвыручки.
 
-## OAuth scopes (Dodo IS, ask530 token)
+## OAuth scopes (Dodo IS)
 
-Активные scopes:
-- `accounting` — sales, write-offs
-- `production` — productivity, stop-sales-*
-- `delivery` — statistics, vouchers, stop-sales-sectors, couriers-orders
-- `finance` — sales/units/monthly
-- `incentives` — staff/incentives-by-members (для KC_LIVE)
-- `stopsales` — stop-sales-* (production + delivery)
-- `staffshifts:read` — couriers-on-shift (добавлен но потом откатили курьеров)
+Токены минтит OAuth **sa** (marketplace-приложение `cnM4i`). Scope задаётся в
+двух местах: настройки приложения на `marketplace.dodois.io/manage` **и**
+`DODOIS_OAUTH_SCOPE` в `~/dodotool-sa/.env`. Текущий набор (имена — как в
+marketplace, ВНИМАНИЕ к точным названиям):
+- `accounting` — `/accounting/sales` (каналы дня)
+- `sales` — `/finances/sales/units/monthly` (месячные агрегаты)
+- `deliverystatistics` — `/delivery/statistics`, vouchers
+- `productionefficiency` — `/production/productivity` (₽/шт·чел·ч). **НЕ `production`!**
+- `stopsales` — `/production/stop-sales-*`, `/delivery/stop-sales-sectors`
+- `incentives` — `/staff/incentives-by-members` (KC_LIVE)
+- `user.role:read` — `/auth/roles/units` (имена юнитов)
+- `offline_access` — refresh-токены (тихое продление в sa)
 
-Если падает 403 `InsufficientScopes` — нужен re-consent с новым scope.
+403 `InsufficientScopes` → добавить scope в приложение (marketplace) + в
+`DODOIS_OAUTH_SCOPE` sa + пересоздать sa-контейнер + **re-consent** (юзер
+заходит `https://sa.dodotool.ru/dodois/login` под нужным аккаунтом).
 
 ## /board — сетевой scoreboard дня
 
@@ -226,9 +282,13 @@ Total: 2 запроса вместо текущих 2×N.
 
 ## Аккаунты для тестов
 
-- `andrey@dodotool.ru` (network admin, planfact_key привязан к ask530 dodois)
-  Пароль — у Андрея. Временный пароль из этого файла удалён 2026-06-10
-  (секреты в репо не храним); если не был сменён — сменить через UI.
+Вход в приложение: `https://pnl.dodotool.ru/login` (сессионная авторизация pnl,
+своя; не путать с OAuth Dodo IS, который теперь у sa для токенов).
+
+- `andrey@dodotool.ru` (network admin, planfact_key=1, dodois `ask530` →
+  через брокер sa sub `000d3a21…` «Коваль Андрей»). Пароль — у Андрея.
+  Секреты в репо не храним; сменить через UI при необходимости.
+- 2-й тенант: planfact_key=3, dodois `loderan2` → sub `5221ac3e…` «Agent Dodotool».
 
 ## Связанные docs
 
@@ -236,18 +296,33 @@ Total: 2 запроса вместо текущих 2×N.
 - `docs/planfact-agent-kit/` — внешняя дока PlanFact (для понимания target P&L)
 - `docs/audits/*.md` — incident reports / audit notes
 
-## Полезные команды
+## Полезные команды (SA-VPS, Docker)
+
+Все — через `ssh ask@94.26.246.138 '...'`. Контейнер `dodotool-pnl-api-1`,
+Postgres `dodotool-sa-postgres-1`, БД `pnl_service`.
 
 ```bash
-# Probe одного endpoint'а
-.venv/bin/python /tmp/probe_<smth>.py
+# Деплой (commit→push→build→up→migrate→healthcheck→автооткат)
+cd ~/pnl-service && ./scripts/deploy.sh "feat: описание"
 
-# Restart prod
-ssh claude@dodotool.ru 'sudo systemctl restart pnl-uvicorn'
+# Свежие логи / рестарт / статус
+sudo docker logs -n 80 dodotool-pnl-api-1
+sudo docker compose -f ~/pnl-service/docker-compose.pnl.yml restart
+sudo docker ps --filter name=dodotool-pnl-api-1
 
-# Свежие логи
-ssh claude@dodotool.ru 'sudo journalctl -u pnl-uvicorn -n 50 --no-pager'
+# Health изнутри контейнера
+sudo docker exec dodotool-pnl-api-1 python -c "import urllib.request as u;print(u.urlopen('http://localhost:8000/api/health',timeout=5).read())"
+
+# Миграции
+sudo docker exec dodotool-pnl-api-1 alembic current
+sudo docker exec dodotool-pnl-api-1 alembic upgrade head
 
 # DB shell
-ssh claude@dodotool.ru 'PGPASSWORD=... psql -h 127.0.0.1 -U pnl_user -d postgres'
+sudo docker exec -it dodotool-sa-postgres-1 psql -U dodotool_sa -d pnl_service
+
+# Probe endpoint'а внутри контейнера (есть весь app + httpx)
+sudo docker exec dodotool-pnl-api-1 python -c "<...>"
+
+# Caddy (vhost pnl): правки в ~/dodotool-sa/Caddyfile, затем
+sudo docker exec dodotool-sa-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
