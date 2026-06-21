@@ -148,6 +148,7 @@ async def login(
 @router.get("/auth/sso")
 async def auth_sso(
     request: Request,
+    next: str = "/",
     db: AsyncSession = Depends(get_session),
 ):
     """SSO-вход через sa: общая кука .dodotool.ru → sa /me → pnl-сессия.
@@ -181,7 +182,8 @@ async def auth_sso(
         db, audit.ACTION_LOGIN_SUCCESS, user_id=u.id, request=request,
     )
     await db.commit()
-    resp = RedirectResponse("/", status_code=302)
+    dest = next if (next.startswith("/") and not next.startswith("//")) else "/"
+    resp = RedirectResponse(dest, status_code=302)
     resp.set_cookie(
         key=SESSION_COOKIE, value=s.plain_token,
         max_age=SESSION_TTL_DAYS * 24 * 3600,
