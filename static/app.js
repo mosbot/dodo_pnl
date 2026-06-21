@@ -1231,7 +1231,7 @@ function renderCards() {
       </div>` : '';
     const dodoMetricsBlock = opsTiles ? `
       <div class="card-block">
-        <div class="card-block-head">Метрики DodoIS</div>
+        <div class="card-block-head">Метрики DodoIs</div>
         <div class="tile-grid tile-grid-metrics">${opsTiles}</div>
       </div>` : '';
 
