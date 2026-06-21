@@ -549,8 +549,20 @@ body.drawer-open .panel { transform: translateX(0); }
   gap: 6px;
 }
 .tile-grid-metrics {
-  /* UC/LC/DC/TC + 3 ops = 7 плиток; auto-fit чтобы уместить без «дырок» */
-  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  /* Flex, а не grid: плитки растягиваются на всю ширину КАЖДОЙ строки,
+     в т.ч. при ручном разрыве (.tile-row-break). С grid auto-fit разрыв
+     форсировал материализацию всех колонок → неполные ряды оставляли
+     «дырку» справа. */
+  display: flex;
+  flex-wrap: wrap;
+}
+.tile-grid-metrics > .tile {
+  flex: 1 1 84px;
+  min-width: 84px;
+}
+.tile-grid-metrics > .tile-row-break {
+  flex: 0 0 100%;   /* перенос строки: занимает всю ширину, высота 0 */
+  min-width: 0;
 }
 /* S16.5: разделитель строк в попапе «⚙ Метрики». Невидимый элемент,
    принудительно занимает всю ширину ряда CSS Grid — следующая плитка
