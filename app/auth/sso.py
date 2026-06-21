@@ -22,7 +22,9 @@ from .models import PlanfactKey, User
 
 log = logging.getLogger("uvicorn.error")
 
-SA_COOKIE_NAME = "session"          # кука сессии sa (starlette default)
+SA_COOKIE_NAME = "dt_session"       # кука сессии sa (переименована из default
+                                    # "session", чтобы не конфликтовать со
+                                    # старыми host-only куками при смене домена)
 PNL_CAPABILITIES = ("finance", "pulse")  # что считаем «лицензией на pnl»
 
 
