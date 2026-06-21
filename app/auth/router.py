@@ -51,6 +51,8 @@ class UserPublic(BaseModel):
     visibility_level: int
     has_dodois_credentials: bool
     has_planfact_key: bool
+    dodois_linked: bool                # привязан ли вход через Dodo IS (SSO)
+    has_password: bool                 # есть ли локальный пароль
 
     @classmethod
     def from_user(cls, u: User) -> "UserPublic":
@@ -63,6 +65,8 @@ class UserPublic(BaseModel):
             visibility_level=u.visibility_level,
             has_dodois_credentials=bool(u.dodois_credentials_name),
             has_planfact_key=bool(u.planfact_key_id),
+            dodois_linked=bool(getattr(u, "dodois_sub", None)),
+            has_password=bool(u.password_hash),
         )
 
 
@@ -167,7 +171,7 @@ async def auth_sso(
         db, sa_cookie, sa_user["sub"], sa_user["name"],
     )
     if u is None:
-        return RedirectResponse("/login?sso=nolicense", status_code=302)
+        return RedirectResponse("/login?sso=noaccount", status_code=302)
 
     ip = request.client.host if request.client else None
     s = await create_session(
@@ -184,6 +188,64 @@ async def auth_sso(
         httponly=True, secure=True, samesite="lax", path="/",
     )
     return resp
+
+
+@router.get("/auth/link/start")
+async def auth_link_start(user: User = Depends(require_user)):
+    """Начать привязку Dodo IS к текущему аккаунту: OAuth sa → возврат на /auth/link."""
+    from ..config import settings
+    if not (settings.sa_login_url and settings.public_base_url):
+        return RedirectResponse("/settings?link=unavailable", status_code=302)
+    rt = settings.public_base_url.rstrip("/") + "/auth/link"
+    return RedirectResponse(f"{settings.sa_login_url}?return_to={rt}", status_code=302)
+
+
+@router.get("/auth/link")
+async def auth_link(
+    request: Request,
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Привязать Dodo-аккаунт (из sa-сессии) к текущему pnl-юзеру.
+
+    Юзер подтверждает владение Dodo-аккаунтом, пройдя OAuth; берём его sub из
+    sa /me и биндим к текущему (залогиненному локально) аккаунту."""
+    from sqlalchemy import select
+    from . import sso as sso_mod
+
+    sa_cookie = request.cookies.get(sso_mod.SA_COOKIE_NAME)
+    if not sa_cookie:
+        return RedirectResponse("/settings?link=nosession", status_code=302)
+    sa_user = await sso_mod.resolve_sa_user(sa_cookie)
+    if not sa_user:
+        return RedirectResponse("/settings?link=invalid", status_code=302)
+    sub = sa_user["sub"]
+    other = (await db.execute(
+        select(User).where(User.dodois_sub == sub)
+    )).scalar_one_or_none()
+    if other is not None and other.id != user.id:
+        return RedirectResponse("/settings?link=taken", status_code=302)
+    db_user = await db.get(User, user.id)
+    db_user.dodois_sub = sub
+    await db.commit()
+    return RedirectResponse("/settings?link=ok", status_code=302)
+
+
+@router.post("/auth/unlink")
+async def auth_unlink(
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Отвязать Dodo IS от текущего аккаунта (останется вход по паролю)."""
+    db_user = await db.get(User, user.id)
+    if db_user.password_hash is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя отвязать: у аккаунта нет пароля (вход только через Dodo IS).",
+        )
+    db_user.dodois_sub = None
+    await db.commit()
+    return {"status": "ok"}
 
 
 @router.post("/auth/logout")

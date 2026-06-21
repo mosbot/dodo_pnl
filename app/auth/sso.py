@@ -73,6 +73,12 @@ async def get_or_provision_user(
     if u is not None:
         return u
 
+    # Незнакомый Dodo-аккаунт. Авто-провижн выключен (admin-managed) → нет
+    # доступа: пусть войдёт локально и привяжет Dodo IS, либо админ заведёт.
+    if not settings.sso_auto_provision:
+        log.info("SSO: sub=%s не привязан, авто-провижн off → нет доступа", sub)
+        return None
+
     units = await _licensed_units(sa_cookie)
     if not units:
         log.info("SSO: sub=%s без лицензии pnl — доступ не выдаём", sub)

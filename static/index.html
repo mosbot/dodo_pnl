@@ -4,12 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>P&L по проектам · PlanFact</title>
-<link rel="stylesheet" href="/static/styles.css?v=12">
+<link rel="stylesheet" href="/static/styles.css?v=13">
 <script src="/static/vendor/chart-4.5.0.umd.js"></script>
 </head>
 <body>
 
 <div id="loadingBar" class="loading-bar" hidden></div>
+
+<div id="ssoBanner" class="sso-banner" hidden>
+  <span>💡 Входите без пароля — привяжите аккаунт Dodo IS.</span>
+  <a href="/auth/link/start" class="sso-banner-link">Привязать Dodo IS</a>
+  <button type="button" id="ssoBannerClose" class="sso-banner-close" aria-label="Закрыть">×</button>
+</div>
 
 <header class="topbar">
   <button id="drawerToggle" class="drawer-toggle" type="button" aria-label="Открыть проекты"
@@ -211,6 +217,6 @@
 </div>
 
 <script src="/static/topbar.js?v=20"></script>
-<script src="/static/app.js?v=34"></script>
+<script src="/static/app.js?v=35"></script>
 </body>
 </html>

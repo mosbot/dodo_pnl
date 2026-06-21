@@ -2663,8 +2663,24 @@ async function openDrillDown(code, label, projectId = null, projectName = '', ca
 }
 
 // --- Wire up events ---
+async function initSsoBanner() {
+  const elB = document.getElementById('ssoBanner');
+  if (!elB || localStorage.getItem('ssoBannerDismissed') === '1') return;
+  let me;
+  try {
+    me = await (await fetch('/auth/me', { credentials: 'same-origin' })).json();
+  } catch (e) { return; }
+  if (!me || me.dodois_linked) return;   // уже привязан или нет данных
+  elB.hidden = false;
+  document.getElementById('ssoBannerClose')?.addEventListener('click', () => {
+    elB.hidden = true;
+    localStorage.setItem('ssoBannerDismissed', '1');
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   initMonthSelect();
+  initSsoBanner();
 
   // Drawer (мобильный сайдбар проектов) — открывается hamburger-ом,
   // закрывается по клику на backdrop или по Escape.

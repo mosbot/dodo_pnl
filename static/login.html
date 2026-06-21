@@ -117,6 +117,7 @@
     var p = new URLSearchParams(location.search).get('sso');
     if (!p) return;
     var msg = {
+      noaccount: 'Этот Dodo-аккаунт не привязан к пользователю. Войдите по логину/паролю и привяжите Dodo IS в профиле, либо обратитесь к администратору.',
       nolicense: 'У этого аккаунта Dodo IS нет лицензии на Финансы. Обратитесь к администратору.',
       invalid: 'Сессия Dodo IS недействительна — войдите заново.',
       nosession: 'Войдите через Dodo IS.'

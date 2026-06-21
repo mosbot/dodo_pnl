@@ -1090,8 +1090,42 @@ async function renderSessions() {
   }
 }
 
+function renderSsoLink() {
+  const box = document.getElementById('ssoLinkStatus');
+  if (!box) return;
+  const me = state.me || {};
+  const linked = !!me.dodois_linked;
+  const hasPwd = me.has_password !== false;
+  if (linked) {
+    box.innerHTML = '<strong style="color:#16a34a;">Dodo IS привязан ✓</strong>'
+      + (hasPwd ? ' <button type="button" id="ssoUnlinkBtn" class="btn-secondary" style="margin-left:auto;">Отвязать</button>' : '');
+  } else {
+    box.innerHTML = '<a href="/auth/link/start" class="btn-secondary">Привязать Dodo IS</a>';
+  }
+  const p = new URLSearchParams(location.search).get('link');
+  if (p) {
+    const m = {
+      ok: ['Dodo IS привязан ✓', 'ok'],
+      taken: ['Этот Dodo-аккаунт уже привязан к другому пользователю.', 'err'],
+      invalid: ['Не удалось подтвердить Dodo IS, попробуйте снова.', 'err'],
+      nosession: ['Сессия Dodo IS не найдена — войдите в Dodo IS и повторите.', 'err'],
+      unavailable: ['SSO не настроен.', 'err'],
+    }[p];
+    if (m) setMsg('ssoLinkMsg', m[0], m[1]);
+  }
+  document.getElementById('ssoUnlinkBtn')?.addEventListener('click', async () => {
+    try {
+      await api('/auth/unlink', { method: 'POST' });
+      toast('Dodo IS отвязан');
+      if (state.me) state.me.dodois_linked = false;
+      renderSsoLink();
+    } catch (e) { setMsg('ssoLinkMsg', e.message, 'err'); }
+  });
+}
+
 function initProfileTab() {
   const form = document.getElementById('passwordForm');
+  renderSsoLink();
   if (!form) return;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

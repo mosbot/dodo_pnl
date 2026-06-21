@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # первом входе) + внешний базовый URL pnl для return_to.
     sa_login_url: str = ""        # напр. https://sa.dodotool.ru/dodois/login
     public_base_url: str = ""     # напр. https://pnl.dodotool.ru
+    # Авто-провижн тенанта при SSO-входе незнакомого Dodo-аккаунта. OFF =
+    # admin-managed: незнакомый sub → нет доступа (вход только по привязке к
+    # существующему аккаунту). ON — для self-serve онбординга (маркетплейс).
+    sso_auto_provision: bool = False
 
 
 settings = Settings()
