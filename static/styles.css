@@ -648,7 +648,7 @@ body.drawer-open .panel { transform: translateX(0); }
 }
 .platform-bar {
   display: flex; align-items: center; gap: 12px;
-  padding: 7px 20px; min-height: 46px;
+  padding: 0 20px; height: 50px;   /* фикс. высота — не прыгает между сервисами */
   background: var(--card);
   border-bottom: 1px solid var(--border);
 }
