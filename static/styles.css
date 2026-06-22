@@ -642,6 +642,7 @@ body.drawer-open .panel { transform: translateX(0); }
   padding: 3px 10px; cursor: help;
 }
 .lite-badge::before { content: "●"; color: #3b82f6; font-size: 9px; line-height: 1; }
+.apply-short { display: none; }  /* «Ok» — только на мобайле (см. @media) */
 
 /* ── Платформенная шапка: 2 яруса (бренд+сервисы / панель сервиса) ── */
 .topbar {
@@ -725,6 +726,9 @@ body.drawer-open .panel { transform: translateX(0); }
   #monthFieldSingle, #monthFieldFrom, #monthFieldTo { order: 6; }
   #periodApplyBtn  { order: 7; }
   #tbHintPeriod    { order: 8; }
+  /* «Применить» → «Ok» на мобайле, чтобы ряд B влез в одну строку */
+  .apply-full  { display: none; }
+  .apply-short { display: inline; }
   .dt-brand { font-size: 16px; }
   .user-menu-name { max-width: 90px; }
   /* Тап-таргеты ≥40px на мобайле (зону расширяем, не иконку) */
