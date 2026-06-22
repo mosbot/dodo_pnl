@@ -255,7 +255,7 @@ async def admin_update_user(
 async def admin_reset_password(
     user_id: int,
     request: Request,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_for_user("user_id")),
     session: AsyncSession = Depends(get_session),
 ):
     u = await get_user_by_id(session, user_id)
