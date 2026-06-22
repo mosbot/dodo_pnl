@@ -1101,7 +1101,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Высота topbar в CSS-переменную — для позиционирования drawer-panel
   // (top:var(--topbar-h)) и пересчёт при resize.
   const _setTopbarHVar = () => {
-    const tb = document.querySelector(".topbar");
+    const tb = document.querySelector(".app-header") || document.querySelector(".topbar");
     if (!tb) return;
     const h = tb.offsetHeight;
     if (h > 0) document.documentElement.style.setProperty("--topbar-h", h + "px");
