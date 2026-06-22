@@ -1766,8 +1766,12 @@ body.settings-body {
 .tab-pane .dense-table tbody td { padding: 6px 8px; }
 .tab-pane .matrix-table .col-proj { min-width: 110px; }
 .tab-pane .matrix-table .metric-col { min-width: 200px; }
-/* «Профиль» — узкая колонка карточек по центру, без пустоты слева */
-.tab-pane[data-pane="profile"] .dense-block { margin-left: auto; margin-right: auto; }
+/* «Профиль» — три карточки одинаковой ширины по центру.
+   width:100% обязателен: без него margin:auto отменяет flex-stretch и
+   карточки ужимаются по контенту (разная ширина). */
+.tab-pane[data-pane="profile"] .dense-block {
+  width: 100%; max-width: 640px; margin-left: auto; margin-right: auto;
+}
 
 /* Плотная таблица — базовая */
 .dense-table {
