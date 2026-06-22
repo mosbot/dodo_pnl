@@ -1299,6 +1299,16 @@ async def _attach_orders(
     }
 
 
+async def _tenant_has_planfact(session: AsyncSession, pf_key_id: int) -> bool:
+    """У тенанта (planfact_key) есть СОБСТВЕННЫЙ непустой api_key?
+    Используется для решения Lite vs полный P&L. env-fallback (общий ключ)
+    тут НЕ учитываем — он только для legacy-юзеров без назначенного ключа."""
+    from .auth.models import PlanfactKey
+    from .crypto import decrypt_secret
+    pk = await session.get(PlanfactKey, pf_key_id)
+    return bool(pk and pk.api_key and decrypt_secret(pk.api_key))
+
+
 async def _build_pnl_lite(
     session: AsyncSession, user: User,
     date_start: str, date_end: str,
@@ -1465,14 +1475,17 @@ async def get_pnl(
 
     pm = period_month or _derive_period_month(date_start, date_end)
 
-    try:
-        pf = await planfact_for(session, user)
-    except NoTokenError:
-        # Нет PlanFact-ключа → Lite-режим (выручка/каналы/ops из Dodo IS),
-        # вместо 400. Полный P&L доступен после подключения PlanFact.
+    # Lite-режим: тенанту назначен PF-ключ, но у ключа нет собственного
+    # api_key → работаем на данных Dodo IS (выручка/каналы/ops), без 400.
+    # env-fallback к общему ключу для таких тенантов НЕ применяем.
+    if user.planfact_key_id and not await _tenant_has_planfact(
+        session, user.planfact_key_id
+    ):
         return await _build_pnl_lite(
             session, user, date_start, date_end, pm, effective_projects,
         )
+
+    pf = await planfact_for(session, user)
     try:
         result = await _build_pnl_for_period(
             session=session, user=user, pf=pf,
