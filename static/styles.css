@@ -1389,10 +1389,10 @@ body.drawer-open .drawer-backdrop {
          grid-template-rows: auto 1fr; }
   /* Hamburger в топбаре */
   .drawer-toggle { display: inline-flex; }
-  /* Топбар — растёт под содержимое, но не меньше 56px */
-  .topbar { min-height: 56px; padding: 8px 10px; gap: 8px; flex-wrap: wrap; }
-  .controls { gap: 8px; }
-  .controls-left, .controls-right { gap: 8px; }
+  /* Топбар — 2-ярусный flex-column; внешних отступов/зазора нет (у ярусов
+     свои паддинги и бордеры, как на десктопе). */
+  .topbar { padding: 0; gap: 0; }
+  .controls-left { gap: 8px; }
   /* Сайдбар — фиксированная панель слева, по умолчанию за экраном.
    * top рассчитывается от --topbar-h (на лету устанавливается JS-ом). */
   .panel {
@@ -1534,36 +1534,9 @@ body.drawer-open .drawer-backdrop {
  * Так пользователь видит главное (brand + действия) сверху, а большой
  * блок выбора периода стабильно занимает вторую строку без переносов. */
 @media (max-width: 600px) {
-  .topbar {
-    display: grid;
-    grid-template-columns: auto 1fr auto auto;
-    grid-template-areas:
-      "toggle brand settings logout"
-      "lcontrols lcontrols lcontrols lcontrols";
-    align-items: center;
-    column-gap: 8px;
-    row-gap: 6px;
-    padding: 8px 10px;
-  }
-  .drawer-toggle { grid-area: toggle; }
-  .brand { grid-area: brand; min-width: 0; overflow: hidden; }
-  /* .controls и .controls-right разворачиваем display: contents,
-   * чтобы их прямые дети попали в сетку .topbar напрямую. */
-  .controls { display: contents; }
-  .controls-left {
-    grid-area: lcontrols;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .controls-right { display: contents; }
-  .controls-right > a.btn-secondary { grid-area: settings; }
-  .controls-right > .user-menu { grid-area: logout; }
-
-  /* В brand оставляем только «P&L», без подписи `· PlanFact` */
-  .brand .muted { display: none; }
-  .brand strong { font-size: 14px; }
+  /* .topbar остаётся 2-ярусным flex-column (platform-bar + service-bar).
+     Старую grid-раскладку одностроночного хедера убрали — иначе вложенные
+     бургер/контролы (теперь внутри service-bar) ломали разметку. */
   /* Подписи «МЕСЯЦ»/«с»/«по» внутри селектов скрыты — селект сам по себе
    * понятен в контексте узкого экрана. Освобождает ~50px на каждом поле. */
   .tb-field-label > span:first-child { display: none; }
