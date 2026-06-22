@@ -694,6 +694,24 @@ body.drawer-open .panel { transform: translateX(0); }
 .svc-item-locked { color: var(--muted); cursor: default; }
 .svc-item-locked:hover { background: none; }
 .svc-lock { font-size: 11px; color: var(--muted); }
+
+/* Заглушка «модуль не подключён» (enforcement лицензий, 402) */
+.license-stub { display: flex; justify-content: center; padding: 48px 16px; }
+.license-stub.hidden { display: none; }
+.license-stub-card {
+  max-width: 440px; text-align: center;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 32px 28px;
+}
+.license-stub-ic { color: var(--primary); margin-bottom: 6px; }
+.license-stub-card h2 { font-size: 18px; margin: 4px 0 8px; color: var(--text); font-weight: 600; }
+.license-stub-card p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
+.license-stub-cta { display: inline-block; text-decoration: none; padding: 10px 22px; }
+body.license-blocked .kpi-toolbar,
+body.license-blocked .cards,
+body.license-blocked #chartsGrid,
+body.license-blocked .charts-toolbar,
+body.license-blocked .table-wrap { display: none !important; }
 .svc-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
 .svc-hint {
   position: absolute; top: calc(100% + 6px); left: 0; width: 234px;

@@ -128,6 +128,14 @@ async function fetchBoard() {
     location.href = "/login?next=" + encodeURIComponent("/board");
     throw new Error("Требуется вход");
   }
+  if (r.status === 402) {
+    // Enforcement лицензий: Пульс не подключён для сети → заглушка с CTA.
+    document.body.classList.add("license-blocked");
+    el("boardLoading")?.classList.add("hidden");
+    el("boardError")?.classList.add("hidden");
+    el("licenseStub")?.classList.remove("hidden");
+    return new Promise(() => {});  // останавливаем дальнейший рендер
+  }
   if (!r.ok) {
     const t = await r.text();
     throw new Error(`${r.status}: ${t.slice(0, 200)}`);

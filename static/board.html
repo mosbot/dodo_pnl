@@ -94,6 +94,21 @@ a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"] {
 .svc-item-locked { color: var(--muted); cursor: default; }
 .svc-item-locked:hover { background: none; }
 .svc-lock { font-size: 11px; color: var(--muted); }
+/* Заглушка «модуль не подключён» (402) */
+.license-stub { display: flex; justify-content: center; padding: 48px 16px; }
+.license-stub.hidden { display: none; }
+.license-stub-card { max-width: 440px; text-align: center; background: var(--card);
+  border: 1px solid var(--border); border-radius: 14px; padding: 32px 28px; }
+.license-stub-ic { color: #2563eb; margin-bottom: 6px; }
+.license-stub-card h2 { font-size: 18px; margin: 4px 0 8px; font-weight: 600; }
+.license-stub-card p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
+.license-stub-cta { display: inline-block; text-decoration: none; padding: 10px 22px;
+  background: #2563eb; color: #fff; border-radius: 8px; font-weight: 500; font-size: 14px; }
+.license-stub-cta:hover { background: #1d4ed8; }
+body.license-blocked #pageHeader,
+body.license-blocked #boardHero,
+body.license-blocked #boardEmpty,
+body.license-blocked #boardCards { display: none !important; }
 .svc-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
 @media (max-width: 640px) {
   .platform-bar { padding: 0 12px; gap: 8px; }
@@ -949,6 +964,18 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
   <p class="page-subtitle" id="pageSubtitle">—</p>
 </header>
 
+<section id="licenseStub" class="license-stub hidden">
+  <div class="license-stub-card">
+    <svg class="license-stub-ic" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <h2>Модуль «Пульс» не подключён</h2>
+    <p>Чтобы видеть сетевой scoreboard дня по всем точкам, оформите подписку на модуль «Пульс».</p>
+    <a class="license-stub-cta" href="https://app.dodotool.ru">Оформить подписку</a>
+  </div>
+</section>
+
 <section class="hero hidden" id="boardHero">
   <div class="hero-panels">
 
@@ -1025,6 +1052,6 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
 </footer>
 
 <script src="/static/topbar.js?v=28"></script>
-<script src="/static/board.js?v=48"></script>
+<script src="/static/board.js?v=49"></script>
 </body>
 </html>

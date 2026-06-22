@@ -267,6 +267,13 @@ async function api(path, opts = {}) {
     // Возвращаем неразрешающийся promise чтобы остановить дальнейший код
     return new Promise(() => {});
   }
+  if (r.status === 402) {
+    // Enforcement лицензий: модуль не подключён для сети → заглушка с CTA.
+    document.body.classList.add('license-blocked');
+    document.getElementById('licenseStub')?.classList.remove('hidden');
+    showLoading(false);
+    return new Promise(() => {});  // останавливаем дальнейший код
+  }
   if (!r.ok) {
     const text = await r.text();
     throw new Error(`${r.status}: ${text}`);
