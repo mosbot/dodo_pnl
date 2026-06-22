@@ -598,6 +598,7 @@ body.drawer-open .panel { transform: translateX(0); }
 }
 /* Баннер-подсказка о привязке Dodo IS (SSO) — фиксирован у нижнего края
    экрана (в grid-потоке body его выбрасывало в самый низ длинной страницы). */
+.sso-banner[hidden] { display: none; }  /* атрибут hidden должен перебивать display:flex */
 .sso-banner {
   position: fixed;
   left: 0; right: 0; bottom: 0;
