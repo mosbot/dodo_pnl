@@ -718,7 +718,7 @@ body.drawer-open .panel { transform: translateX(0); }
   .service-bar .controls-left { display: contents; }
   .drawer-toggle   { order: 1; }
   .mode-toggle     { order: 2; }
-  .lfl-toggle      { order: 3; }
+  .lfl-toggle      { order: 3; margin-left: auto; }  /* LFL+Обновить — к правому краю ряда A */
   .ops-refresh-btn { order: 4; }
   .ops-freshness   { order: 4; }
   .lite-badge      { order: 4; }              /* margin-left:auto уводит вправо ряда A */
