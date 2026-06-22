@@ -1101,6 +1101,31 @@ function ordersTile(o, lfl) {
     </div>`;
 }
 
+// Lite-режим: компактный бейдж «Lite-режим» (с тултипом) в строке тулбара
+// ⚙ Метрики + скрытие PlanFact-блоков (графики и «Детализация по статьям»).
+function applyLiteMode(on) {
+  const tw = document.querySelector('.table-wrap');
+  if (tw) tw.classList.toggle('hidden', on);
+  const cg = document.getElementById('chartsGrid');
+  if (cg) cg.classList.toggle('hidden', on);
+  document.querySelectorAll('.charts-toolbar:not(.kpi-toolbar)')
+    .forEach(t => t.classList.toggle('hidden', on));
+
+  const bar = document.querySelector('.kpi-toolbar');
+  let badge = document.getElementById('liteBadge');
+  if (on && bar && !badge) {
+    badge = document.createElement('span');
+    badge.id = 'liteBadge';
+    badge.className = 'lite-badge';
+    badge.textContent = 'Lite-режим';
+    badge.title = 'PlanFact не подключён. Доступны выручка, каналы и операционные '
+      + 'метрики из Dodo IS. Полный P&L (себестоимость, EBITDA, чистая прибыль) — '
+      + 'после подключения PlanFact.';
+    bar.insertBefore(badge, bar.firstChild);
+  }
+  if (badge) badge.classList.toggle('hidden', !on);
+}
+
 function renderCards() {
   const box = el('kpiCards');
   box.innerHTML = '';
@@ -1110,14 +1135,9 @@ function renderCards() {
   const ebitda = findLine('EBITDA');
   if (!revenue) return;
 
-  // Lite-режим (нет PlanFact): пояснение, что доступно только из Dodo IS.
-  if (state.pnl && state.pnl.lite) {
-    const note = document.createElement('div');
-    note.className = 'lite-note';
-    note.innerHTML = '<b>Lite-режим.</b> Выручка, каналы и операционные метрики — из Dodo IS. '
-      + 'Полный P&amp;L (себестоимость, EBITDA, чистая прибыль) станет доступен после подключения PlanFact.';
-    box.appendChild(note);
-  }
+  // Lite-режим (нет PlanFact): компактный бейдж в тулбаре + скрытие
+  // PlanFact-блоков (графики, «Детализация по статьям»).
+  applyLiteMode(!!(state.pnl && state.pnl.lite));
 
   const defT = state.pnl?.default_targets || {};
   const projT = {};

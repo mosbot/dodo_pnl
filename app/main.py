@@ -1345,6 +1345,16 @@ async def _build_pnl_lite(
     if uuids:
         try:
             token = await get_dodois_token(session, user)
+            # Имена пиццерий — из кэша Dodo IS (как в /board), иначе на
+            # карточках будет project_id вместо названия.
+            try:
+                names = await board_module._get_or_refresh_unit_names(session, token)
+                for uu_norm, pid in uuid_to_pid.items():
+                    nm = names.get(uu_norm)
+                    if nm:
+                        proj_meta[pid] = nm
+            except Exception:
+                log.exception("Lite: имена юнитов недоступны")
             rows = await dodois_client.fetch_finance_sales_monthly(
                 token, uuids, date_start, date_end,
             )
