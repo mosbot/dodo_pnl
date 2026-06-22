@@ -701,7 +701,6 @@ body.drawer-open .panel { transform: translateX(0); }
   /* Тап-таргеты ≥40px на мобайле (зону расширяем, не иконку) */
   .mode-toggle-btn { min-height: 38px; padding: 7px 12px; }
   .svc-chip { padding: 8px 10px; }
-  .drawer-toggle { width: 40px; height: 40px; }
   .close-btn, .chart-modal-close, .sso-banner-close {
     min-width: 40px; min-height: 40px;
     display: inline-flex; align-items: center; justify-content: center;
@@ -1350,14 +1349,13 @@ tr.tpl-calc.tpl-final .neg { color: #fca5a5; }
 .drawer-toggle {
   display: inline-flex;  /* всегда виден — drawer теперь overlay для всех */
   width: 36px; height: 36px; padding: 0;
-  background: transparent; border: 1px solid var(--border-light);
+  background: none; border: 1px solid var(--border);
   border-radius: 6px;
   align-items: center; justify-content: center;
   cursor: pointer; color: var(--text);
   flex-shrink: 0;
 }
-.drawer-toggle:hover { background: var(--bg); }
-.drawer-toggle:active { transform: scale(0.96); }
+.drawer-toggle:hover { background: rgba(0,0,0,0.05); }
 .drawer-backdrop {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.4);
