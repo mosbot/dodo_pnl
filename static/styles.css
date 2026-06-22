@@ -160,7 +160,7 @@ body {
      Layout — одна колонка под topbar, без grid-sidebar. */
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: 56px 1fr;
+  grid-template-rows: auto 1fr;  /* было 56px — двухъярусная шапка ~94px не влезала */
   grid-template-areas: "top" "main";
 }
 
@@ -620,7 +620,7 @@ body.drawer-open .panel { transform: translateX(0); }
 .sso-banner-close:hover { opacity: 1; }
 /* Lite-режим (нет PlanFact): компактный бейдж в тулбаре, слева от ⚙ Метрики */
 .lite-badge {
-  margin-right: auto;           /* прижать влево, ⚙ остаётся справа */
+  margin-left: auto;            /* в панели сервиса — к правому краю */
   display: inline-flex; align-items: center; gap: 5px;
   background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px;
   color: #1e3a8a; font-size: 12px; font-weight: 600;
@@ -636,11 +636,13 @@ body.drawer-open .panel { transform: translateX(0); }
 .platform-bar {
   display: flex; align-items: center; gap: 12px;
   padding: 7px 20px; min-height: 46px;
+  background: var(--card);
   border-bottom: 1px solid var(--border);
 }
 .service-bar {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 20px; min-height: 48px;
+  background: var(--card);  /* непрозрачная, как у Пульса */
 }
 .pb-spacer { flex: 1 1 auto; }
 .dt-brand {

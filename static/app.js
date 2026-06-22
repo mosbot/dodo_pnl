@@ -1106,7 +1106,7 @@ function applyLiteMode(on) {
   document.querySelectorAll('.charts-toolbar:not(.kpi-toolbar)')
     .forEach(t => t.classList.toggle('hidden', on));
 
-  const bar = document.querySelector('.kpi-toolbar');
+  const bar = document.querySelector('.service-bar');
   let badge = document.getElementById('liteBadge');
   if (on && bar && !badge) {
     badge = document.createElement('span');
