@@ -44,13 +44,14 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearError();
+    const linkMode = !!window.__ssoLinkMode;  // привязка с экрана входа (sso=noaccount)
     submit.disabled = true;
-    submit.textContent = 'Вход…';
+    submit.textContent = linkMode ? 'Привязываем…' : 'Вход…';
 
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
     try {
-      const r = await fetch('/auth/login', {
+      const r = await fetch(linkMode ? '/auth/sso-link' : '/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -68,7 +69,7 @@
     } catch (err) {
       showError('Сетевая ошибка: ' + (err.message || err));
       submit.disabled = false;
-      submit.textContent = 'Войти';
+      submit.textContent = linkMode ? 'Привязать и войти' : 'Войти';
     }
   });
 })();

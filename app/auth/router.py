@@ -234,6 +234,87 @@ async def auth_link(
     return RedirectResponse("/settings?link=ok", status_code=302)
 
 
+class SsoLinkRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+@router.post("/auth/sso-link", response_model=UserPublic)
+async def sso_link(
+    body: SsoLinkRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_session),
+):
+    """Привязка «с нашей стороны»: SSO уже выполнен (sub из активной sa-сессии),
+    но pnl-аккаунта по этому Dodo нет. Юзер вводит локальные логин+пароль —
+    проверяем, биндим dodois_sub к его аккаунту и логиним. Инициируется прямо
+    с экрана входа (?sso=noaccount). sub берём ТОЛЬКО из валидной sa-сессии,
+    не из тела запроса."""
+    from sqlalchemy import select
+    from . import sso as sso_mod
+
+    sa_cookie = request.cookies.get(sso_mod.SA_COOKIE_NAME)
+    if not sa_cookie:
+        raise HTTPException(400, "Нет активной сессии Dodo IS — войдите через Dodo IS заново.")
+    sa_user = await sso_mod.resolve_sa_user(sa_cookie)
+    if not sa_user:
+        raise HTTPException(400, "Сессия Dodo IS недействительна.")
+    sub = sa_user["sub"]
+
+    # Rate-limit как у обычного логина (защита от брутфорса пароля).
+    ip = request.client.host if request.client else "unknown"
+    uname_key = body.username.strip().lower()
+    allowed, retry_after = login_limiter.check(ip)
+    if allowed:
+        allowed, retry_after = username_limiter.check(uname_key)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Слишком много попыток. Повторите через {retry_after // 60 + 1} мин.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    u = await get_user_by_username(db, body.username)
+    if u is None or not verify_password(body.password, u.password_hash):
+        login_limiter.record_failure(ip)
+        username_limiter.record_failure(uname_key)
+        await audit.log_audit(
+            db, audit.ACTION_LOGIN_FAILED, user_id=(u.id if u else None),
+            request=request, details={"username": body.username, "sso_link": True},
+        )
+        await db.commit()
+        raise HTTPException(401, "Неверный логин или пароль")
+    login_limiter.reset(ip)
+    username_limiter.reset(uname_key)
+
+    db_user = await db.get(User, u.id)
+    if db_user.dodois_sub and db_user.dodois_sub != sub:
+        raise HTTPException(409, "Этот аккаунт уже привязан к другому Dodo IS.")
+    other = (await db.execute(
+        select(User).where(User.dodois_sub == sub)
+    )).scalar_one_or_none()
+    if other is not None and other.id != db_user.id:
+        raise HTTPException(409, "Этот аккаунт Dodo IS уже привязан к другому логину.")
+
+    db_user.dodois_sub = sub
+    s = await create_session(
+        db, db_user, user_agent=request.headers.get("user-agent"),
+        ip=ip if ip != "unknown" else None,
+    )
+    await audit.log_audit(
+        db, audit.ACTION_LOGIN_SUCCESS, user_id=db_user.id, request=request,
+        details={"sso_link": True},
+    )
+    await db.commit()
+    response.set_cookie(
+        key=SESSION_COOKIE, value=s.plain_token,
+        max_age=SESSION_TTL_DAYS * 24 * 3600,
+        httponly=True, secure=True, samesite="lax", path="/",
+    )
+    return UserPublic.from_user(db_user)
+
+
 @router.post("/auth/unlink")
 async def auth_unlink(
     user: User = Depends(require_user),

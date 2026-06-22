@@ -111,13 +111,27 @@
   </div>
 </div>
 
-<script src="/static/login.js"></script>
+<script src="/static/login.js?v=2"></script>
 <script>
   (function () {
     var p = new URLSearchParams(location.search).get('sso');
     if (!p) return;
+    // Вход через Dodo IS выполнен, но аккаунта нет → предлагаем привязать:
+    // юзер вводит локальные логин/пароль, форма уходит на /auth/sso-link.
+    if (p === 'noaccount') {
+      window.__ssoLinkMode = true;
+      var sub = document.querySelector('.login-sub');
+      if (sub) sub.textContent =
+        'Вход через Dodo IS выполнен, но аккаунт ещё не привязан. Есть логин и пароль? Введите их — привяжем Dodo IS к вашему аккаунту.';
+      var sb = document.getElementById('loginSubmit');
+      if (sb) sb.textContent = 'Привязать и войти';
+      var or = document.querySelector('.login-or');
+      var sso = document.querySelector('.login-sso');
+      if (or) or.style.display = 'none';
+      if (sso) sso.style.display = 'none';
+      return;
+    }
     var msg = {
-      noaccount: 'Этот Dodo-аккаунт не привязан к пользователю. Войдите по логину/паролю и привяжите Dodo IS в профиле, либо обратитесь к администратору.',
       nolicense: 'У этого аккаунта Dodo IS нет лицензии на Финансы. Обратитесь к администратору.',
       invalid: 'Сессия Dodo IS недействительна — войдите заново.',
       nosession: 'Войдите через Dodo IS.'
