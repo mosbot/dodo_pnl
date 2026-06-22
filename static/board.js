@@ -422,10 +422,15 @@ function renderEmptyState() {
 }
 
 function toggleDrawer(open) {
-  document.body.classList.toggle("drawer-open",
-    typeof open === "boolean" ? open : !document.body.classList.contains("drawer-open"));
+  const isOpen = typeof open === "boolean"
+    ? open : !document.body.classList.contains("drawer-open");
+  document.body.classList.toggle("drawer-open", isOpen);
   const bd = el("drawerBackdrop");
-  if (bd) bd.hidden = !document.body.classList.contains("drawer-open");
+  if (bd) bd.hidden = !isOpen;
+  // a11y: фокус в панель при открытии, возврат на гамбургер при закрытии
+  const panel = el("projectsPanel");
+  if (isOpen && panel) { panel.setAttribute("tabindex", "-1"); panel.focus(); }
+  else if (!isOpen) el("drawerToggle")?.focus();
 }
 
 // Видимость ops-метрик per PF-ключ. {code: bool}. Если ключ не в карте

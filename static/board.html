@@ -9,19 +9,20 @@
 <title>Сеть · день · PnL Dashboard</title>
 <style>
 :root {
-  --bg:        #fafaf9;
+  --bg:        #f7f8fa;
   --card:      #ffffff;
   --panel:     #ffffff;
-  --border:    #e7e5e0;
-  --border-strong: #d4d4cf;
-  --text:      #18181b;
-  --muted:     #6e6e6a;
-  --muted-2:   #a3a39e;
+  --border:    #e5e7eb;
+  --border-strong: #d1d5db;
+  --text:      #1a1f2e;
+  --muted:     #6b7280;
+  --muted-2:   #767676;  /* было #a3a39e (2.4:1 — провал AA) → ~4.5:1 */
+  --primary:   #2563eb;
   --pos:       #15803d;
   --pos-bg:    #ecfdf5;
   --neg:       #b91c1c;
   --neg-bg:    #fef2f2;
-  --row-bg:    #f8f8f6;
+  --row-bg:    #f5f7f9;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; }
@@ -910,7 +911,7 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
               stroke-linecap="round" fill="none"/>
       </svg>
     </button>
-    <div class="topbar-title">Сегодня в сети</div>
+    <div class="topbar-title" aria-hidden="true"></div>
     <button type="button" id="refreshNowBtn" class="refresh-btn hidden"
             aria-label="Обновить данные" title="Обновить данные">⟳</button>
   </header>
@@ -1014,7 +1015,7 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
   <span id="nextRefresh"></span>
 </footer>
 
-<script src="/static/topbar.js?v=26"></script>
-<script src="/static/board.js?v=47"></script>
+<script src="/static/topbar.js?v=27"></script>
+<script src="/static/board.js?v=48"></script>
 </body>
 </html>

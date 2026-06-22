@@ -2709,10 +2709,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Drawer (мобильный сайдбар проектов) — открывается hamburger-ом,
   // закрывается по клику на backdrop или по Escape.
   const _toggleDrawer = (open) => {
-    document.body.classList.toggle('drawer-open',
-      typeof open === 'boolean' ? open : !document.body.classList.contains('drawer-open'));
+    const isOpen = typeof open === 'boolean'
+      ? open : !document.body.classList.contains('drawer-open');
+    document.body.classList.toggle('drawer-open', isOpen);
     const bd = el('drawerBackdrop');
-    if (bd) bd.hidden = !document.body.classList.contains('drawer-open');
+    if (bd) bd.hidden = !isOpen;
+    // a11y: при открытии фокус в панель, при закрытии — обратно на гамбургер
+    const panel = el('projectsPanel');
+    if (isOpen && panel) { panel.setAttribute('tabindex', '-1'); panel.focus(); }
+    else if (!isOpen) el('drawerToggle')?.focus();
   };
   el('drawerToggle')?.addEventListener('click', () => _toggleDrawer());
   el('drawerBackdrop')?.addEventListener('click', () => _toggleDrawer(false));

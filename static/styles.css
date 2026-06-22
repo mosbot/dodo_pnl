@@ -696,6 +696,14 @@ body.drawer-open .panel { transform: translateX(0); }
   .service-bar .controls-left { flex-wrap: nowrap; }
   .dt-brand { font-size: 16px; }
   .user-menu-name { max-width: 90px; }
+  /* Тап-таргеты ≥40px на мобайле (зону расширяем, не иконку) */
+  .mode-toggle-btn { min-height: 38px; padding: 7px 12px; }
+  .svc-chip { padding: 8px 10px; }
+  .drawer-toggle { width: 40px; height: 40px; }
+  .close-btn, .chart-modal-close, .sso-banner-close {
+    min-width: 40px; min-height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
 }
 .tile-label {
   font-size: 10px; font-weight: 600; color: var(--muted);
@@ -1552,13 +1560,13 @@ body.drawer-open .drawer-backdrop {
   /* «не синхронизировано» badge на мобиле скрываем — не критично,
    * пользователь увидит его на десктопе. Освобождает 150+ px. */
   .ops-freshness { display: none !important; }
-  /* «⚙ Настройки» — оставляем только иконку без подписи. */
-  .controls-right .btn-secondary {
+  /* «⚙ Настройки» в платформенной шапке — только иконка без подписи. */
+  .pb-link {
     font-size: 0;  /* скрыть текст */
     padding: 6px 8px;
   }
-  .controls-right .btn-secondary::before {
-    content: '⚙'; font-size: 14px;
+  .pb-link::before {
+    content: '⚙'; font-size: 16px;
   }
   /* User-меню: скрываем имя, оставляем «★ Выйти» */
   .user-menu-name { display: none; }

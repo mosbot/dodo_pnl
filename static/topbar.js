@@ -53,7 +53,9 @@
 
     const HUB = 'https://app.dodotool.ru';
     const vis = (me && typeof me.visibility_level === 'number') ? me.visibility_level : 0;
-    const current = location.pathname.indexOf('/board') === 0 ? 'pulse' : 'finance';
+    const path = location.pathname;
+    const current = path.indexOf('/board') === 0 ? 'pulse'
+      : (path.indexOf('/settings') === 0 ? 'settings' : 'finance');
     const services = [
       { id: 'finance', name: 'Финансы', url: '/' },
       { id: 'pulse', name: 'Пульс', url: '/board', minVis: 30 },

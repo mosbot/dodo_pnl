@@ -4,29 +4,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки · P&L Dashboard</title>
-<link rel="stylesheet" href="/static/styles.css?v=3">
+<link rel="stylesheet" href="/static/styles.css?v=19">
 </head>
 <body class="settings-body">
 
 <header class="topbar settings-topbar">
-  <div class="brand">
-    <a href="/" class="brand-link"><strong>P&amp;L Dashboard</strong></a>
-    <span class="muted">· Настройки</span>
-  </div>
-  <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
-    <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
-    <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
-    <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Структура</button>
-    <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Метрики</button>
-    <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Цели</button>
-    <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Пользователи</button>
-  </nav>
-  <div class="controls">
-    <a href="/" class="btn-secondary" style="text-decoration:none;">← К дашборду</a>
+  <!-- Ярус 1 — платформа: бренд + переключатель сервисов + юзер -->
+  <div class="platform-bar">
+    <a class="dt-brand" href="https://app.dodotool.ru" title="Все сервисы Dodotool">Dodo<span>tool</span></a>
+    <div class="svc-switch" id="svcSwitch">
+      <button type="button" class="svc-chip" id="svcChipBtn" aria-haspopup="true" aria-expanded="false">
+        <span class="svc-chip-name">Настройки</span>
+        <svg class="svc-chip-caret" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="svc-menu hidden" id="svcMenu" role="menu"></div>
+    </div>
+    <span class="pb-spacer"></span>
     <div id="userMenu" class="user-menu hidden">
       <span class="user-menu-name" id="userMenuName">…</span>
       <button id="logoutBtn" class="user-menu-logout" title="Выйти">Выйти</button>
     </div>
+  </div>
+  <!-- Ярус 2 — разделы настроек -->
+  <div class="service-bar">
+    <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
+      <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
+      <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Структура</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Метрики</button>
+      <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Цели</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Пользователи</button>
+    </nav>
   </div>
 </header>
 
@@ -528,7 +536,7 @@
 
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-<script src="/static/topbar.js?v=25"></script>
+<script src="/static/topbar.js?v=27"></script>
 <script src="/static/settings.js?v=27"></script>
 </body>
 </html>
