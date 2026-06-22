@@ -2721,6 +2721,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   el('drawerToggle')?.addEventListener('click', () => _toggleDrawer());
   el('drawerBackdrop')?.addEventListener('click', () => _toggleDrawer(false));
+  el('panelCloseBtn')?.addEventListener('click', () => _toggleDrawer(false));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) _toggleDrawer(false);
   });

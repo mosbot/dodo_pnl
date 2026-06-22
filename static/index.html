@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>P&L по проектам · PlanFact</title>
-<link rel="stylesheet" href="/static/styles.css?v=22">
+<link rel="stylesheet" href="/static/styles.css?v=23">
 <script src="/static/vendor/chart-4.5.0.umd.js"></script>
 </head>
 <body>
@@ -95,13 +95,16 @@
 
 <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 <aside id="projectsPanel" class="panel">
-  <h3>
-    Проекты
-    <span class="tb-hint tb-hint-inline hidden" id="sbHintProjects">
-      <span class="tb-hint-num">2</span>
-      Отметь
-    </span>
-  </h3>
+  <div class="panel-head">
+    <h3>
+      Проекты
+      <span class="tb-hint tb-hint-inline hidden" id="sbHintProjects">
+        <span class="tb-hint-num">2</span>
+        Отметь
+      </span>
+    </h3>
+    <button type="button" id="panelCloseBtn" class="drawer-close" aria-label="Закрыть">×</button>
+  </div>
   <div id="projectsList" class="projects-list"></div>
 </aside>
 
@@ -220,6 +223,6 @@
 </div>
 
 <script src="/static/topbar.js?v=27"></script>
-<script src="/static/app.js?v=40"></script>
+<script src="/static/app.js?v=41"></script>
 </body>
 </html>
