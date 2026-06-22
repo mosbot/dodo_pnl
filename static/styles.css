@@ -1546,14 +1546,9 @@ body.drawer-open .drawer-backdrop {
   /* «не синхронизировано» badge на мобиле скрываем — не критично,
    * пользователь увидит его на десктопе. Освобождает 150+ px. */
   .ops-freshness { display: none !important; }
-  /* «⚙ Настройки» в платформенной шапке — только иконка без подписи. */
-  .pb-link {
-    font-size: 0;  /* скрыть текст */
-    padding: 6px 8px;
-  }
-  .pb-link::before {
-    content: '⚙'; font-size: 16px;
-  }
+  /* «⚙ Настройки» в платформенной шапке — только иконка (текст в .settings-label) */
+  .pb-link { padding: 6px 8px; }
+  .settings-label { display: none; }
   /* User-меню: скрываем имя, оставляем «★ Выйти» */
   .user-menu-name { display: none; }
   /* LFL pill — не подписываем «выкл/вкл», только цветная точка */
