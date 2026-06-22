@@ -1448,6 +1448,23 @@ async def _build_pnl_lite(
     }
 
 
+async def _require_capability(
+    session: AsyncSession, user: User, capability: str,
+) -> None:
+    """Enforcement лицензий (если включён settings.enforce_capabilities).
+    Нет нужной capability у тенанта → 402. Fail-open при caps=None (sa
+    недоступен / не настроен / нет юнитов) — не блокируем."""
+    if not settings.enforce_capabilities:
+        return
+    from .licensing import get_tenant_capabilities
+    caps = await get_tenant_capabilities(session, user.planfact_key_id)
+    if caps is not None and capability not in caps:
+        raise HTTPException(
+            status_code=402,
+            detail="Этот модуль не подключён для вашей сети. Обратитесь к администратору.",
+        )
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -1463,6 +1480,7 @@ async def get_pnl(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    await _require_capability(session, user, "finance")
     effective_projects = await _resolve_project_filter(
         session, user.id, user.planfact_key_id, project_ids,
     )
@@ -2403,6 +2421,7 @@ async def get_board(
     if not user.planfact_key_id:
         raise HTTPException(400, "У пользователя не задан ключ PlanFact.")
 
+    await _require_capability(session, user, "pulse")
     pf_key_id = user.planfact_key_id
 
     # Резолвим фильтр: explicit list ∨ visibility - hidden

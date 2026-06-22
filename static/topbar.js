@@ -57,9 +57,13 @@
     const current = path.indexOf('/board') === 0 ? 'pulse'
       : (path.indexOf('/settings') === 0 ? 'settings' : 'finance');
     const services = [
-      { id: 'finance', name: 'Финансы', url: '/' },
-      { id: 'pulse', name: 'Пульс', url: '/board', minVis: 30 },
+      { id: 'finance', name: 'Финансы', url: '/', cap: 'finance' },
+      { id: 'pulse', name: 'Пульс', url: '/board', minVis: 30, cap: 'pulse' },
     ];
+    // caps тенанта из /auth/me. null = неизвестно (sa не ответил / enforcement
+    // выкл) → не гейтим. Иначе показываем незалицензированные как «не подключено».
+    const caps = (me && Array.isArray(me.capabilities)) ? me.capabilities : null;
+    const licensed = (c) => caps === null || caps.indexOf(c) !== -1;
 
     const cur = services.find(s => s.id === current);
     const nameEl = chip.querySelector('.svc-chip-name');
@@ -72,6 +76,11 @@
     services.forEach(s => {
       if (s.minVis && vis < s.minVis) return;
       const isCur = s.id === current;
+      if (!isCur && !licensed(s.cap)) {
+        html += '<span class="svc-item svc-item-locked" role="menuitem">'
+          + '<span>' + s.name + '</span><span class="svc-lock">не подключено</span></span>';
+        return;
+      }
       html += '<a class="svc-item' + (isCur ? ' is-current' : '') + '" href="' + s.url
         + '" role="menuitem"><span>' + s.name + '</span>' + (isCur ? check : '') + '</a>';
     });

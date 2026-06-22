@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # admin-managed: незнакомый sub → нет доступа (вход только по привязке к
     # существующему аккаунту). ON — для self-serve онбординга (маркетплейс).
     sso_auto_provision: bool = False
+    # Enforcement лицензий: гейтить модули по caps тенанта (из sa
+    # /internal/unit-capabilities). OFF = мягкая раскатка (caps считаются,
+    # но не блокируют). Fail-open: если sa недоступен — НЕ блокируем.
+    enforce_capabilities: bool = False
 
 
 settings = Settings()

@@ -53,6 +53,7 @@ class UserPublic(BaseModel):
     has_planfact_key: bool
     dodois_linked: bool                # привязан ли вход через Dodo IS (SSO)
     has_password: bool                 # есть ли локальный пароль
+    capabilities: Optional[list[str]] = None  # лицензии тенанта (None = неизвестно)
 
     @classmethod
     def from_user(cls, u: User) -> "UserPublic":
@@ -276,9 +277,18 @@ async def logout(
 
 
 @router.get("/auth/me", response_model=UserPublic)
-async def me(user: User = Depends(require_user)):
-    """Текущий пользователь — для топбара и /settings."""
-    return UserPublic.from_user(user)
+async def me(
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Текущий пользователь — для топбара и /settings. Включает caps тенанта
+    (лицензии из sa) для гейтинга сервисов во фронте; None = неизвестно."""
+    pub = UserPublic.from_user(user)
+    from ..licensing import get_tenant_capabilities
+    caps = await get_tenant_capabilities(db, user.planfact_key_id)
+    if caps is not None:
+        pub.capabilities = sorted(caps)
+    return pub
 
 
 # ---------- Профиль: смена пароля + сессии ----------

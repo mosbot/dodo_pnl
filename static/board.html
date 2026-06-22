@@ -91,6 +91,9 @@ a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"] {
 .svc-item:hover { background: rgba(0,0,0,0.04); }
 .svc-item.is-current { color: #1d4ed8; font-weight: 500; }
 .svc-item-hub { color: var(--muted); font-size: 13px; }
+.svc-item-locked { color: var(--muted); cursor: default; }
+.svc-item-locked:hover { background: none; }
+.svc-lock { font-size: 11px; color: var(--muted); }
 .svc-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
 @media (max-width: 640px) {
   .platform-bar { padding: 0 12px; gap: 8px; }
@@ -1021,7 +1024,7 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
   <span id="nextRefresh"></span>
 </footer>
 
-<script src="/static/topbar.js?v=27"></script>
+<script src="/static/topbar.js?v=28"></script>
 <script src="/static/board.js?v=48"></script>
 </body>
 </html>
