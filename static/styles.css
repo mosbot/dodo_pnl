@@ -707,10 +707,11 @@ body.drawer-open .panel { transform: translateX(0); }
 
 @media (max-width: 640px) {
   .platform-bar, .service-bar { padding-left: 12px; padding-right: 12px; gap: 8px; }
-  /* Ярус 2 — горизонтальный скролл вместо переноса */
-  .service-bar { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
-  .service-bar > * { flex-shrink: 0; }
-  .service-bar .controls-left { flex-wrap: nowrap; }
+  /* Ярус 2 — на узком экране переносится на 2 ряда (режим Период с двумя
+     селектами «с/по» + «Применить» иначе не влезает; скролл вбок неудобен). */
+  .service-bar { flex-wrap: wrap; height: auto; min-height: 52px;
+                 padding-top: 6px; padding-bottom: 6px; }
+  .service-bar .controls-left { flex-wrap: wrap; row-gap: 6px; }
   .dt-brand { font-size: 16px; }
   .user-menu-name { max-width: 90px; }
   /* Тап-таргеты ≥40px на мобайле (зону расширяем, не иконку) */
