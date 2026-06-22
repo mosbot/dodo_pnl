@@ -1383,6 +1383,25 @@ async def _build_pnl_lite(
         kc_c, dc_c, dc_en = 1.0, 1.0, False
         ops_targets, ops_overrides = {}, {}
 
+    # Свежесть ops + авто-sync. Если за период нет ops (например прошлый
+    # месяц ещё не синкали) — запускаем фоновый _run_ops_sync, который пишет
+    # в ops_metrics (= immutable-кэш для закрытых месяцев). Фронт по
+    # is_syncing поллит и перерисовывается. Текущий месяц тоже подтянется.
+    ops_freshness = None
+    if pf_key_id and period_month:
+        ops_freshness = await pnl_module._compute_ops_freshness(
+            session, pf_key_id, period_month,
+        )
+        if not ops_data:
+            if not is_ops_sync_running(pf_key_id, period_month):
+                import asyncio as _a
+                _OPS_SYNC_INFLIGHT.add((pf_key_id, period_month))
+                _a.create_task(_run_ops_sync(
+                    user_id=user.id, period=period_month,
+                    inflight_key_id=pf_key_id,
+                ))
+            ops_freshness["is_syncing"] = True
+
     total_rev = sum(rev_by_pid.values())
     projects = [
         {"id": pid, "name": name, "planfact_name": name,
@@ -1419,7 +1438,7 @@ async def _build_pnl_lite(
         "ops_targets": ops_targets,
         "ops_project_targets": ops_overrides,
         "ops_metrics_meta": store.ops_metrics_meta(dc_en, kc_coeff=kc_c, dc_coeff=dc_c),
-        "ops_freshness": None,
+        "ops_freshness": ops_freshness,
         "metrics": [
             {"code": "REVENUE", "label": "Выручка", "formula": None,
              "format": "rub", "sort_order": 0, "is_target": False,

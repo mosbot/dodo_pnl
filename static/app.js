@@ -815,6 +815,10 @@ function renderOpsFreshness() {
     btn.classList.remove('hidden');
     btn.disabled = true;
     btn.title = 'Идёт синхронизация…';
+    // Бэкенд мог стартовать sync сам (Lite: прошлый месяц без ops) — без
+    // клика «Обновить». Тогда поллинг ещё не запущен — запускаем здесь,
+    // чтобы страница перерисовалась по готовности.
+    if (state.currentMonth) _pollOpsSync(state.currentMonth);
     return;
   }
 
@@ -1101,8 +1105,12 @@ function ordersTile(o, lfl) {
 function applyLiteMode(on) {
   const tw = document.querySelector('.table-wrap');
   if (tw) tw.classList.toggle('hidden', on);
-  const cg = document.getElementById('chartsGrid');
-  if (cg) cg.classList.toggle('hidden', on);
+  // В Lite оставляем только график выручки; PlanFact-графики (маржа,
+  // структура затрат, история) прячем — данных для них нет.
+  ['margins', 'costShare', 'revHistory12m', 'revHistoryLines'].forEach(id => {
+    const b = document.querySelector('.chart-box[data-chart-id="' + id + '"]');
+    if (b) b.classList.toggle('hidden', on);
+  });
   document.querySelectorAll('.charts-toolbar:not(.kpi-toolbar)')
     .forEach(t => t.classList.toggle('hidden', on));
 
@@ -1826,18 +1834,25 @@ function renderCharts() {
   const pctOpts = { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + '%' } } } };
 
   // --- График 1: Выручка vs Чистая прибыль ---
+  const lite = !!state.pnl.lite;
   if (isChartVisible('revProfit')) {
-    const netAmounts = pids.map(pid => net?.projects[pid]?.amount || 0);
     const revProfitDatasets = [
-      { label: `Выручка · ${curLbl}`, data: pids.map(pid => revenue.projects[pid]?.amount || 0), backgroundColor: '#3b82f6', borderRadius: 4 },
-      { label: `Чистая прибыль · ${curLbl}`, data: netAmounts, backgroundColor: netAmounts.map(v => v >= 0 ? '#10b981' : '#ef4444'), borderRadius: 4 },
+      { label: lite ? 'Выручка' : `Выручка · ${curLbl}`, data: pids.map(pid => revenue.projects[pid]?.amount || 0), backgroundColor: '#3b82f6', borderRadius: 4 },
     ];
-    if (hasCmp) {
+    if (!lite) {
+      const netAmounts = pids.map(pid => net?.projects[pid]?.amount || 0);
       revProfitDatasets.push(
-        { label: `Выручка · ${lyLbl}`, data: pids.map(pid => revLY?.projects[pid]?.amount || 0), backgroundColor: 'rgba(59, 130, 246, 0.35)', borderRadius: 4 },
-        { label: `Чистая прибыль · ${lyLbl}`, data: pids.map(pid => netLY?.projects[pid]?.amount || 0), backgroundColor: 'rgba(16, 185, 129, 0.35)', borderRadius: 4 },
+        { label: `Чистая прибыль · ${curLbl}`, data: netAmounts, backgroundColor: netAmounts.map(v => v >= 0 ? '#10b981' : '#ef4444'), borderRadius: 4 },
       );
+      if (hasCmp) {
+        revProfitDatasets.push(
+          { label: `Выручка · ${lyLbl}`, data: pids.map(pid => revLY?.projects[pid]?.amount || 0), backgroundColor: 'rgba(59, 130, 246, 0.35)', borderRadius: 4 },
+          { label: `Чистая прибыль · ${lyLbl}`, data: pids.map(pid => netLY?.projects[pid]?.amount || 0), backgroundColor: 'rgba(16, 185, 129, 0.35)', borderRadius: 4 },
+        );
+      }
     }
+    const _rpTitle = document.querySelector('[data-chart-id="revProfit"] h3');
+    if (_rpTitle) _rpTitle.textContent = lite ? 'Выручка по точкам' : 'Выручка vs Чистая прибыль';
     state.charts.revProfit = new Chart(el('revProfit'), {
       type: 'bar',
       data: { labels, datasets: revProfitDatasets },
@@ -1846,7 +1861,7 @@ function renderCharts() {
   }
 
   // --- График 2: Маржинальность, % ---
-  if (isChartVisible('margins')) {
+  if (!lite && isChartVisible('margins')) {
     const marginDatasets = [
       { label: `Маржинальность · ${curLbl}`, data: pids.map(pid => (margin?.projects[pid]?.pct_of_revenue || 0) * 100), backgroundColor: '#60a5fa', borderRadius: 4 },
       { label: `EBITDA · ${curLbl}`, data: pids.map(pid => (ebitda?.projects[pid]?.pct_of_revenue || 0) * 100), backgroundColor: '#34d399', borderRadius: 4 },
@@ -1871,7 +1886,7 @@ function renderCharts() {
   // bar по проектам — при нескольких точках бары узкие и нечитаемые.
   // Кольцо показывает доли статей затрат друг от друга; tooltip — ₽ и
   // % от выручки сети. Не зависит от числа выбранных пиццерий.
-  if (isChartVisible('costShare')) {
+  if (!lite && isChartVisible('costShare')) {
     const costCodes = ['UC','LC','DC','RENT','MARKETING','FRANCHISE','OTHER_OPEX'];
     const colors = ['#6366f1','#8b5cf6','#ec4899','#f97316','#14b8a6','#fb7185','#94a3b8'];
     const revTotal = Math.abs(findLine('REVENUE')?.total?.amount || 0);
