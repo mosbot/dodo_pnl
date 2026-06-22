@@ -221,7 +221,9 @@ body {
   border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.user-menu-logout .ic-logout { display: none; }  /* десктоп — текст «Выйти» */
 .user-menu-logout:hover {
   color: var(--danger);
   border-color: var(--border);
@@ -1549,8 +1551,11 @@ body.drawer-open .drawer-backdrop {
   /* «⚙ Настройки» в платформенной шапке — только иконка (текст в .settings-label) */
   .pb-link { padding: 6px 8px; }
   .settings-label { display: none; }
-  /* User-меню: скрываем имя, оставляем «★ Выйти» */
+  /* User-меню: скрываем имя; «Выйти» — иконкой вместо текста */
   .user-menu-name { display: none; }
+  .user-menu-logout .logout-label { display: none; }
+  .user-menu-logout .ic-logout { display: inline-block; }
+  .user-menu-logout { padding: 6px 8px; }
   /* LFL pill — не подписываем «выкл/вкл», только цветная точка */
   .lfl-pill-state { display: none; }
   /* «⟳ Метрики» — только иконка-стрелка */

@@ -667,7 +667,9 @@ section.cards-wrap { padding: 14px 14px 4px; }
   border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.user-menu-logout .ic-logout { display: none; }  /* десктоп — текст */
 .user-menu-logout:hover {
   color: var(--neg);
   border-color: var(--border);
@@ -687,6 +689,9 @@ section.cards-wrap { padding: 14px 14px 4px; }
   .brand { display: none; }
   .settings-label { display: none; }
   .user-menu-name { display: none; }
+  .user-menu-logout .logout-label { display: none; }
+  .user-menu-logout .ic-logout { display: inline-block; }
+  .user-menu-logout { padding: 6px 8px; }
   .mode-toggle { gap: 1px; }
   .mode-toggle-btn { padding: 6px 9px; font-size: 13px; }
   .refresh-btn { min-width: 32px; min-height: 32px; }
@@ -900,7 +905,7 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
        title="Настройки" aria-label="Настройки">⚙<span class="settings-label"> Настройки</span></a>
     <div id="userMenu" class="user-menu hidden">
       <span class="user-menu-name" id="userMenuName">…</span>
-      <button id="logoutBtn" class="user-menu-logout" title="Выйти">Выйти</button>
+      <button id="logoutBtn" class="user-menu-logout" title="Выйти" aria-label="Выйти"><svg class="ic-logout" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6M10.5 11l3-3-3-3M13.5 8H6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="logout-label">Выйти</span></button>
     </div>
   </header>
   <!-- Ярус 2 — панель сервиса (Пульс): день -->
