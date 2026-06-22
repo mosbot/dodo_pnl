@@ -510,7 +510,7 @@ function refreshApplyBar() {
   const bar = document.getElementById('projApplyBar');
   if (!bar) return;
   const dirty = !_setsEqual(state.selectedProjects, state.appliedSelection);
-  bar.classList.toggle('visible', dirty);
+  bar.classList.toggle('dirty', dirty);
 }
 
 async function loadPnl() {

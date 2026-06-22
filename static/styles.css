@@ -2265,18 +2265,20 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   padding: 10px 6px 4px;
   margin: 8px -6px -4px;
   border-top: 1px solid var(--border, #e5e7eb);
-  display: none;
+  display: flex;            /* всегда виден, как у Пульса */
   flex-direction: column;
   gap: 6px;
   z-index: 10;
 }
-.proj-apply-bar.visible { display: flex; }
 .proj-apply-bar .bar-text {
   font-size: 11.5px;
   color: #b45309;
   text-align: center;
   font-weight: 500;
+  visibility: hidden;       /* текст-подсказка только при несохранённых изменениях */
 }
+.proj-apply-bar.dirty .bar-text { visibility: visible; }
+.proj-apply-bar:not(.dirty) .btn-apply { opacity: .55; }
 .proj-apply-bar .bar-actions {
   display: flex;
   gap: 6px;
