@@ -654,7 +654,7 @@ body.drawer-open .panel { transform: translateX(0); }
 }
 .service-bar {
   display: flex; align-items: center; gap: 12px;
-  padding: 8px 20px; min-height: 48px;
+  padding: 0 20px; height: 52px;   /* фикс. высота — как tier-2 Пульса */
   background: var(--card);  /* непрозрачная, как у Пульса */
 }
 .pb-spacer { flex: 1 1 auto; }
