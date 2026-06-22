@@ -124,11 +124,6 @@ function initMonthSelect() {
   document.querySelectorAll('#periodModeToggle .mode-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const m = btn.dataset.mode;
-      // День — навигация на /board (drawer-выбор сохраняется через localStorage)
-      if (m === 'day') {
-        window.location.href = '/board';
-        return;
-      }
       if (m === state.mode) return;
       applyMode(m);
       loadPnl();

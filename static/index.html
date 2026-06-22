@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>P&L по проектам · PlanFact</title>
-<link rel="stylesheet" href="/static/styles.css?v=17">
+<link rel="stylesheet" href="/static/styles.css?v=18">
 <script src="/static/vendor/chart-4.5.0.umd.js"></script>
 </head>
 <body>
@@ -18,26 +18,38 @@
 </div>
 
 <header class="topbar">
-  <button id="drawerToggle" class="drawer-toggle" type="button" aria-label="Открыть проекты"
-          title="Проекты">
-    <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
-      <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" fill="none"/>
-    </svg>
-  </button>
-  <div class="brand">
-    <strong>P&L Dashboard</strong>
-    <span class="muted">· PlanFact</span>
+  <!-- Ярус 1 — платформа: бренд + переключатель сервисов + Настройки/юзер -->
+  <div class="platform-bar">
+    <a class="dt-brand" href="https://app.dodotool.ru" title="Все сервисы Dodotool">Dodo<span>tool</span></a>
+    <div class="svc-switch" id="svcSwitch">
+      <button type="button" class="svc-chip" id="svcChipBtn" aria-haspopup="true" aria-expanded="false">
+        <span class="svc-chip-name">Финансы</span>
+        <svg class="svc-chip-caret" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="svc-menu hidden" id="svcMenu" role="menu"></div>
+      <div class="svc-hint hidden" id="svcHint" role="note">
+        <span>«День сети» переехал сюда — это сервис <b>Пульс</b>.</span>
+        <button type="button" id="svcHintClose" aria-label="Понятно">×</button>
+      </div>
+    </div>
+    <span class="pb-spacer"></span>
+    <a href="/settings" class="btn-secondary pb-link" style="text-decoration:none;" title="Настройки">⚙ Настройки</a>
+    <div id="userMenu" class="user-menu hidden">
+      <span class="user-menu-name" id="userMenuName">…</span>
+      <button id="logoutBtn" class="user-menu-logout" title="Выйти">Выйти</button>
+    </div>
   </div>
-  <div class="controls">
-    <!-- Левый кластер — фиксирован относительно brand. Содержит весь
-         «функциональный» контент: переключатель режима, поля выбора
-         периода и (только в режиме Месяц) контролы LFL / ⟳ Метрики /
-         freshness. Они появляются справа от пикера и «раскрывают»
-         левый кластер. -->
+  <!-- Ярус 2 — панель текущего сервиса (Финансы): период + контролы -->
+  <div class="service-bar">
+    <button id="drawerToggle" class="drawer-toggle" type="button" aria-label="Открыть проекты"
+            title="Проекты">
+      <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+        <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" fill="none"/>
+      </svg>
+    </button>
     <div class="controls-left">
-      <div class="mode-toggle" id="periodModeToggle" role="tablist" aria-label="Режим страницы">
-        <button type="button" class="mode-toggle-btn" data-mode="day" role="tab" aria-selected="false" title="Оперативная сводка дня по выбранным точкам">День</button>
+      <div class="mode-toggle" id="periodModeToggle" role="tablist" aria-label="Режим периода">
         <button type="button" class="mode-toggle-btn is-active" data-mode="month" role="tab" aria-selected="true">Месяц</button>
         <button type="button" class="mode-toggle-btn" data-mode="period" role="tab" aria-selected="false">Период</button>
       </div>
@@ -77,15 +89,6 @@
         <span class="tb-hint-num">1</span>
         Выбери
       </span>
-    </div>
-    <!-- Правый кластер — только глобальная навигация: Настройки и юзер-меню.
-         Они никогда не двигаются при смене режима. -->
-    <div class="controls-right">
-      <a href="/settings" class="btn-secondary" style="text-decoration:none;" title="Настройки">⚙ Настройки</a>
-      <div id="userMenu" class="user-menu hidden">
-        <span class="user-menu-name" id="userMenuName">…</span>
-        <button id="logoutBtn" class="user-menu-logout" title="Выйти">Выйти</button>
-      </div>
     </div>
   </div>
 </header>
@@ -216,7 +219,7 @@
   </div>
 </div>
 
-<script src="/static/topbar.js?v=25"></script>
-<script src="/static/app.js?v=37"></script>
+<script src="/static/topbar.js?v=26"></script>
+<script src="/static/app.js?v=38"></script>
 </body>
 </html>
