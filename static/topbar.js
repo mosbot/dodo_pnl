@@ -6,6 +6,7 @@
     const nameEl = document.getElementById('userMenuName');
     const logoutBtn = document.getElementById('logoutBtn');
     if (!menu || !nameEl || !logoutBtn) return;
+    let ssoLinked = false;  // SSO-юзер → полный выход из Dodo IS на логауте
 
     // Тянем профиль. Если 401 — middleware всё равно перебросит на /login,
     // нам беспокоиться не о чем; просто покажем «—».
@@ -13,6 +14,7 @@
       const r = await fetch('/auth/me', { credentials: 'same-origin' });
       if (!r.ok) return;
       const me = await r.json();
+      ssoLinked = !!me.dodois_linked;
       // Сохраняем username глобально — используется как ключ для per-user
       // настроек в localStorage (например, выбор пиццерий, S10.2).
       window.__currentUsername = me.username || null;
@@ -33,7 +35,11 @@
           method: 'POST', credentials: 'same-origin',
         });
       } catch (e) { /* плевать на ошибку — всё равно редиректим */ }
-      window.location.href = '/login';
+      // SSO-юзер → полный выход из Dodo IS (через sa OIDC end-session);
+      // локальный → обычный выход на свой /login.
+      window.location.href = ssoLinked
+        ? 'https://sa.dodotool.ru/dodois/logout'
+        : '/login';
     });
   }
 
