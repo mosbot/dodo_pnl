@@ -1116,7 +1116,7 @@ function applyLiteMode(on) {
     badge.title = 'PlanFact не подключён. Доступны выручка, каналы и операционные '
       + 'метрики из Dodo IS. Полный P&L (себестоимость, EBITDA, чистая прибыль) — '
       + 'после подключения PlanFact.';
-    bar.insertBefore(badge, bar.firstChild);
+    bar.appendChild(badge);
   }
   if (badge) badge.classList.toggle('hidden', !on);
 }
