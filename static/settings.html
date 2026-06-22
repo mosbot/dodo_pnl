@@ -33,6 +33,7 @@
       <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Показатели</button>
       <button type="button" class="tab-btn lvl30-only hidden" data-tab="targets" role="tab" aria-selected="false">Цели и нормативы</button>
       <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Команда</button>
+      <button type="button" class="tab-btn super-only hidden" data-tab="platform" role="tab" aria-selected="false">Платформа</button>
     </nav>
   </div>
 </header>
@@ -203,51 +204,7 @@
       </div>
     </section>
 
-    <!-- ═══════ БЛОК: формулы KPI из PnL — только super_admin ═══════ -->
-    <div class="super-only hidden">
-    <h2 style="margin:28px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--border);">
-      Формулы KPI <span class="muted" style="font-weight:400;font-size:12px;">— из PnL (PlanFact/xls), только супер-админ</span>
-    </h2>
-
-    <div class="tab-toolbar">
-      <span class="toolbar-hint">
-        Формулы расчёта KPI. Ссылки на строки шаблона — <code>[N]</code> (см. справа).
-        Клик по строке справочника подставляет <code>[N]</code> в активную формулу.
-      </span>
-      <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
-    </div>
-    <div class="metrics-layout">
-      <section class="block metrics-main">
-        <div class="block-body" id="metricsTableWrap">
-          <table class="metrics-table" id="metricsTable">
-            <thead>
-              <tr>
-                <th style="width:90px">Код</th>
-                <th>Название</th>
-                <th>Формула</th>
-                <th style="width:80px">Формат</th>
-                <th style="width:80px">Цель</th>
-                <th style="width:90px" title="Рисовать ли плитку метрики на карточке проекта на главной">Отображать</th>
-                <th style="width:60px">Сорт.</th>
-                <th style="width:120px" title="Минимальный уровень доступа юзера, при котором метрика видна (0=все, 100=партнёр)">Доступ от</th>
-                <th style="width:90px"></th>
-              </tr>
-            </thead>
-            <tbody id="metricsTbody"></tbody>
-          </table>
-        </div>
-      </section>
-      <aside class="block metrics-aside">
-        <div class="block-head">
-          <h3>Строки шаблона</h3>
-        </div>
-        <div class="block-body">
-          <input type="search" id="metricsLineSearch" placeholder="Поиск по названию или [N]…" class="metrics-line-search">
-          <div id="metricsLineList" class="metrics-line-list"></div>
-        </div>
-      </aside>
-    </div>
-    </div>
+    <!-- Формулы KPI вынесены во вкладку «Платформа» (super_admin). -->
 
   </section>
 
@@ -286,26 +243,7 @@
 
   <!-- ============ TAB: ПОЛЬЗОВАТЕЛИ (admin only) ============ -->
   <section class="tab-pane admin-only hidden" data-pane="users" role="tabpanel">
-    <!-- Каталог PF-ключей — только super_admin (network видит свой ключ
-         через интеграции). Скрывается JS'ом для role=network_admin. -->
-    <div class="dense-block super-only hidden" id="pfKeysCatalog">
-      <div class="block-head">
-        <h2>Каталог PlanFact-ключей</h2>
-        <span class="block-sub muted">Именованные ключи для назначения пользователям.</span>
-        <div class="block-inline-ctl">
-          <button type="button" id="btnCreatePfKey" class="btn-secondary">+ Добавить ключ</button>
-        </div>
-      </div>
-      <div class="block-body block-scroll-x">
-        <table class="dense-table" id="pfKeysTable">
-          <thead><tr>
-            <th>Имя</th><th>Ключ (маска)</th><th>Заметка</th><th>Используется</th><th></th>
-          </tr></thead>
-          <tbody><tr><td colspan="5" class="muted">Загрузка…</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
+    <!-- Каталог PF-ключей вынесен во вкладку «Платформа» (super_admin). -->
     <div class="dense-block">
       <div class="block-head">
         <h2>Пользователи</h2>
@@ -327,6 +265,74 @@
         </table>
       </div>
     </div>
+  </section>
+
+  <!-- ============ TAB: ПЛАТФОРМА (super_admin) ============ -->
+  <section class="tab-pane super-only hidden" data-pane="platform" role="tabpanel">
+
+    <div class="dense-block" id="pfKeysCatalog">
+      <div class="block-head">
+        <h2>Каталог PlanFact-ключей</h2>
+        <span class="block-sub muted">Именованные ключи для назначения пользователям.</span>
+        <div class="block-inline-ctl">
+          <button type="button" id="btnCreatePfKey" class="btn-secondary">+ Добавить ключ</button>
+        </div>
+      </div>
+      <div class="block-body block-scroll-x">
+        <table class="dense-table" id="pfKeysTable">
+          <thead><tr>
+            <th>Имя</th><th>Ключ (маска)</th><th>Заметка</th><th>Используется</th><th></th>
+          </tr></thead>
+          <tbody><tr><td colspan="5" class="muted">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <section class="dense-block">
+      <div class="block-head">
+        <h2>Формулы KPI</h2>
+        <span class="muted block-sub">
+          Формулы расчёта KPI из PnL (PlanFact/xls). Ссылки на строки шаблона —
+          <code>[N]</code> (см. справа). Клик по строке справочника подставляет
+          <code>[N]</code> в активную формулу.
+        </span>
+        <div class="block-inline-ctl">
+          <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
+        </div>
+      </div>
+    </section>
+    <div class="metrics-layout">
+      <section class="block metrics-main">
+        <div class="block-body" id="metricsTableWrap">
+          <table class="metrics-table" id="metricsTable">
+            <thead>
+              <tr>
+                <th style="width:90px">Код</th>
+                <th>Название</th>
+                <th>Формула</th>
+                <th style="width:80px">Формат</th>
+                <th style="width:80px">Цель</th>
+                <th style="width:90px" title="Рисовать ли плитку метрики на карточке проекта на главной">Отображать</th>
+                <th style="width:60px">Сорт.</th>
+                <th style="width:120px" title="Минимальный уровень доступа юзера, при котором метрика видна (0=все, 100=партнёр)">Доступ от</th>
+                <th style="width:90px"></th>
+              </tr>
+            </thead>
+            <tbody id="metricsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+      <aside class="block metrics-aside">
+        <div class="block-head">
+          <h3>Строки шаблона</h3>
+        </div>
+        <div class="block-body">
+          <input type="search" id="metricsLineSearch" placeholder="Поиск по названию или [N]…" class="metrics-line-search">
+          <div id="metricsLineList" class="metrics-line-list"></div>
+        </div>
+      </aside>
+    </div>
+
   </section>
 
 </main>
@@ -535,6 +541,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=28"></script>
-<script src="/static/settings.js?v=28"></script>
+<script src="/static/settings.js?v=29"></script>
 </body>
 </html>

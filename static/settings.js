@@ -97,7 +97,7 @@ function flashErr(inputEl) {
 
 // ---------- Tabs (Профиль / Проекты и статьи / Показатели / Цели / Команда) ----------
 // «Интеграции» свёрнуты в «Профиль»; «Цели» — для visibility ≥ 30 (.lvl30-only).
-const TABS = ['profile', 'structure', 'metrics', 'targets', 'users'];
+const TABS = ['profile', 'structure', 'metrics', 'targets', 'users', 'platform'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
 function showTab(name) {
