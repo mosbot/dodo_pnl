@@ -1766,10 +1766,12 @@ body.settings-body {
 .tab-pane .dense-table tbody td { padding: 6px 8px; }
 .tab-pane .matrix-table .col-proj { min-width: 110px; }
 .tab-pane .matrix-table .metric-col { min-width: 200px; }
+/* «Профиль» — узкая колонка карточек по центру, без пустоты слева */
+.tab-pane[data-pane="profile"] .dense-block { margin-left: auto; margin-right: auto; }
 
 /* Плотная таблица — базовая */
 .dense-table {
-  width: 100%;
+  width: auto; max-width: 100%;  /* по контенту, не растягивать на всю ширину */
   border-collapse: separate; border-spacing: 0;
   font-size: 12px;
   min-width: 0;
@@ -1796,6 +1798,10 @@ body.settings-body {
 }
 .dense-table tbody tr:hover td { background: #fafbfc; }
 .dense-table tbody tr:last-child td { border-bottom: none; }
+/* Не наследуем числовые правила P&L-таблицы (text-align:right + sticky
+   первая колонка min-width:240px) — в админ-таблицах текст влево, без пролётов. */
+.dense-table th, .dense-table td { text-align: left; }
+.dense-table th:first-child, .dense-table td:first-child { min-width: 0; position: static; }
 
 /* ---- flush-inputs (без рамки, рамка только на фокусе) ---- */
 .inp-flush {

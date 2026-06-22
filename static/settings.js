@@ -517,11 +517,13 @@ function renderPnlMatrix() {
     : ' title="Редактировать цели может Территориальный управляющий или выше"';
 
   if (!targetMetrics.length) {
+    const isSuper = !!(state.me && state.me.role === 'super_admin');
+    const hint = isSuper
+      ? 'Откройте вкладку «Платформа» → «Формулы KPI» и отметьте чекбокс «Цель» у нужных метрик.'
+      : 'Целевые метрики P&L настраивает администратор платформы. Когда они появятся — здесь можно будет задать их значения.';
     box.innerHTML = `
-      <div class="muted" style="padding:24px;text-align:center;">
-        Нет метрик с включённым флагом «Цель».
-        Перейдите на вкладку «Структура» → секция «Метрики», отметьте чекбокс
-        «Цель» у нужных строк.
+      <div class="muted" style="padding:24px;text-align:center;max-width:560px;margin:0 auto;">
+        Нет метрик с включённым флагом «Цель». ${hint}
       </div>`;
     return;
   }
@@ -2125,8 +2127,7 @@ function renderBoardMetrics() {
               <input type="checkbox" data-board-metric="${esc(m.code)}"
                      ${m.is_visible ? 'checked' : ''}>
               <span>${esc(m.label)}</span>
-              <code style="margin-left:auto;color:var(--muted-2);
-                           font-size:11px">${esc(m.code)}</code>
+              <code style="color:var(--muted-2);font-size:11px">${esc(m.code)}</code>
             </label>
           `).join('')}
         </div>
