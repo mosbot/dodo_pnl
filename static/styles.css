@@ -1349,7 +1349,7 @@ tr.tpl-calc.tpl-final .neg { color: #fca5a5; }
 .drawer-toggle {
   display: inline-flex;  /* всегда виден — drawer теперь overlay для всех */
   width: 36px; height: 36px; padding: 0;
-  background: none; border: 1px solid var(--border);
+  background: none; border: none;
   border-radius: 6px;
   align-items: center; justify-content: center;
   cursor: pointer; color: var(--text);
