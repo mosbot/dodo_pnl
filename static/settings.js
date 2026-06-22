@@ -95,12 +95,13 @@ function flashErr(inputEl) {
   setTimeout(() => inputEl.classList.remove('cell-flash-err'), 1500);
 }
 
-// ---------- Tabs (Профиль / Интеграции / Структура / Цели / Пользователи) ----------
-const TABS = ['profile', 'integrations', 'structure', 'metrics', 'targets', 'users'];
+// ---------- Tabs (Профиль / Проекты и статьи / Показатели / Цели / Команда) ----------
+// «Интеграции» свёрнуты в «Профиль»; «Цели» — для visibility ≥ 30 (.lvl30-only).
+const TABS = ['profile', 'structure', 'metrics', 'targets', 'users'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
 function showTab(name) {
-  if (!TABS.includes(name)) name = 'targets';
+  if (!TABS.includes(name)) name = 'profile';
   document.querySelectorAll('.tab-btn').forEach(b => {
     const on = b.dataset.tab === name;
     b.classList.toggle('active', on);
@@ -1928,6 +1929,14 @@ async function initUsersTab() {
   document.querySelectorAll('.super-only').forEach(e => {
     e.classList.toggle('hidden', !isSuper);
   });
+  // «Цели и нормативы» — управленцам (visibility ≥ 30) и админам.
+  const canTargets = isAdmin || (((state.me && state.me.visibility_level) || 0) >= 30);
+  document.querySelectorAll('.lvl30-only').forEach(e => {
+    e.classList.toggle('hidden', !canTargets);
+  });
+  // Если активная вкладка скрыта для этой роли — уводим на «Профиль».
+  const _activeBtn = document.querySelector('.tab-btn.active');
+  if (_activeBtn && _activeBtn.classList.contains('hidden')) showTab('profile');
   if (!isAdmin) return;
 
   // Подгружаем каталоги (PF-ключи + Dodo IS логины) для селектов.

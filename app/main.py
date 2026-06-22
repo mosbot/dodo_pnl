@@ -20,7 +20,8 @@ from . import pnl as pnl_module
 from . import store
 from .auth.admin_router import admin_router
 from .auth.dependencies import (
-    optional_user, require_admin, require_territorial, require_user,
+    optional_user, require_admin, require_super_admin, require_territorial,
+    require_user,
 )
 from .auth.router import router as auth_router
 from . import formulas, schemas
@@ -2948,7 +2949,7 @@ async def list_metrics(
 @app.put("/api/metrics/{code}")
 async def upsert_metric(
     code: str, payload: schemas.MetricIn,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -2979,7 +2980,7 @@ async def upsert_metric(
 @app.delete("/api/metrics/{code}")
 async def delete_metric(
     code: str,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -3095,7 +3096,7 @@ async def update_calc_settings(
 @app.post("/api/metrics/preview")
 async def preview_metric(
     payload: schemas.FormulaPreviewIn,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_super_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Распарсить формулу + валидировать ссылки. Возвращаем список line_refs

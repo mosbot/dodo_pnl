@@ -29,11 +29,10 @@
   <div class="service-bar">
     <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
       <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
-      <button type="button" class="tab-btn" data-tab="integrations" role="tab" aria-selected="false">Интеграции</button>
-      <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Структура</button>
-      <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Метрики</button>
-      <button type="button" class="tab-btn" data-tab="targets" role="tab" aria-selected="false">Цели</button>
-      <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Пользователи</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Проекты и статьи</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Показатели</button>
+      <button type="button" class="tab-btn lvl30-only hidden" data-tab="targets" role="tab" aria-selected="false">Цели и нормативы</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Команда</button>
     </nav>
   </div>
 </header>
@@ -75,13 +74,10 @@
         <div id="ssoLinkMsg" class="profile-msg" style="margin-top:8px;"></div>
       </div>
     </div>
-  </section>
 
-  <!-- ============ TAB: ИНТЕГРАЦИИ (read-only) ============ -->
-  <section class="tab-pane" data-pane="integrations" role="tabpanel">
-    <div class="dense-block" style="max-width:720px;">
-      <div class="block-head"><h2>Текущие интеграции</h2>
-        <span class="block-sub muted">Управляются администратором.</span>
+    <div class="dense-block" style="max-width:640px;">
+      <div class="block-head"><h2>Интеграции</h2>
+        <span class="block-sub muted">Только просмотр — управляются администратором.</span>
       </div>
       <div class="block-body" style="padding:14px;">
         <div class="profile-row">
@@ -207,9 +203,10 @@
       </div>
     </section>
 
-    <!-- ═══════ БЛОК: данные из PnL (PlanFact / xls) ═══════ -->
+    <!-- ═══════ БЛОК: формулы KPI из PnL — только super_admin ═══════ -->
+    <div class="super-only hidden">
     <h2 style="margin:28px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--border);">
-      Из PnL <span class="muted" style="font-weight:400;font-size:12px;">— PlanFact или xls</span>
+      Формулы KPI <span class="muted" style="font-weight:400;font-size:12px;">— из PnL (PlanFact/xls), только супер-админ</span>
     </h2>
 
     <div class="tab-toolbar">
@@ -250,12 +247,13 @@
         </div>
       </aside>
     </div>
+    </div>
 
   </section>
 
 
   <!-- ============ TAB: ТАРГЕТЫ ============ -->
-  <section class="tab-pane" data-pane="targets" role="tabpanel">
+  <section class="tab-pane lvl30-only" data-pane="targets" role="tabpanel">
 
     <div class="tab-toolbar">
       <span class="toolbar-hint">Цели по P&amp;L и Ops. Факты Ops показываются за выбранный месяц.</span>
@@ -537,6 +535,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=28"></script>
-<script src="/static/settings.js?v=27"></script>
+<script src="/static/settings.js?v=28"></script>
 </body>
 </html>
