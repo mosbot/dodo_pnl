@@ -707,11 +707,24 @@ body.drawer-open .panel { transform: translateX(0); }
 
 @media (max-width: 640px) {
   .platform-bar, .service-bar { padding-left: 12px; padding-right: 12px; gap: 8px; }
-  /* Ярус 2 — на узком экране переносится на 2 ряда (режим Период с двумя
-     селектами «с/по» + «Применить» иначе не влезает; скролл вбок неудобен). */
+  /* Ярус 2 на мобайле — в 2 ряда (без горизонт. скролла):
+       ряд A: ☰ + Месяц/Период + LFL + Обновить
+       ряд B: выбор месяца(ев) + Применить
+     controls-left → display:contents, чтобы его дети встали во флекс панели
+     и распределились по рядам через order + принудительный перенос (::after). */
   .service-bar { flex-wrap: wrap; height: auto; min-height: 52px;
-                 padding-top: 6px; padding-bottom: 6px; }
-  .service-bar .controls-left { flex-wrap: wrap; row-gap: 6px; }
+                 padding-top: 6px; padding-bottom: 6px; row-gap: 8px; }
+  .service-bar .controls-left { display: contents; }
+  .drawer-toggle   { order: 1; }
+  .mode-toggle     { order: 2; }
+  .lfl-toggle      { order: 3; }
+  .ops-refresh-btn { order: 4; }
+  .ops-freshness   { order: 4; }
+  .lite-badge      { order: 4; }              /* margin-left:auto уводит вправо ряда A */
+  .service-bar::after { content: ""; flex-basis: 100%; height: 0; order: 5; }
+  #monthFieldSingle, #monthFieldFrom, #monthFieldTo { order: 6; }
+  #periodApplyBtn  { order: 7; }
+  #tbHintPeriod    { order: 8; }
   .dt-brand { font-size: 16px; }
   .user-menu-name { max-width: 90px; }
   /* Тап-таргеты ≥40px на мобайле (зону расширяем, не иконку) */
