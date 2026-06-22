@@ -1299,6 +1299,116 @@ async def _attach_orders(
     }
 
 
+async def _build_pnl_lite(
+    session: AsyncSession, user: User,
+    date_start: str, date_end: str,
+    period_month: str | None, project_filter: list[str] | None,
+) -> dict:
+    """P&L БЕЗ PlanFact (Lite): выручка + каналы из Dodo IS + ops-метрики
+    (KC/DC и пр.). Полный accrual-P&L (себестоимость, EBITDA) недоступен без
+    PlanFact — фронт показывает Lite-вид и предлагает подключить PlanFact."""
+    import logging
+    log = logging.getLogger("uvicorn.error")
+
+    pf_key_id = user.planfact_key_id
+    cfg = await store.list_projects_config(session, pf_key_id) if pf_key_id else {}
+    allowed = set(project_filter) if project_filter is not None else None
+
+    uuid_to_pid: dict[str, str] = {}
+    uuids: list[str] = []
+    proj_meta: dict[str, str] = {}  # pid -> name
+    for pid, c in cfg.items():
+        if allowed is not None and pid not in allowed:
+            continue
+        if not c.get("is_active", True):
+            continue
+        proj_meta[pid] = c.get("display_name") or pid
+        uu = c.get("dodo_unit_uuid")
+        if uu:
+            uuid_to_pid[board_module._normalize_uuid(uu)] = pid
+            uuids.append(uu)
+
+    rev_by_pid: dict[str, float] = {pid: 0.0 for pid in proj_meta}
+    chan_by_pid: dict[str, dict] = {
+        pid: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for pid in proj_meta
+    }
+    if uuids:
+        try:
+            token = await get_dodois_token(session, user)
+            rows = await dodois_client.fetch_finance_sales_monthly(
+                token, uuids, date_start, date_end,
+            )
+            for r in rows:
+                pid = uuid_to_pid.get(board_module._normalize_uuid(r.get("unitId", "")))
+                if not pid:
+                    continue
+                for b in (r.get("salesBreakdown") or []):
+                    ch = _DODO_CHANNEL_MAP.get(b.get("salesChannel"), "other")
+                    s = float(b.get("sales") or 0)
+                    chan_by_pid[pid][ch] = chan_by_pid[pid].get(ch, 0.0) + s
+                    rev_by_pid[pid] = rev_by_pid.get(pid, 0.0) + s
+        except Exception:
+            log.exception("Lite: выручка из Dodo IS недоступна")
+
+    ops_data = (
+        await store.list_ops_metrics(session, pf_key_id, period_month=period_month)
+        if (pf_key_id and period_month) else {}
+    )
+    if pf_key_id:
+        kc_c, dc_c, dc_en = await store.get_calc_settings(session, pf_key_id)
+        ops_targets, ops_overrides = await store.effective_ops_targets_for_period(
+            session, pf_key_id, period_month,
+        )
+    else:
+        kc_c, dc_c, dc_en = 1.0, 1.0, False
+        ops_targets, ops_overrides = {}, {}
+
+    total_rev = sum(rev_by_pid.values())
+    projects = [
+        {"id": pid, "name": name, "planfact_name": name,
+         "is_active": True, "ops": ops_data.get(pid)}
+        for pid, name in proj_meta.items()
+    ]
+    revenue_line = {
+        "code": "REVENUE", "label": "Выручка", "level": 1, "kind": "header",
+        "denominator": "total",
+        "projects": {
+            pid: {"amount": rev_by_pid.get(pid, 0.0),
+                  "pct_of_revenue": 1.0 if rev_by_pid.get(pid, 0.0) else None}
+            for pid in proj_meta
+        },
+        "total": {"amount": total_rev, "pct_of_revenue": 1.0 if total_rev else None},
+    }
+    return {
+        "lite": True,
+        "projects": projects,
+        "lines": [revenue_line],
+        "template_lines": [],
+        "targets": [],
+        "category_breakdown": [],
+        "revenue_by_channel": chan_by_pid,
+        "unclassified": [],
+        "pnl_codes": pnl_module.PNL_CODES,
+        "targetable_metrics": [],
+        "computed_targetable_metrics": [],
+        "denominators": pnl_module.DENOMINATOR,
+        "method": "accrual",
+        "period_month": period_month,
+        "stats": {"source": "dodo_lite"},
+        "default_targets": {},
+        "ops_targets": ops_targets,
+        "ops_project_targets": ops_overrides,
+        "ops_metrics_meta": store.ops_metrics_meta(dc_en, kc_coeff=kc_c, dc_coeff=dc_c),
+        "ops_freshness": None,
+        "metrics": [
+            {"code": "REVENUE", "label": "Выручка", "formula": None,
+             "format": "rub", "sort_order": 0, "is_target": False,
+             "is_visible": True, "min_visibility_level": 0},
+        ],
+        "period": {"current": {"start": date_start, "end": date_end}},
+    }
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -1355,7 +1465,14 @@ async def get_pnl(
 
     pm = period_month or _derive_period_month(date_start, date_end)
 
-    pf = await planfact_for(session, user)
+    try:
+        pf = await planfact_for(session, user)
+    except NoTokenError:
+        # Нет PlanFact-ключа → Lite-режим (выручка/каналы/ops из Dodo IS),
+        # вместо 400. Полный P&L доступен после подключения PlanFact.
+        return await _build_pnl_lite(
+            session, user, date_start, date_end, pm, effective_projects,
+        )
     try:
         result = await _build_pnl_for_period(
             session=session, user=user, pf=pf,

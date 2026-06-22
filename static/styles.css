@@ -617,6 +617,12 @@ body.drawer-open .panel { transform: translateX(0); }
   line-height: 1; color: #1e3a8a; cursor: pointer; opacity: .7;
 }
 .sso-banner-close:hover { opacity: 1; }
+/* Пояснение Lite-режима (нет PlanFact) — на всю ширину сетки карточек */
+.lite-note {
+  grid-column: 1 / -1;
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+  color: #1e3a8a; font-size: 13px; line-height: 1.45; padding: 10px 14px;
+}
 .tile-label {
   font-size: 10px; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .3px;

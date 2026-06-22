@@ -1110,6 +1110,15 @@ function renderCards() {
   const ebitda = findLine('EBITDA');
   if (!revenue) return;
 
+  // Lite-режим (нет PlanFact): пояснение, что доступно только из Dodo IS.
+  if (state.pnl && state.pnl.lite) {
+    const note = document.createElement('div');
+    note.className = 'lite-note';
+    note.innerHTML = '<b>Lite-режим.</b> Выручка, каналы и операционные метрики — из Dodo IS. '
+      + 'Полный P&amp;L (себестоимость, EBITDA, чистая прибыль) станет доступен после подключения PlanFact.';
+    box.appendChild(note);
+  }
+
   const defT = state.pnl?.default_targets || {};
   const projT = {};
   (state.pnl?.targets || []).forEach(t => {
