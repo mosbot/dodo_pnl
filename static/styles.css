@@ -1662,7 +1662,7 @@ body.settings-body {
 .settings-page {
   grid-area: main;
   padding: 16px 24px 32px;
-  max-width: 1080px;   /* единая центрированная колонка для всех вкладок */
+  max-width: 1500px;
   margin: 0 auto;
   width: 100%;
 }
@@ -1671,8 +1671,16 @@ body.settings-body {
   display: none;
   flex-direction: column;
   gap: 24px;
+  /* Единая центрированная колонка для всех вкладок. «Платформа»
+     (редактор формул + справочник) — шире, см. ниже. */
+  max-width: 1080px;
+  margin-left: auto; margin-right: auto;
+  width: 100%;
 }
 .tab-pane.active { display: flex; }
+.tab-pane[data-pane="platform"] { max-width: 1500px; }
+/* Редактор формул не должен налезать на справочник — скролл внутри. */
+#metricsTableWrap { overflow-x: auto; }
 
 /* Sticky-полоска с подсказкой и контекстом таба (месяц-пикер / методология).
    Прилипает под топбаром (56px). */
