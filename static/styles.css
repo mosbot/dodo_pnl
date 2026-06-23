@@ -1223,17 +1223,17 @@ tr.tpl-row td:first-child {
 /* Уровни оформления — top-level секции «Выручка/Переменные расходы/...».
    Делаем сдержанно: серый фон, обычный регистр, тонкая верхняя граница. */
 tr.tpl-h0 td {
-  background: #eef2f7;
+  background: #e8edf3;
   font-weight: 700;
-  border-top: 1px solid #d6dde6;
+  border-top: 1px solid var(--border);
 }
-tr.tpl-h0 td:first-child { background: #eef2f7; }
+tr.tpl-h0 td:first-child { background: #e8edf3; }
 
+/* Подсекции — без отдельной заливки: иерархию держим жирностью и отступом,
+   чтобы не плодить почти одинаковые бледные тона. */
 tr.tpl-h1 td {
-  background: #f6f8fb;
   font-weight: 600;
 }
-tr.tpl-h1 td:first-child { background: #f6f8fb; }
 
 tr.tpl-h2 td {
   font-weight: 600;
@@ -1246,19 +1246,24 @@ tr.tpl-leaf { font-size: 12px; }
 tr.tpl-leaf .tpl-title { color: #4b5563; }
 tr.tpl-leaf:hover .tpl-title { color: var(--text); }
 
+/* Читаемость: процент чуть крупнее, минус — темнее (контраст на мелком
+   тексте). Финальную тёмную строку не трогаем — там свой светлый красный. */
+.table-wrap .pct { font-size: 11px; }
+.table-wrap .neg { color: #dc2626; }
+
 /* Итоговые расчётные строки (Маржинальная / Операционная / EBITDA / Чистая
    прибыль) — стиль «summary»: голубой акцент с боковой полоской. Чётко
    отличается от серых tpl-h0 по цвету и от листьев по толщине. */
+/* Итоговые расчётные строки — различаем синей полоской-акцентом + жирностью,
+   на белом фоне (без отдельной заливки, чтобы не конкурировать с секциями
+   и тёмной финальной строкой). Цвета — на токенах проекта. */
 tr.tpl-calc td {
-  background: #eff6ff;
   font-weight: 700;
-  border-top: 1px solid #bfdbfe;
-  border-bottom: 1px solid #bfdbfe;
+  border-top: 1px solid var(--border);
   box-shadow: inset 3px 0 0 var(--primary);
 }
-tr.tpl-calc td:first-child { background: #eff6ff; }
-tr.tpl-calc .tpl-title { color: #1e3a8a; font-style: normal; }
-tr.tpl-calc .pct { color: #3b5998; }
+tr.tpl-calc .tpl-title { color: var(--text); font-style: normal; }
+tr.tpl-calc .pct { color: var(--muted); }
 
 /* Финальная строка — Чистая прибыль. Жёстче, чем обычная tpl-calc:
    тёмный фон, белый текст. Низ P&L должен быть очевиден. */
