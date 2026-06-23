@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки · P&L Dashboard</title>
-<link rel="stylesheet" href="/static/styles.css?v=39">
+<link rel="stylesheet" href="/static/styles.css?v=40">
 </head>
 <body class="settings-body">
 
@@ -42,9 +42,9 @@
 
   <!-- ============ TAB: ПРОФИЛЬ ============ -->
   <section class="tab-pane" data-pane="profile" role="tabpanel">
-    <div class="dense-block" style="max-width:640px;">
+    <div class="dense-block">
       <div class="block-head"><h2>Смена пароля</h2></div>
-      <div class="block-body" style="padding:14px;">
+      <div class="block-body body-pad">
         <form id="passwordForm" class="profile-form">
           <label>Текущий пароль
             <input type="password" id="pwdCurrent" autocomplete="current-password" required>
@@ -64,9 +64,9 @@
       </div>
     </div>
 
-    <div class="dense-block" style="max-width:640px;">
+    <div class="dense-block">
       <div class="block-head"><h2>Вход через Dodo IS (SSO)</h2></div>
-      <div class="block-body" style="padding:14px;">
+      <div class="block-body body-pad">
         <p class="muted" style="font-size:13px;margin-bottom:10px;">
           Привяжите аккаунт Dodo IS — сможете входить без пароля кнопкой
           «Войти через Dodo IS».
@@ -76,11 +76,11 @@
       </div>
     </div>
 
-    <div class="dense-block" style="max-width:640px;">
+    <div class="dense-block">
       <div class="block-head"><h2>Интеграции</h2>
         <span class="block-sub muted">Только просмотр — управляются администратором.</span>
       </div>
-      <div class="block-body" style="padding:14px;">
+      <div class="block-body body-pad">
         <div class="profile-row">
           <span class="muted" style="font-size:12px;width:160px;">PlanFact ключ:</span>
           <strong id="pfKeyName">—</strong>
@@ -284,22 +284,20 @@
       </div>
     </div>
 
-    <section class="dense-block">
-      <div class="block-head">
-        <h2>Формулы KPI</h2>
-        <span class="muted block-sub">
-          Формулы расчёта KPI из PnL (PlanFact/xls). Ссылки на строки шаблона —
-          <code>[N]</code> (см. справа). Клик по строке справочника подставляет
-          <code>[N]</code> в активную формулу.
-        </span>
-        <div class="block-inline-ctl">
-          <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
-        </div>
-      </div>
-    </section>
     <div class="metrics-layout">
-      <section class="block metrics-main">
-        <div class="block-body" id="metricsTableWrap">
+      <section class="dense-block metrics-main">
+        <div class="block-head">
+          <h2>Формулы KPI</h2>
+          <span class="muted block-sub">
+            Формулы расчёта KPI из PnL (PlanFact/xls). Ссылки на строки шаблона —
+            <code>[N]</code> (см. справа). Клик по строке справочника подставляет
+            <code>[N]</code> в активную формулу.
+          </span>
+          <div class="block-inline-ctl">
+            <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
+          </div>
+        </div>
+        <div class="block-body block-scroll-x" id="metricsTableWrap">
           <table class="metrics-table" id="metricsTable">
             <thead>
               <tr>
@@ -318,11 +316,11 @@
           </table>
         </div>
       </section>
-      <aside class="block metrics-aside">
+      <aside class="dense-block metrics-aside">
         <div class="block-head">
           <h3>Строки шаблона</h3>
         </div>
-        <div class="block-body">
+        <div class="block-body body-pad">
           <input type="search" id="metricsLineSearch" placeholder="Поиск по названию или [N]…" class="metrics-line-search">
           <div id="metricsLineList" class="metrics-line-list"></div>
         </div>
