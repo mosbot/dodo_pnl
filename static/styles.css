@@ -1662,7 +1662,7 @@ body.settings-body {
 .settings-page {
   grid-area: main;
   padding: 16px 24px 32px;
-  max-width: 1500px;
+  max-width: 1080px;   /* единая центрированная колонка для всех вкладок */
   margin: 0 auto;
   width: 100%;
 }
@@ -1781,12 +1781,12 @@ body.settings-body {
   min-width: 0;
 }
 .dense-table thead th {
-  background: #f3f4f6;
-  color: var(--text);
+  background: #f9fafb;
+  color: var(--muted);
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: .3px;
+  letter-spacing: .4px;
   padding: 6px 8px;
   text-align: left;
   border-bottom: 1px solid var(--border);
