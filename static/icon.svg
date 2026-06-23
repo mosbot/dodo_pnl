@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif">
+  <rect width="512" height="512" rx="115" fill="#2563eb"/>
+  <rect x="160" y="240" width="52" height="110" rx="10" fill="#ffffff"/>
+  <rect x="230" y="190" width="52" height="160" rx="10" fill="#ffffff"/>
+  <rect x="300" y="140" width="52" height="210" rx="10" fill="#ffffff"/>
+  <text x="256" y="424" font-size="62" font-weight="700" letter-spacing="-2" text-anchor="middle"><tspan fill="#ffffff">Dodo</tspan><tspan fill="#bfdbfe">tool</tspan></text>
+</svg>
