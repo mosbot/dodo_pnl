@@ -1126,9 +1126,23 @@ function renderSsoLink() {
   });
 }
 
+function renderProfilePizzerias() {
+  const ul = document.getElementById('profilePizzerias');
+  if (!ul) return;
+  const list = (state.projects || [])
+    .filter((p) => p.is_active)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+  if (!list.length) {
+    ul.innerHTML = '<li class="muted">Нет доступных пиццерий</li>';
+    return;
+  }
+  ul.innerHTML = list.map((p) => `<li>${esc(p.name || p.id)}</li>`).join('');
+}
+
 function initProfileTab() {
   const form = document.getElementById('passwordForm');
   renderSsoLink();
+  renderProfilePizzerias();
   if (!form) return;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

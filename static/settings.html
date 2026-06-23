@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Настройки · P&L Dashboard</title>
-<link rel="stylesheet" href="/static/styles.css?v=41">
+<link rel="stylesheet" href="/static/styles.css?v=42">
 </head>
 <body class="settings-body">
 
@@ -45,22 +45,28 @@
     <div class="dense-block">
       <div class="block-head"><h2>Смена пароля</h2></div>
       <div class="block-body body-pad">
-        <form id="passwordForm" class="profile-form">
-          <label>Текущий пароль
-            <input type="password" id="pwdCurrent" autocomplete="current-password" required>
-          </label>
-          <label>Новый пароль (мин. 8 символов)
-            <input type="password" id="pwdNew" autocomplete="new-password" minlength="8" required>
-          </label>
-          <label>Повторите новый пароль
-            <input type="password" id="pwdNew2" autocomplete="new-password" minlength="8" required>
-          </label>
-          <div id="passwordMsg" class="profile-msg"></div>
-          <button type="submit" class="btn-primary" id="passwordSubmit">Сменить пароль</button>
-          <p class="muted" style="font-size:11px;margin-top:6px;">
-            После смены все остальные сессии будут отозваны. Текущая останется живой.
-          </p>
-        </form>
+        <div class="profile-split">
+          <form id="passwordForm" class="profile-form">
+            <label>Текущий пароль
+              <input type="password" id="pwdCurrent" autocomplete="current-password" required>
+            </label>
+            <label>Новый пароль (мин. 8 символов)
+              <input type="password" id="pwdNew" autocomplete="new-password" minlength="8" required>
+            </label>
+            <label>Повторите новый пароль
+              <input type="password" id="pwdNew2" autocomplete="new-password" minlength="8" required>
+            </label>
+            <div id="passwordMsg" class="profile-msg"></div>
+            <button type="submit" class="btn-primary" id="passwordSubmit">Сменить пароль</button>
+            <p class="muted" style="font-size:11px;margin-top:6px;">
+              После смены все остальные сессии будут отозваны. Текущая останется живой.
+            </p>
+          </form>
+          <div class="profile-aside">
+            <h3 class="profile-aside-title">Доступные пиццерии</h3>
+            <ul id="profilePizzerias" class="pizzeria-list"><li class="muted">Загрузка…</li></ul>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -535,6 +541,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=28"></script>
-<script src="/static/settings.js?v=30"></script>
+<script src="/static/settings.js?v=31"></script>
 </body>
 </html>
