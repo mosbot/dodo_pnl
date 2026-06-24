@@ -216,10 +216,12 @@ marketplace, ВНИМАНИЕ к точным названиям):
   `_safe_fetch_stops` / `_safe_fetch_ops` (возвращают `[]` или `{}`).
   Критические (sales, monthly) — НЕ wrap'аны, чтобы 502 кричал явно.
 
-### Готовка зал отключена
-Откатили `/production/orders-handover-statistics` с `salesChannels=DineIn`
-— перегружало Dodo IS. План: вернуть через batched call (1 запрос на 30
-юнитов) и DB-cache для immutable LW значений.
+### Готовка зал — ВЕРНУЛИ (batched)
+`/production/orders-handover-statistics?salesChannels=DineIn` возвращён через
+batched call (≤30 юнитов/запрос). Пульс: Delivery+DineIn × today/LW = 4 запроса
+всего, независимо от N (`board.py`, budget 20с). Финансы: DineIn в S16-синке →
+`ops_metrics.avg_cook_restaurant_sec`. Остался только immutable-кэш `handover_lw`
+(часть остатка #2 — ops-окна через success-флаг fetch).
 
 ### Курьеры на смене / в очереди — НЕ ИСПОЛЬЗУЕМ
 `/staff/couriers-on-shift` работает, но Dodo IS UI «в очереди»
@@ -283,10 +285,10 @@ window_to_key, payload JSONB, computed_at)` PK всё это, insert-only
 лишних запросов. Сделать stops-cache на (planfact_key_id, hour).
 TTL: 60-90с.
 
-### Готовка зал (вернуть)
-После #2 — кешируем `handover-statistics(DineIn)_lw` immutable.
-Today тянем 1 раз за час (можно тоже cache до конца часа).
-Total: 2 запроса вместо текущих 2×N.
+### Готовка зал — СДЕЛАНО (вернули batched)
+Фича возвращена в Пульс и Финансы через batched handover-statistics (4 запроса
+всего вместо 2×N, см. подводный камень «Готовка зал — ВЕРНУЛИ»). Осталось только
+immutable-кэш `handover_lw` — он часть остатка #2 (ops-окна через success-флаг).
 
 ### Stop-sectors timeout
 `/delivery/stop-sales-sectors` стабильно timeout'ит в 8с. Endpoint
