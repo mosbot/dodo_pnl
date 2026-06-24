@@ -261,6 +261,12 @@ class OpsMetric(Base):
     # history-эндпоинта (Calculated+Published). Заполняется для любого месяца.
     rko_rate: Mapped[Optional[int]] = mapped_column(Integer)
     rs_rate: Mapped[Optional[int]] = mapped_column(Integer)
+    # Customer Rating API (0033): средняя оценка заказов 0..5 за месяц.
+    # customer_rating — общее (взвешено по числу оценок зал+доставка);
+    # _dinein / _delivery — по каналам отдельно (None если оценок канала нет).
+    customer_rating: Mapped[Optional[float]] = mapped_column(Float)
+    customer_rating_dinein: Mapped[Optional[float]] = mapped_column(Float)
+    customer_rating_delivery: Mapped[Optional[float]] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

@@ -185,6 +185,21 @@ OPS_METRICS: list[dict] = [
         "direction": "higher",
         "digits": 0,
     },
+    # Customer Rating API: средняя оценка заказов клиентами 0..5 (зал+доставка,
+    # взвешено по числу оценок). Больше — лучше.
+    {
+        "code": "CUST_RATING",
+        "label": "Рейтинг клиентов",
+        "unit": "",
+        "field": "customer_rating",
+        "direction": "higher",
+        "digits": 2,
+        # Разбивка под основным значением: зал / доставка (рендерит фронт).
+        "subs": [
+            {"label": "зал", "field": "customer_rating_dinein"},
+            {"label": "доставка", "field": "customer_rating_delivery"},
+        ],
+    },
 ]
 OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
 
@@ -602,6 +617,9 @@ async def list_ops_metrics(
             ),
             "rko_rate": r.rko_rate,
             "rs_rate": r.rs_rate,
+            "customer_rating": r.customer_rating,
+            "customer_rating_dinein": r.customer_rating_dinein,
+            "customer_rating_delivery": r.customer_rating_delivery,
         }
         if period_month is None:
             out.setdefault(r.project_id, {})[r.period_month] = payload
@@ -630,6 +648,9 @@ async def upsert_ops_metric(
     dc_live_pct: Optional[float] = None,
     rko_rate: Optional[int] = None,
     rs_rate: Optional[int] = None,
+    customer_rating: Optional[float] = None,
+    customer_rating_dinein: Optional[float] = None,
+    customer_rating_delivery: Optional[float] = None,
 ) -> None:
     if (
         late_delivery_certs_pct is None
@@ -667,6 +688,9 @@ async def upsert_ops_metric(
             dc_live_pct=dc_live_pct,
             rko_rate=int(rko_rate) if rko_rate is not None else None,
             rs_rate=int(rs_rate) if rs_rate is not None else None,
+            customer_rating=float(customer_rating) if customer_rating is not None else None,
+            customer_rating_dinein=float(customer_rating_dinein) if customer_rating_dinein is not None else None,
+            customer_rating_delivery=float(customer_rating_delivery) if customer_rating_delivery is not None else None,
         ))
     else:
         if orders_per_courier_h is not None:
@@ -701,6 +725,12 @@ async def upsert_ops_metric(
             existing.rko_rate = int(rko_rate)
         if rs_rate is not None:
             existing.rs_rate = int(rs_rate)
+        if customer_rating is not None:
+            existing.customer_rating = float(customer_rating)
+        if customer_rating_dinein is not None:
+            existing.customer_rating_dinein = float(customer_rating_dinein)
+        if customer_rating_delivery is not None:
+            existing.customer_rating_delivery = float(customer_rating_delivery)
         existing.updated_at = datetime.now(timezone.utc)
 
 

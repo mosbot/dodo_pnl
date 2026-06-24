@@ -1002,6 +1002,16 @@ function opsTile(meta, val, target, opsRow) {
   if (meta.count_field && opsRow && opsRow[meta.count_field] != null) {
     countStr = `&nbsp;<span class="tile-sub">(${fmtNum(opsRow[meta.count_field], 0)})</span>`;
   }
+  // Разбивка под значением (meta.subs): напр. «зал 4,78 · доставка 4,83».
+  let subsStr = '';
+  if (Array.isArray(meta.subs) && opsRow) {
+    const parts = meta.subs
+      .filter(sb => opsRow[sb.field] != null)
+      .map(sb => `${esc(sb.label)} ${fmtVal(opsRow[sb.field])}`);
+    if (parts.length) {
+      subsStr = `<div class="tile-hint tile-subs">${parts.join(' · ')}</div>`;
+    }
+  }
   // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
   // чтобы браузер не ломал её на «₽/» + «ч» при узкой плитке.
   // NBSP между «цель» и значением + nowrap-обёртка — чтобы вся подпись
@@ -1021,6 +1031,7 @@ function opsTile(meta, val, target, opsRow) {
       ${meta.coeff_applied ? '<span class="tile-coeff-badge" title="Применён налоговый коэффициент">K</span>' : ''}
       <div class="tile-label">${labelDisplay}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">${esc(meta.unit)}</span>${countStr}</div>
+      ${subsStr}
       <div class="tile-hint">${targetStr}</div>
     </div>`;
 }

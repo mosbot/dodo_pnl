@@ -3149,6 +3149,41 @@ async def _run_ops_sync(
                 except (DodoISError, NoTokenError) as e:
                     log.warning("ops sync %s: %s FAILED: %s", period, label, e)
 
+            # Рейтинг клиентов (0..5) за месяц — прямой диапазонный средний
+            # (customer-feedback/customer-ratings), объединяем зал+доставку по
+            # числу оценок. «Сегодня» недоступно → для текущего месяца to=вчера.
+            # uid -> (overall, dinein, delivery); None по каналу если нет оценок.
+            cust_by_uuid: dict[str, tuple] = {}
+            try:
+                import datetime as _dt
+                _yest = _dt.date.today() - _dt.timedelta(days=1)
+                _cto = min(_dt.date.fromisoformat(_r_end), _yest).isoformat()
+                if _r_start <= _cto:
+                    crows = await _timed("customer-ratings", with_dodois_retry(
+                        session, user,
+                        dodois_client.fetch_customer_ratings,
+                        unit_uuids, _r_start, _cto,
+                    ))
+                    for r in crows:
+                        uid = (r.get("unitId") or "").lower().replace("-", "")
+                        if not uid:
+                            continue
+                        nin = int(r.get("dineInRateCount") or 0)
+                        ndl = int(r.get("deliveryRateCount") or 0)
+                        din = float(r.get("avgDineInOrderRate") or 0)
+                        ddl = float(r.get("avgDeliveryOrderRate") or 0)
+                        overall = (
+                            round((din * nin + ddl * ndl) / (nin + ndl), 2)
+                            if (nin + ndl) > 0 else None
+                        )
+                        cust_by_uuid[uid] = (
+                            overall,
+                            round(din, 2) if nin > 0 else None,
+                            round(ddl, 2) if ndl > 0 else None,
+                        )
+            except (DodoISError, NoTokenError) as e:
+                log.warning("ops sync %s: customer-ratings FAILED: %s", period, e)
+
             log.info(
                 "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d/handover-rest=%d/incentives=%d",
                 period, time.monotonic() - t0, len(unit_uuids),
@@ -3254,6 +3289,7 @@ async def _run_ops_sync(
                 # → None → не перетираем закрытые месяцы).
                 rko_rate = rko_by_uuid.get(key)
                 rs_rate = rs_by_uuid.get(key)
+                _cr = cust_by_uuid.get(key) or (None, None, None)
 
                 if not s:
                     continue
@@ -3261,6 +3297,9 @@ async def _run_ops_sync(
                     session, pf_key_id, pid, period,
                     rko_rate=rko_rate,
                     rs_rate=rs_rate,
+                    customer_rating=_cr[0],
+                    customer_rating_dinein=_cr[1],
+                    customer_rating_delivery=_cr[2],
                     orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
                     products_per_h=s.get("productsPerLaborHour"),
                     revenue_per_person_h=s.get("salesPerLaborHour"),

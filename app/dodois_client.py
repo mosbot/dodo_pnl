@@ -309,6 +309,26 @@ async def fetch_rating_history_standards(
     )
 
 
+def _feedback_base() -> str:
+    """Customer Feedback API — корень хоста + /customer-feedback (generic-вариант
+    рабочий; /dodopizza/customer-feedback отдаёт 404 для customer-ratings)."""
+    return f'{settings.dodo_is_base_url.split("/dodopizza")[0]}/customer-feedback'
+
+
+async def fetch_customer_ratings(
+    token: str, unit_uuids: list[str], from_date: str, to_date: str,
+) -> list[dict[str, Any]]:
+    """Рейтинг клиентов — средняя оценка заказов (0..5) за [from..to]:
+    avgDineInOrderRate/avgDeliveryOrderRate + счётчики оценок. Диапазон ≤31 дн,
+    «сегодня» недоступно. GET /customer-feedback/customer-ratings. BATCHED ≤30."""
+    return await _batched_get(
+        op_name="customer-ratings",
+        url=f"{_feedback_base()}/customer-ratings",
+        token=token, unit_uuids=unit_uuids, response_key="customerRatings",
+        extra_params={"from": from_date, "to": to_date},
+    )
+
+
 async def fetch_late_delivery_vouchers(
     token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime
 ) -> list[dict[str, Any]]:
