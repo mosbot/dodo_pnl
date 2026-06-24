@@ -21,6 +21,7 @@ from .models import (
     CacheHistory,
     DefaultTarget,
     MonthlyRevenueHistory,
+    LiteRevenueCache,
     DodoisUnitCache,
     DodoisWindowCache,
     BoardCardMetricVisibility,
@@ -1302,6 +1303,53 @@ async def upsert_monthly_revenue(
                 "revenue_restaurant": revenue_restaurant,
                 "taken_at": datetime.now(timezone.utc),
             },
+        )
+    )
+    await session.execute(stmt)
+
+
+# ---------- Lite-режим: immutable-кэш выручки закрытых месяцев (S19) ----------
+
+async def get_lite_revenue_cache(
+    session: AsyncSession,
+    planfact_key_id: int,
+    project_ids: list[str],
+    month: str,
+) -> dict[str, dict]:
+    """Вернуть {project_id: payload} для закрытых месяцев Lite-режима.
+    payload = {"total": float, "channels": {...}}. Отсутствующие проекты в
+    словаре нет — вызывающий дёргает Dodo IS за недостающие."""
+    if not project_ids:
+        return {}
+    stmt = select(LiteRevenueCache).where(
+        LiteRevenueCache.planfact_key_id == planfact_key_id,
+        LiteRevenueCache.project_id.in_(project_ids),
+        LiteRevenueCache.month == month,
+    )
+    result = await session.execute(stmt)
+    return {r.project_id: r.payload for r in result.scalars()}
+
+
+async def upsert_lite_revenue_cache(
+    session: AsyncSession,
+    planfact_key_id: int,
+    project_id: str,
+    month: str,
+    payload: dict,
+) -> None:
+    """Записать выручку закрытого месяца (insert-only по сути; ON CONFLICT
+    обновляет на случай уточнения данных задним числом)."""
+    stmt = (
+        pg_insert(LiteRevenueCache)
+        .values(
+            planfact_key_id=planfact_key_id,
+            project_id=project_id,
+            month=month,
+            payload=payload,
+        )
+        .on_conflict_do_update(
+            index_elements=["planfact_key_id", "project_id", "month"],
+            set_={"payload": payload, "taken_at": datetime.now(timezone.utc)},
         )
     )
     await session.execute(stmt)

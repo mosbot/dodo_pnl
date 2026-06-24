@@ -377,6 +377,34 @@ class DodoisWindowCache(Base):
     )
 
 
+class LiteRevenueCache(Base):
+    """Immutable-кэш выручки закрытых месяцев для Lite-режима (S19).
+
+    В Lite (без PlanFact) выручка/каналы тянутся из Dodo IS. Для закрытого
+    полного месяца значение неизменно — кэшируем по (ключ, проект, месяц),
+    чтобы не дёргать Dodo IS на каждый просмотр истории (аналог cache_history
+    в полном P&L, но с полной разбивкой по каналам). Текущий/частичный месяц
+    не кэшируется (всегда live).
+
+    payload = {"total": float, "channels": {delivery, restaurant, takeaway, other}}.
+    """
+
+    __tablename__ = "lite_revenue_cache"
+
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    taken_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    )
+
+
 # ---------- Ops targets ----------
 
 class OpsTarget(Base):
