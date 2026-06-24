@@ -317,6 +317,20 @@ immutable-кэш `handover_lw` — он часть остатка #2 (ops-окн
 рендерится из меты. Исторические значения/сравнение по месяцам — автоматически
 (ops_metrics ключится по месяцу). Прошлые месяцы наполняются при (пере)синке.
 
+### РКО / РС — СДЕЛАНО (Controlling API, миграция 0032)
+РКО (рейтинг клиентского опыта) и РС (рейтинг стандартов) из Dodo IS Controlling
+API (`api.dodois.io/controlling/ratings/{customer-experience,standards}` —
+БЕЗ `/dodopizza/ru`; `_controlling_base()` в dodois_client). Рейтинги Dodo
+считаются по НЕДЕЛЯМ; месячное значение в Финансах = **среднее недельных
+рейтингов месяца** из history-эндпоинтов (`.../history?units&fromDate&toDate`,
+только Calculated+Published). Колонки `ops_metrics.rko_rate/rs_rate` (INT 0..100),
+пишутся в S16-синке (`fetch_rating_history_*` → bucket по месяцу → среднее),
+мета `RKO`/`RS` (direction higher) в `store.OPS_METRICS` — плитки из меты.
+Scope уже есть (PiX отдаёт 200, отдельный OAuth-scope не понадобился). Прогрев
+пропускает уже синканные месяцы → существующую историю заливать разово
+(эффективно: 1 history-запрос за год на тип, bucket по месяцам, UPDATE
+ops_metrics; делалось для key4).
+
 ## Аккаунты для тестов
 
 Вход в приложение: `https://pnl.dodotool.ru/login` (сессионная авторизация pnl,
