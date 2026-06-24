@@ -1974,6 +1974,28 @@ def _month_range_dates(month_key: str) -> tuple[str, str]:
     return f"{month_key}-01", f"{month_key}-{monthrange(y, m)[1]:02d}"
 
 
+def _rating_month_for_period(period_from: str, period_to: str) -> str | None:
+    """Месяц (YYYY-MM), которому принадлежит рейтинговый период Dodo, по правилу
+    БОЛЬШИНСТВА ДНЕЙ: неделя (7 дн) относится к месяцу, куда попало ≥4 её дней;
+    РС-период (≈2 нед) — где большая часть дней. Ничья → месяц окончания."""
+    from datetime import date, timedelta
+    try:
+        f = date.fromisoformat(period_from)
+        t = date.fromisoformat(period_to)
+    except (ValueError, TypeError):
+        return None
+    counts: dict[str, int] = {}
+    d = f
+    while d <= t:
+        k = f"{d.year:04d}-{d.month:02d}"
+        counts[k] = counts.get(k, 0) + 1
+        d += timedelta(days=1)
+    if not counts:
+        return None
+    # max по числу дней; при равенстве — больший ключ (более поздний месяц).
+    return max(counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+
+
 def _human_period_label(date_start: str, date_end: str) -> str:
     """Человекочитаемый период для xlsx-шапки.
 
@@ -3112,7 +3134,14 @@ async def _run_ops_sync(
                     for r in rows:
                         uid = (r.get("unitId") or "").lower().replace("-", "")
                         rate = r.get("rate")
-                        if uid and rate is not None:
+                        # Период учитываем в этом месяце только если он сюда и
+                        # «принадлежит» по правилу большинства дней (РКО: ≥4/7).
+                        if (
+                            uid and rate is not None
+                            and _rating_month_for_period(
+                                r.get("periodFrom"), r.get("periodTo"),
+                            ) == period
+                        ):
                             acc.setdefault(uid, []).append(int(rate))
                     for uid, vals in acc.items():
                         if vals:
