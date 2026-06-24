@@ -1009,7 +1009,10 @@ function opsTile(meta, val, target, opsRow) {
       .filter(sb => opsRow[sb.field] != null)
       .map(sb => `${esc(sb.label)} ${fmtVal(opsRow[sb.field])}`);
     if (parts.length) {
-      subsStr = `<div class="tile-hint tile-subs">${parts.join(' · ')}</div>`;
+      // Каждый канал (зал / доставка) — своей строкой.
+      subsStr = parts
+        .map(p => `<div class="tile-hint tile-subs">${p}</div>`)
+        .join('');
     }
   }
   // Единицу с слешами («₽/ч», «зак/ч», «шт/ч») заворачиваем в .nb,
