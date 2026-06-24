@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     # /internal/unit-capabilities). OFF = мягкая раскатка (caps считаются,
     # но не блокируют). Fail-open: если sa недоступен — НЕ блокируем.
     enforce_capabilities: bool = False
+    # Фоновый прогрев immutable-данных Финансов (см.
+    # docs/plans/financials-warmup-plan.md). При первом заходе тенанта в
+    # Финансы в фоне прогреваются закрытые месяцы (выручка/P&L + ops), чтобы
+    # история и прошлые месяцы открывались мгновенно. Killswitch + дебаунс.
+    enable_financial_warmup: bool = False
+    warm_months_back: int = 12        # глубина окна закрытых месяцев
+    warm_include_ly: bool = True      # + LY-двойники окна (для LFL-графика)
+    warm_with_ops: bool = True        # прогревать и ops_metrics (тяжелее)
+    warm_min_interval_sec: int = 21600  # дебаунс на тенант (6ч)
 
 
 settings = Settings()

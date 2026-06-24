@@ -1661,6 +1661,131 @@ async def _require_capability(
         )
 
 
+# ---------- Фоновый прогрев immutable-данных Финансов (Фаза 1+2) ----------
+# docs/plans/financials-warmup-plan.md. Прогреваем ЗАКРЫТЫЕ месяцы (вне
+# live-окна): выручку/P&L (cache_history / lite_revenue_cache) и ops_metrics.
+# Builder'ы идемпотентны — закэшированное skip'ается. Триггер при заходе в
+# Финансы, fire-and-forget, с дебаунсом и inflight-гардом на тенант.
+_WARM_INFLIGHT: set[int] = set()
+_WARM_LAST_RUN: dict[int, float] = {}
+
+
+def _closed_months_window(cur_month: str, back: int, lmw: int) -> list[str]:
+    """`back` месяцев назад от текущего, исключая попадающие в live-окно.
+    Возвращает 'YYYY-MM' от свежих к старым."""
+    out: list[str] = []
+    y, m = (int(x) for x in cur_month.split("-"))
+    for i in range(1, back + 1):
+        mm, yy = m - i, y
+        while mm <= 0:
+            mm += 12
+            yy -= 1
+        mk = f"{yy:04d}-{mm:02d}"
+        if not store.is_period_in_live_window(mk, cur_month, lmw):
+            out.append(mk)
+    return out
+
+
+def _ly_months(months: list[str]) -> list[str]:
+    res: list[str] = []
+    for mk in months:
+        y, m = (int(x) for x in mk.split("-"))
+        res.append(f"{y - 1:04d}-{m:02d}")
+    return res
+
+
+async def warm_financials(
+    user_id: int, *,
+    months_back: int | None = None,
+    include_ly: bool | None = None,
+    with_ops: bool | None = None,
+) -> None:
+    """Фоновый прогрев закрытых месяцев тенанта (свои сессии; fire-and-forget)."""
+    import logging
+    import time as _t
+    from .db import get_session_factory
+    log = logging.getLogger("uvicorn.error")
+    months_back = months_back if months_back is not None else settings.warm_months_back
+    include_ly = include_ly if include_ly is not None else settings.warm_include_ly
+    with_ops = with_ops if with_ops is not None else settings.warm_with_ops
+    Sm = get_session_factory()
+    pf_key_id: int | None = None
+    try:
+        async with Sm() as s:
+            user = await s.get(User, user_id)
+            if user is None or not user.planfact_key_id:
+                return
+            pf_key_id = user.planfact_key_id
+            is_lite = not await _tenant_has_planfact(s, pf_key_id)
+            from .auth.models import PlanfactKey
+            pk = await s.get(PlanfactKey, pf_key_id)
+            lmw = int(getattr(pk, "live_months_window", None) or 2)
+        cur = _current_month_str()
+        primary = _closed_months_window(cur, months_back, lmw)
+        rev_months = list(primary)
+        if include_ly:
+            for mk in _ly_months(primary):
+                if mk not in rev_months:
+                    rev_months.append(mk)
+        t0 = _t.time()
+        # Выручка / P&L закрытых месяцев.
+        if is_lite:
+            async with Sm() as s:
+                user = await s.get(User, user_id)
+                await _build_revenue_history_lite(s, user, rev_months, None)
+        else:
+            for mk in rev_months:
+                ms, me = _month_range_dates(mk)
+                try:
+                    async with Sm() as s:
+                        user = await s.get(User, user_id)
+                        pf = await planfact_for(s, user)
+                        await _build_pnl_for_period(
+                            session=s, user=user, pf=pf,
+                            date_start=ms, date_end=me, period_month=mk,
+                            project_filter=None, method="accrual",
+                        )
+                except Exception:
+                    log.exception("warmup %s: revenue %s failed", pf_key_id, mk)
+        log.info(
+            "warmup %s: revenue done %.1fs (%d мес)",
+            pf_key_id, _t.time() - t0, len(rev_months),
+        )
+        # Ops закрытых месяцев — тяжелее, строго последовательно.
+        if with_ops:
+            for mk in primary:
+                if is_ops_sync_running(pf_key_id, mk):
+                    continue
+                try:
+                    await _run_ops_sync(
+                        user_id=user_id, period=mk, inflight_key_id=pf_key_id,
+                    )
+                except Exception:
+                    log.exception("warmup %s: ops %s failed", pf_key_id, mk)
+            log.info("warmup %s: ops done %.1fs total", pf_key_id, _t.time() - t0)
+    except Exception:
+        log.exception("warmup %s: unhandled", pf_key_id)
+    finally:
+        if pf_key_id is not None:
+            _WARM_INFLIGHT.discard(pf_key_id)
+
+
+def _maybe_trigger_warmup(user: User) -> None:
+    """Запустить фоновый прогрев тенанта (флаг + дебаунс + inflight-гард)."""
+    if not settings.enable_financial_warmup or not user.planfact_key_id:
+        return
+    import asyncio as _a
+    import time as _t
+    k = user.planfact_key_id
+    if k in _WARM_INFLIGHT:
+        return
+    if (_t.monotonic() - _WARM_LAST_RUN.get(k, 0.0)) < settings.warm_min_interval_sec:
+        return
+    _WARM_INFLIGHT.add(k)
+    _WARM_LAST_RUN[k] = _t.monotonic()
+    _a.create_task(warm_financials(user.id))
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -1717,6 +1842,10 @@ async def get_pnl(
         }
 
     pm = period_month or _derive_period_month(date_start, date_end)
+
+    # Фоновый прогрев закрытых месяцев (Фаза 1+2, по флагу + дебаунс).
+    # create_task — выполнится после ответа, текущий запрос не задерживает.
+    _maybe_trigger_warmup(user)
 
     # Lite-режим: тенанту назначен PF-ключ, но у ключа нет собственного
     # api_key → работаем на данных Dodo IS (выручка/каналы/ops), без 400.
