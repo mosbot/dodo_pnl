@@ -1751,18 +1751,28 @@ async def warm_financials(
             "warmup %s: revenue done %.1fs (%d мес)",
             pf_key_id, _t.time() - t0, len(rev_months),
         )
-        # Ops закрытых месяцев — тяжелее, строго последовательно.
+        # Ops закрытых месяцев — тяжелее, строго последовательно. _run_ops_sync
+        # сам НЕ скипает уже синканное (в отличие от revenue) — поэтому
+        # пропускаем месяцы, где ops_metrics уже есть (идемпотентность).
         if with_ops:
+            warmed = 0
             for mk in primary:
                 if is_ops_sync_running(pf_key_id, mk):
                     continue
+                async with Sm() as s:
+                    if await store.list_ops_metrics(s, pf_key_id, period_month=mk):
+                        continue  # уже прогрето
                 try:
                     await _run_ops_sync(
                         user_id=user_id, period=mk, inflight_key_id=pf_key_id,
                     )
+                    warmed += 1
                 except Exception:
                     log.exception("warmup %s: ops %s failed", pf_key_id, mk)
-            log.info("warmup %s: ops done %.1fs total", pf_key_id, _t.time() - t0)
+            log.info(
+                "warmup %s: ops done %.1fs (%d новых)",
+                pf_key_id, _t.time() - t0, warmed,
+            )
     except Exception:
         log.exception("warmup %s: unhandled", pf_key_id)
     finally:
