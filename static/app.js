@@ -1112,9 +1112,10 @@ function ordersTile(o, lfl) {
 function applyLiteMode(on) {
   const tw = document.querySelector('.table-wrap');
   if (tw) tw.classList.toggle('hidden', on);
-  // В Lite оставляем только график выручки; PlanFact-графики (маржа,
-  // структура затрат, история) прячем — данных для них нет.
-  ['margins', 'costShare', 'revHistory12m', 'revHistoryLines'].forEach(id => {
+  // В Lite оставляем графики выручки (revHistory12m/revHistoryLines — данные
+  // из Dodo IS), а PlanFact-графики маржи и структуры затрат прячем — для них
+  // нужен полный P&L.
+  ['margins', 'costShare'].forEach(id => {
     const b = document.querySelector('.chart-box[data-chart-id="' + id + '"]');
     if (b) b.classList.toggle('hidden', on);
   });

@@ -1393,6 +1393,103 @@ async def _lite_revenue(
     return rev_by_pid, chan_by_pid
 
 
+async def _build_revenue_history_lite(
+    session: AsyncSession,
+    user: User,
+    period_months: list[str],
+    project_filter: list[str] | None,
+) -> dict:
+    """История выручки по месяцам для Lite — из Dodo IS с immutable-кэшем
+    закрытых месяцев. Зеркало `_build_revenue_history_window`, но БЕЗ PlanFact:
+    каждый месяц считается через `_lite_revenue` (кэш для закрытых, live для
+    текущего). Раньше Lite-история шла через PF env-fallback — медленно (~35с
+    на 12 мес) и не те данные. Формат идентичен window-версии."""
+    import logging
+    from collections import defaultdict
+    log = logging.getLogger("uvicorn.error")
+
+    pf_key_id = user.planfact_key_id
+    cfg = await store.list_projects_config(session, pf_key_id) if pf_key_id else {}
+    allowed = set(project_filter) if project_filter is not None else None
+
+    uuid_to_pid: dict[str, str] = {}
+    pid_to_uuid: dict[str, str] = {}
+    proj_meta: dict[str, str] = {}
+    for pid, c in cfg.items():
+        if allowed is not None and pid not in allowed:
+            continue
+        if not c.get("is_active", True):
+            continue
+        proj_meta[pid] = c.get("display_name") or pid
+        uu = c.get("dodo_unit_uuid")
+        if uu:
+            uuid_to_pid[board_module._normalize_uuid(uu)] = pid
+            pid_to_uuid[pid] = uu
+    pids = list(proj_meta.keys())
+
+    totals = {m: 0.0 for m in period_months}
+    by_channel = {
+        m: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for m in period_months
+    }
+    by_project: dict[str, dict[str, float]] = defaultdict(
+        lambda: {m: 0.0 for m in period_months}
+    )
+    project_names: dict[str, str] = dict(proj_meta)
+
+    def _result(projects):
+        return {
+            "months": period_months, "totals": totals, "by_channel": by_channel,
+            "projects": projects, "project_names": project_names,
+        }
+
+    if not pids:
+        return _result({})
+
+    try:
+        token = await get_dodois_token(session, user)
+    except Exception:
+        log.exception("Lite history: токен Dodo IS недоступен")
+        return _result({})
+
+    try:
+        names = await board_module._get_or_refresh_unit_names(session, token)
+        for uu_norm, pid in uuid_to_pid.items():
+            nm = names.get(uu_norm)
+            if nm:
+                project_names[pid] = nm
+    except Exception:
+        log.exception("Lite history: имена юнитов недоступны")
+
+    from .auth.models import PlanfactKey
+    pk = await session.get(PlanfactKey, pf_key_id) if pf_key_id else None
+    lmw = int(getattr(pk, "live_months_window", None) or 2)
+    cur = _current_month_str()
+
+    for m in period_months:
+        ms, me = _month_range_dates(m)
+        cacheable = (
+            _is_full_month(ms, me, m)
+            and not store.is_period_in_live_window(m, cur, lmw)
+        )
+        try:
+            rev_by_pid, chan_by_pid = await _lite_revenue(
+                session, token, pf_key_id, m, ms, me,
+                pids, uuid_to_pid, pid_to_uuid, cacheable=cacheable,
+            )
+        except Exception:
+            log.exception("Lite history: месяц %s не получен", m)
+            continue
+        for pid in pids:
+            v = float(rev_by_pid.get(pid, 0.0) or 0.0)
+            totals[m] += v
+            by_project[pid][m] = v
+            ch_src = chan_by_pid.get(pid, {})
+            for ch in pnl_module.REVENUE_CHANNELS:
+                by_channel[m][ch] += float(ch_src.get(ch, 0.0) or 0.0)
+
+    return _result(dict(by_project))
+
+
 async def _build_pnl_lite(
     session: AsyncSession, user: User,
     date_start: str, date_end: str,
@@ -1875,6 +1972,38 @@ async def get_revenue_history(
     from calendar import monthrange
     last_day = monthrange(last_y, last_m)[1]
     date_end = f"{period_months[-1]}-{last_day:02d}"
+
+    # Lite (нет своего PlanFact): историю выручки строим из Dodo IS с
+    # immutable-кэшем закрытых месяцев, а НЕ через PF env-fallback (был
+    # медленный ~35с и отдавал данные общего env-аккаунта).
+    if user.planfact_key_id and not await _tenant_has_planfact(
+        session, user.planfact_key_id
+    ):
+        cur = await _build_revenue_history_lite(
+            session, user, period_months, effective_projects,
+        )
+        out = {
+            "months": cur["months"], "totals": cur["totals"],
+            "by_channel": cur["by_channel"], "projects": cur["projects"],
+            "project_names": cur["project_names"],
+            "period": {"start": date_start, "end": date_end},
+        }
+        if include_ly:
+            ly_anchor_y, ly_anchor_m = (int(x) for x in anchor.split("-"))
+            ly_anchor = f"{ly_anchor_y - 1:04d}-{ly_anchor_m:02d}"
+            ly_months = pnl_module.month_range(ly_anchor, months)
+            ly = await _build_revenue_history_lite(
+                session, user, ly_months, effective_projects,
+            )
+            ly_y, ly_m = (int(x) for x in ly_months[-1].split("-"))
+            ly_last = monthrange(ly_y, ly_m)[1]
+            out["ly"] = {
+                "months": ly["months"], "totals": ly["totals"],
+                "by_channel": ly["by_channel"],
+                "period": {"start": f"{ly_months[0]}-01",
+                           "end": f"{ly_months[-1]}-{ly_last:02d}"},
+            }
+        return out
 
     pf = await planfact_for(session, user)
     try:
