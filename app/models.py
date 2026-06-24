@@ -246,6 +246,9 @@ class OpsMetric(Base):
     courier_utilization_pct: Mapped[Optional[float]] = mapped_column(Float)
     # S16.2: время храним в секундах (INT), на UI формат mm:ss
     avg_order_trip_time_sec: Mapped[Optional[int]] = mapped_column(Integer)
+    # S18: среднее время доставки (avgDeliveryOrderFulfillmentTime), сек —
+    # месячное историческое значение того же поля, что Пульс показывает live.
+    avg_delivery_fulfillment_sec: Mapped[Optional[int]] = mapped_column(Integer)
     avg_cooking_time_delivery_sec: Mapped[Optional[int]] = mapped_column(Integer)
     avg_cooking_time_restaurant_sec: Mapped[Optional[int]] = mapped_column(Integer)
     # S16.3: расчётный KC% — net wage кухонных смен / выручка × 100

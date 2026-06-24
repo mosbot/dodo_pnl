@@ -84,6 +84,18 @@ OPS_METRICS: list[dict] = [
         "digits": 2,
     },
     {
+        "code": "AVG_DELIVERY",
+        # avgDeliveryOrderFulfillmentTime — полное среднее время доставки (от
+        # оформления до вручения), сек. То же поле, что Пульс live; здесь —
+        # месячное историческое. Lower лучше. Формат mm:ss.
+        "label": "Среднее доставки",
+        "unit": "",
+        "field": "avg_delivery_fulfillment_sec",
+        "format": "mm_ss",
+        "direction": "lower",
+        "digits": 0,
+    },
+    {
         "code": "AOT",
         # Average Order Trip — стандартный Dodo-термин для времени курьера
         # с заказом в пути. Значение в секундах, формат на UI — mm:ss.
@@ -559,6 +571,7 @@ async def list_ops_metrics(
             # S16 / S16.2 / S16.3
             "orders_per_trip": r.orders_per_trip,
             "courier_utilization_pct": r.courier_utilization_pct,
+            "avg_delivery_fulfillment_sec": r.avg_delivery_fulfillment_sec,
             "avg_order_trip_time_sec": r.avg_order_trip_time_sec,
             "avg_cooking_time_delivery_sec": r.avg_cooking_time_delivery_sec,
             "avg_cooking_time_restaurant_sec": r.avg_cooking_time_restaurant_sec,
@@ -587,6 +600,7 @@ async def upsert_ops_metric(
     # S16 / S16.2 / S16.3
     orders_per_trip: Optional[float] = None,
     courier_utilization_pct: Optional[float] = None,
+    avg_delivery_fulfillment_sec: Optional[int] = None,
     avg_order_trip_time_sec: Optional[int] = None,
     avg_cooking_time_delivery_sec: Optional[int] = None,
     avg_cooking_time_restaurant_sec: Optional[int] = None,
@@ -621,6 +635,7 @@ async def upsert_ops_metric(
             late_delivery_certs_pct=float(late_delivery_certs_pct) if late_delivery_certs_pct is not None else None,
             orders_per_trip=orders_per_trip,
             courier_utilization_pct=courier_utilization_pct,
+            avg_delivery_fulfillment_sec=int(avg_delivery_fulfillment_sec) if avg_delivery_fulfillment_sec is not None else None,
             avg_order_trip_time_sec=int(avg_order_trip_time_sec) if avg_order_trip_time_sec is not None else None,
             avg_cooking_time_delivery_sec=int(avg_cooking_time_delivery_sec) if avg_cooking_time_delivery_sec is not None else None,
             avg_cooking_time_restaurant_sec=int(avg_cooking_time_restaurant_sec) if avg_cooking_time_restaurant_sec is not None else None,
@@ -644,6 +659,8 @@ async def upsert_ops_metric(
             existing.orders_per_trip = orders_per_trip
         if courier_utilization_pct is not None:
             existing.courier_utilization_pct = courier_utilization_pct
+        if avg_delivery_fulfillment_sec is not None:
+            existing.avg_delivery_fulfillment_sec = int(avg_delivery_fulfillment_sec)
         if avg_order_trip_time_sec is not None:
             existing.avg_order_trip_time_sec = int(avg_order_trip_time_sec)
         if avg_cooking_time_delivery_sec is not None:

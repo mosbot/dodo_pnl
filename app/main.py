@@ -2790,6 +2790,8 @@ async def _run_ops_sync(
                 # S16.2: время хранится в секундах (INT), на UI mm:ss
                 avg_trip_sec = d.get("avgOrderTripTime")
                 avg_cook_delivery_sec = d.get("avgCookingTime")
+                # S18: полное среднее время доставки (то же поле, что live в Пульсе)
+                avg_delivery_sec = d.get("avgDeliveryOrderFulfillmentTime")
                 # S16.1: ресторанное время готовки — из отдельного запроса
                 # /production/orders-handover-statistics?salesChannels=DineIn
                 avg_cook_restaurant_sec = h.get("avgCookingTime")
@@ -2833,6 +2835,7 @@ async def _run_ops_sync(
                     late_delivery_certs_pct=cert_pct,
                     orders_per_trip=orders_per_trip,
                     courier_utilization_pct=courier_util_pct,
+                    avg_delivery_fulfillment_sec=avg_delivery_sec,
                     avg_order_trip_time_sec=avg_trip_sec,
                     avg_cooking_time_delivery_sec=avg_cook_delivery_sec,
                     avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
