@@ -254,6 +254,18 @@ window_to_key, payload JSONB, computed_at)` PK всё это, insert-only
 Закэшировано (✅):
 - `sales_lw` (channels split + total за прошл. неделю до часа)
 - `monthly_lfl` (LFL месяц до текущего дня/часа в прошлом году)
+- `lite_revenue_cache` (S19, миграция 0031) — Lite-выручка ЗАКРЫТЫХ месяцев с
+  полной разбивкой каналов (delivery/restaurant/takeaway/other), JSONB,
+  PK (planfact_key_id, project_id, month). Хелперы
+  `store.get_lite_revenue_cache`/`upsert_lite_revenue_cache`, интеграция в
+  `main._lite_revenue` (читаем кэш → fetch только missing → пишем; текущий/
+  частичный месяц всегда live). Раньше Lite дёргал Dodo IS на КАЖДЫЙ просмотр
+  истории. Условие кэшируемости — `_is_full_month` И не в live-окне
+  (`store.is_period_in_live_window`, глубина с ключа).
+- `ops_metrics` (S16/S18) для Финансов — персистентная месячная таблица (не
+  TTL): для закрытых месяцев immutable, для текущего пере-синкается фоновым
+  `_run_ops_sync`. Включает `avg_delivery_fulfillment_sec` (S18, миграция 0030,
+  среднее время доставки — то же поле, что Пульс live).
 
 ОСТАЛОСЬ (ops-метрики — идут через `_safe_fetch_ops`, который маскирует
 ошибку пустотой; кэшировать опасно без различения «успех но пусто» vs
@@ -280,12 +292,13 @@ Total: 2 запроса вместо текущих 2×N.
 `/delivery/stop-sales-sectors` стабильно timeout'ит в 8с. Endpoint
 медленнее остальных. Решения: повысить budget или batch-вариант.
 
-### Среднее время доставки — добывать метрику для Финансов и Пульса
-Нужна метрика «Среднее время доставки» (mm:ss, напр. 33:03) — показывать и в
-Пульсе, и в Финансах. В Пульсе ops уже частично есть (`ops.delivery.avg_delivery_sec`
-из `/delivery/statistics`) — проверить, что считается/отображается корректно, и
-довести единый вид метрики в обоих модулях (формат mm:ss, исторические
-значения/сравнение для Финансов).
+### Среднее время доставки — СДЕЛАНО (S18, миграция 0030)
+Метрика «Среднее время доставки» (mm:ss, напр. 33:03) = `avgDeliveryOrderFulfillmentTime`
+из `/delivery/statistics`. Пульс показывает live (`ops.delivery.avg_delivery_sec`).
+Финансы: колонка `ops_metrics.avg_delivery_fulfillment_sec`, пишется в S16-синке
+(`main`), мета `AVG_DELIVERY` (format mm_ss) в `store.OPS_METRICS` — плитка
+рендерится из меты. Исторические значения/сравнение по месяцам — автоматически
+(ops_metrics ключится по месяцу). Прошлые месяцы наполняются при (пере)синке.
 
 ## Аккаунты для тестов
 
