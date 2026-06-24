@@ -1,4 +1,8 @@
 .env
+# .env-бэкапы (cp .env .env.bak.*) — секреты, нельзя коммитить.
+# deploy.sh делает `git add -A`, поэтому второй слой защиты обязателен.
+.env.bak*
+*.env.bak*
 .claude-ssh/
 __pycache__/
 *.pyc
