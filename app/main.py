@@ -3088,6 +3088,38 @@ async def _run_ops_sync(
                     period, e,
                 )
 
+            # Controlling: РКО (клиентский опыт) / РС (стандарты) за месяц =
+            # СРЕДНЕЕ недельных рейтингов из history-эндпоинта, чьи периоды
+            # попадают в этот месяц (Calculated+Published). Заполняется для
+            # ЛЮБОГО месяца — историю прогрев закроет автоматически. Рейтинги
+            # Dodo считаются по неделям, месячное — агрегат (среднее). Non-critical.
+            from calendar import monthrange as _monthrange
+            _r_start = f"{period}-01"
+            _r_end = f"{period}-{_monthrange(y, m)[1]:02d}"
+            rko_by_uuid: dict[str, int] = {}
+            rs_by_uuid: dict[str, int] = {}
+            for label, fn, dest in (
+                ("rating-ce-hist",
+                 dodois_client.fetch_rating_history_customer_experience, rko_by_uuid),
+                ("rating-std-hist",
+                 dodois_client.fetch_rating_history_standards, rs_by_uuid),
+            ):
+                try:
+                    rows = await _timed(label, with_dodois_retry(
+                        session, user, fn, unit_uuids, _r_start, _r_end,
+                    ))
+                    acc: dict[str, list[int]] = {}
+                    for r in rows:
+                        uid = (r.get("unitId") or "").lower().replace("-", "")
+                        rate = r.get("rate")
+                        if uid and rate is not None:
+                            acc.setdefault(uid, []).append(int(rate))
+                    for uid, vals in acc.items():
+                        if vals:
+                            dest[uid] = round(sum(vals) / len(vals))
+                except (DodoISError, NoTokenError) as e:
+                    log.warning("ops sync %s: %s FAILED: %s", period, label, e)
+
             log.info(
                 "ops sync %s: TOTAL %.1fs — units=%d, productivity=%d/certs=%d/delivery=%d/handover-rest=%d/incentives=%d",
                 period, time.monotonic() - t0, len(unit_uuids),
@@ -3189,10 +3221,17 @@ async def _run_ops_sync(
                     if delivery_rev > 0 and courier_wage > 0 else None
                 )
 
+                # Controlling-рейтинги (только текущий месяц; иначе maps пустые
+                # → None → не перетираем закрытые месяцы).
+                rko_rate = rko_by_uuid.get(key)
+                rs_rate = rs_by_uuid.get(key)
+
                 if not s:
                     continue
                 await store.upsert_ops_metric(
                     session, pf_key_id, pid, period,
+                    rko_rate=rko_rate,
+                    rs_rate=rs_rate,
                     orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
                     products_per_h=s.get("productsPerLaborHour"),
                     revenue_per_person_h=s.get("salesPerLaborHour"),

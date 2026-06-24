@@ -166,6 +166,25 @@ OPS_METRICS: list[dict] = [
         "direction": "lower",
         "digits": 1,
     },
+    # Controlling API: РКО — рейтинг клиентского опыта, РС — рейтинг
+    # стандартов. rate 0..100, больше — лучше. Текущий период (заполнены
+    # только для текущего месяца).
+    {
+        "code": "RKO",
+        "label": "РКО",
+        "unit": "",
+        "field": "rko_rate",
+        "direction": "higher",
+        "digits": 0,
+    },
+    {
+        "code": "RS",
+        "label": "РС",
+        "unit": "",
+        "field": "rs_rate",
+        "direction": "higher",
+        "digits": 0,
+    },
 ]
 OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
 
@@ -581,6 +600,8 @@ async def list_ops_metrics(
                 r.dc_live_pct * dc_coeff
                 if (dc_on and r.dc_live_pct is not None) else None
             ),
+            "rko_rate": r.rko_rate,
+            "rs_rate": r.rs_rate,
         }
         if period_month is None:
             out.setdefault(r.project_id, {})[r.period_month] = payload
@@ -607,6 +628,8 @@ async def upsert_ops_metric(
     avg_cooking_time_restaurant_sec: Optional[int] = None,
     kc_live_pct: Optional[float] = None,
     dc_live_pct: Optional[float] = None,
+    rko_rate: Optional[int] = None,
+    rs_rate: Optional[int] = None,
 ) -> None:
     if (
         late_delivery_certs_pct is None
@@ -642,6 +665,8 @@ async def upsert_ops_metric(
             avg_cooking_time_restaurant_sec=int(avg_cooking_time_restaurant_sec) if avg_cooking_time_restaurant_sec is not None else None,
             kc_live_pct=kc_live_pct,
             dc_live_pct=dc_live_pct,
+            rko_rate=int(rko_rate) if rko_rate is not None else None,
+            rs_rate=int(rs_rate) if rs_rate is not None else None,
         ))
     else:
         if orders_per_courier_h is not None:
@@ -672,6 +697,10 @@ async def upsert_ops_metric(
             existing.kc_live_pct = float(kc_live_pct)
         if dc_live_pct is not None:
             existing.dc_live_pct = float(dc_live_pct)
+        if rko_rate is not None:
+            existing.rko_rate = int(rko_rate)
+        if rs_rate is not None:
+            existing.rs_rate = int(rs_rate)
         existing.updated_at = datetime.now(timezone.utc)
 
 

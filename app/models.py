@@ -256,6 +256,11 @@ class OpsMetric(Base):
     # DC: расчётный Delivery Cost% — net wage курьерских смен (staffType ==
     # 'Courier') / выручка ДОСТАВКИ × 100. См. миграцию 0028.
     dc_live_pct: Mapped[Optional[float]] = mapped_column(Float)
+    # Controlling API (0032): РКО — рейтинг клиентского опыта, РС — рейтинг
+    # стандартов. rate 0..100 = среднее недельных рейтингов месяца из
+    # history-эндпоинта (Calculated+Published). Заполняется для любого месяца.
+    rko_rate: Mapped[Optional[int]] = mapped_column(Integer)
+    rs_rate: Mapped[Optional[int]] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

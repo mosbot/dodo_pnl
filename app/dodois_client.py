@@ -277,6 +277,38 @@ async def fetch_delivery_statistics(
     )
 
 
+def _controlling_base() -> str:
+    """Controlling API живёт НЕ под /dodopizza/ru — берём корень API-хоста."""
+    return settings.dodo_is_base_url.split("/dodopizza")[0]
+
+
+async def fetch_rating_history_customer_experience(
+    token: str, unit_uuids: list[str], from_date: str, to_date: str,
+) -> list[dict[str, Any]]:
+    """РКО — история рейтинга клиентского опыта за [from_date..to_date]
+    (недельные периоды). GET /controlling/ratings/customer-experience/history.
+    Только Calculated+Published. Каждый элемент: unitId, periodFrom/To, rate."""
+    return await _batched_get(
+        op_name="rating-ce-hist",
+        url=f"{_controlling_base()}/controlling/ratings/customer-experience/history",
+        token=token, unit_uuids=unit_uuids, response_key="unitRates",
+        extra_params={"fromDate": from_date, "toDate": to_date, "take": 1000},
+    )
+
+
+async def fetch_rating_history_standards(
+    token: str, unit_uuids: list[str], from_date: str, to_date: str,
+) -> list[dict[str, Any]]:
+    """РС — история рейтинга стандартов за [from_date..to_date] (недельные
+    периоды). GET /controlling/ratings/standards/history."""
+    return await _batched_get(
+        op_name="rating-std-hist",
+        url=f"{_controlling_base()}/controlling/ratings/standards/history",
+        token=token, unit_uuids=unit_uuids, response_key="unitRates",
+        extra_params={"fromDate": from_date, "toDate": to_date, "take": 1000},
+    )
+
+
 async def fetch_late_delivery_vouchers(
     token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime
 ) -> list[dict[str, Any]]:
