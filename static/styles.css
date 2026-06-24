@@ -763,15 +763,17 @@ body.license-blocked .table-wrap { display: none !important; }
 .tile-label {
   font-size: 10px; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .3px;
-  /* Длинные подписи (напр. «ЗАКАЗОВ НА КУРЬЕРА В ЧАС») переносим целиком,
-   * без обрезки. Слова не ломаем посреди — переносим по пробелам. */
   white-space: normal;
-  /* flex: 1 0 auto — растягиваем подпись на всё доступное сверху, чтобы
-   * значение прижималось к фиксированной нижней области. В результате
-   * все .tile-value в одной строке плиток оказываются на одной
-   * горизонтали независимо от высоты подписи (тайлы grid-stretched
-   * имеют одинаковую высоту). */
-  flex: 1 0 auto;
+  line-height: 1.2;
+  /* Заголовок резервирует РОВНО 2 строки → значения всех плиток встают на
+   * одну горизонталь (3-я строка), затем значение, затем остальное.
+   * Длинные подписи клампим в 2 строки (полный текст — в title плитки). */
+  min-height: 2.4em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex: 0 0 auto;
 }
 .tile-sublabel {
   font-weight: 400; color: #9ca3af;
