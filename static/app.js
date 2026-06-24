@@ -1027,7 +1027,7 @@ function opsTile(meta, val, target, opsRow) {
   // «Заказов» / «на курьера», а не «Заказов» / «на» / «курьера» (3 строки).
   const labelDisplay = esc(meta.label).replace(/ на /g, ' на ');
   return `
-    <div class="tile tile-metric ${stateCls}" title="${esc(meta.label)}">
+    <div class="tile tile-metric ${stateCls}" title="${esc(meta.title || meta.label)}">
       ${meta.coeff_applied ? '<span class="tile-coeff-badge" title="Применён налоговый коэффициент">K</span>' : ''}
       <div class="tile-label">${labelDisplay}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">${esc(meta.unit)}</span>${countStr}</div>

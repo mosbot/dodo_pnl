@@ -172,6 +172,7 @@ OPS_METRICS: list[dict] = [
     {
         "code": "RKO",
         "label": "РКО",
+        "title": "Рейтинг клиентского опыта",
         "unit": "",
         "field": "rko_rate",
         "direction": "higher",
@@ -180,6 +181,7 @@ OPS_METRICS: list[dict] = [
     {
         "code": "RS",
         "label": "РС",
+        "title": "Рейтинг стандартов",
         "unit": "",
         "field": "rs_rate",
         "direction": "higher",
@@ -189,7 +191,8 @@ OPS_METRICS: list[dict] = [
     # взвешено по числу оценок). Больше — лучше.
     {
         "code": "CUST_RATING",
-        "label": "Рейтинг клиентов",
+        "label": "РК",
+        "title": "Рейтинг клиентов",
         "unit": "",
         "field": "customer_rating",
         "direction": "higher",
