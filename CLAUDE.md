@@ -149,6 +149,21 @@ fallback на выручку PlanFact (страница не ломается). 
 v2-пути; raw-fallback отдаёт PF-выручку. Kill-switch — выключить флаг (без
 деплоя). Валидация: REVENUE==Dodo по точкам, net profit сдвиг = Δвыручки.
 
+## Прогрев Финансов (warmup) — фоновый, при заходе
+
+`main.warm_financials(user_id)` фоном прогревает ЗАКРЫТЫЕ месяцы тенанта (вне
+live-окна): выручку/P&L (`cache_history` для full, `lite_revenue_cache` для
+Lite) + `ops_metrics`. Триггер `_maybe_trigger_warmup` вызывается в `get_pnl`
+(fire-and-forget, оба режима), с дебаунсом и inflight-гардом на `planfact_key`.
+Идемпотентно: revenue-builder'ы и так skip'ают кэш; для ops добавлена явная
+проверка «месяц уже синкан → пропустить» (`_run_ops_sync` сам не скипает).
+Окно: `warm_months_back` (12) + LY-двойники (`warm_include_ly`), ops — только
+primary-окно. Флаги в config/.env: `ENABLE_FINANCIAL_WARMUP` (на проде =true),
+`WARM_MONTHS_BACK`, `WARM_INCLUDE_LY`, `WARM_WITH_OPS`, `WARM_MIN_INTERVAL_SEC`
+(дебаунс 6ч). Kill-switch — флаг в .env (recreate). План:
+`docs/plans/financials-warmup-plan.md`. Осталось из плана: Фаза 3 (ночной
+прогон всех тенантов через sa-Celery → pnl internal endpoint).
+
 ## OAuth scopes (Dodo IS)
 
 Токены минтит OAuth **sa** (marketplace-приложение `cnM4i`). Scope задаётся в
