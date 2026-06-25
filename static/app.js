@@ -1027,7 +1027,11 @@ function opsTile(meta, val, target, opsRow) {
   if (Array.isArray(meta.subs) && opsRow) {
     const parts = meta.subs
       .filter(sb => opsRow[sb.field] != null)
-      .map(sb => `${esc(sb.label)} ${fmtVal(opsRow[sb.field])}`);
+      .map(sb => {
+        const v = opsRow[sb.field];
+        const z = Array.isArray(meta.zones) ? zoneCls(meta, v) : '';
+        return `${esc(sb.label)} <span class="${z}">${fmtVal(v)}</span>`;
+      });
     if (parts.length) {
       // Каждый канал (зал / доставка) — своей строкой.
       subsStr = parts
