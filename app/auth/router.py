@@ -391,15 +391,34 @@ async def list_access_requests(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
-    """Pending-запросы доступа для тенанта админа (network_admin/super_admin)."""
+    """Pending-запросы доступа для тенанта админа (network_admin/super_admin).
+    Имена заведений резолвим при показе из кэша Dodo IS (в снимке — uuid)."""
+    from .. import store
     from . import access_requests as ar
     if not admin.planfact_key_id:
         return []
     rows = await ar.list_pending_for_key(db, admin.planfact_key_id)
+
+    def _norm(u):
+        return (u or "").lower().replace("-", "")
+
+    cache = await store.get_units_cache(db)
+    name_by = {k: (v or {}).get("name") for k, v in cache.items()}
+
+    def _units(snap):
+        out = []
+        for u in (snap or []):
+            uid = u.get("uuid") if isinstance(u, dict) else None
+            stored = u.get("name") if isinstance(u, dict) else None
+            nm = (name_by.get(_norm(uid)) if uid else None) or stored \
+                or (_norm(uid)[:8] if uid else "—")
+            out.append({"uuid": uid, "name": nm})
+        return out
+
     return [
         AccessRequestOut(
             id=r.id, dodois_sub=r.dodois_sub, name=r.name, email=r.email,
-            units=r.units, created_at=r.created_at,
+            units=_units(r.units), created_at=r.created_at,
         )
         for r in rows
     ]
