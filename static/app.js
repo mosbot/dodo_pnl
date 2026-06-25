@@ -2559,6 +2559,17 @@ function renderTemplateTable(nodes) {
   const periodView = state.mode === 'period' && Array.isArray(state.pnl?.months_in_range);
   const periodMonths = periodView ? state.pnl.months_in_range : [];
   const monthlyData = periodView ? (state.pnl.monthly || {}) : {};
+  // % расхода = сумма статьи ÷ выручка ТОГО ЖЕ месяца (как на странице месяца).
+  // Выручка месяца — amount узла REVENUE из monthly[m].by_node.
+  const revByMonth = {};
+  if (periodView) {
+    const revNode = nodes.find(n => n.pnl_code === 'REVENUE');
+    if (revNode) periodMonths.forEach(m => {
+      const v = (monthlyData[m] && monthlyData[m].by_node)
+        ? monthlyData[m].by_node[String(revNode.id)] : null;
+      revByMonth[m] = (typeof v === 'number') ? v : null;
+    });
+  }
 
   let thead = '<thead><tr>';
   thead += `<th class="tree-col-head">Статья${toolbar}</th>`;
@@ -2650,6 +2661,12 @@ function renderTemplateTable(nodes) {
         } else {
           const valCls = (amt != null && amt < 0) ? 'neg' : '';
           cell = `<span class="${valCls}">${fmt(amt)}</span>`;
+          // % от выручки месяца — для расходных строк (не выручка, не calc-итоги),
+          // как на странице месяца.
+          const rev = revByMonth[m];
+          if (amt != null && rev && n.pnl_code !== 'REVENUE' && !n.is_calc) {
+            cell += `<span class="pct">${fmtPctAbs(amt / rev)}</span>`;
+          }
         }
         // Drill за этот месяц: data-month=YYYY-MM, dates переопределим
         // в обработчике клика. data-pid пуст — period-режим без проектной разбивки.
