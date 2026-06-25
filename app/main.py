@@ -1494,12 +1494,20 @@ async def _build_pnl_lite(
     session: AsyncSession, user: User,
     date_start: str, date_end: str,
     period_month: str | None, project_filter: list[str] | None,
+    compare_start: str | None = None, compare_end: str | None = None,
 ) -> dict:
     """P&L БЕЗ PlanFact (Lite): выручка + каналы из Dodo IS + ops-метрики
     (KC/DC и пр.). Полный accrual-P&L (себестоимость, EBITDA) недоступен без
-    PlanFact — фронт показывает Lite-вид и предлагает подключить PlanFact."""
+    PlanFact — фронт показывает Lite-вид и предлагает подключить PlanFact.
+    compare_start/end (LFL) → previous_amount/delta_pct на выручке + LFL заказов."""
     import logging
     log = logging.getLogger("uvicorn.error")
+    # MTD-выравнивание окна сравнения (как в полном LFL): незакрытый текущий
+    # месяц сравниваем по тому же числу.
+    cmp_end = (
+        _mtd_aligned_compare_end(date_end, compare_end)
+        if (compare_start and compare_end) else None
+    )
 
     pf_key_id = user.planfact_key_id
     cfg = await store.list_projects_config(session, pf_key_id) if pf_key_id else {}
@@ -1525,6 +1533,7 @@ async def _build_pnl_lite(
     chan_by_pid: dict[str, dict] = {
         pid: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for pid in proj_meta
     }
+    prev_rev_by_pid: dict[str, float] = {}  # LFL: выручка периода сравнения
     if uuids:
         token = None
         try:
@@ -1565,6 +1574,24 @@ async def _build_pnl_lite(
                 )
             except Exception:
                 log.exception("Lite: выручка из Dodo IS недоступна")
+            # LFL: выручка периода сравнения (для previous_amount/delta_pct).
+            if compare_start and cmp_end:
+                cmp_pm = _derive_period_month(compare_start, cmp_end)
+                cmp_cacheable = bool(
+                    cmp_pm and _is_full_month(compare_start, cmp_end, cmp_pm)
+                    and not store.is_period_in_live_window(
+                        cmp_pm, _current_month_str(), lmw,
+                    )
+                )
+                try:
+                    prev_rev_by_pid, _ = await _lite_revenue(
+                        session, token, pf_key_id, cmp_pm,
+                        compare_start, cmp_end,
+                        list(proj_meta.keys()), uuid_to_pid, pid_to_uuid,
+                        cacheable=cmp_cacheable, log=log,
+                    )
+                except Exception:
+                    log.exception("Lite LFL: выручка периода сравнения недоступна")
 
     ops_data = (
         await store.list_ops_metrics(session, pf_key_id, period_month=period_month)
@@ -1604,15 +1631,31 @@ async def _build_pnl_lite(
          "is_active": True, "ops": ops_data.get(pid)}
         for pid, name in proj_meta.items()
     ]
+    # LFL: добавляем previous_amount/delta_pct, только если выручка периода
+    # сравнения реально получена (иначе плитка показывает текущее без LY).
+    lfl_ok = bool(compare_start and cmp_end and prev_rev_by_pid)
+
+    def _rev_entry(cur: float, prev: float | None) -> dict:
+        e = {"amount": cur, "pct_of_revenue": 1.0 if cur else None}
+        if prev is not None:
+            e["previous_amount"] = prev
+            e["delta_pct"] = (cur / prev - 1.0) if prev > 0 else None
+        return e
+
     revenue_line = {
         "code": "REVENUE", "label": "Выручка", "level": 1, "kind": "header",
         "denominator": "total",
         "projects": {
-            pid: {"amount": rev_by_pid.get(pid, 0.0),
-                  "pct_of_revenue": 1.0 if rev_by_pid.get(pid, 0.0) else None}
+            pid: _rev_entry(
+                rev_by_pid.get(pid, 0.0),
+                prev_rev_by_pid.get(pid, 0.0) if lfl_ok else None,
+            )
             for pid in proj_meta
         },
-        "total": {"amount": total_rev, "pct_of_revenue": 1.0 if total_rev else None},
+        "total": _rev_entry(
+            total_rev,
+            sum(prev_rev_by_pid.values()) if lfl_ok else None,
+        ),
     }
     result = {
         "lite": True,
@@ -1649,6 +1692,7 @@ async def _build_pnl_lite(
         session=session, user=user, result=result,
         date_start=date_start, date_end=date_end,
         effective_projects=project_filter,
+        compare_start=compare_start, compare_end=compare_end,
     )
     return result
 
@@ -1874,6 +1918,7 @@ async def get_pnl(
     ):
         return await _build_pnl_lite(
             session, user, date_start, date_end, pm, effective_projects,
+            compare_start=compare_start, compare_end=compare_end,
         )
 
     pf = await planfact_for(session, user)
