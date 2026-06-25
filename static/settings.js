@@ -117,13 +117,31 @@ function showTab(name) {
 // Запросы на доступ (network_admin/super_admin): сотрудники, вошедшие через
 // Dodo IS и ждущие одобрения. Одобрение создаёт User + привязку dodois_sub.
 const _AR_VIS = [[10, 'Управляющий'], [30, 'Территориальный'], [60, 'Директор'], [100, 'Партнёр']];
+function _setAccessReqBadge(n) {
+  const btn = document.querySelector('.tab-btn[data-tab="users"]');
+  if (!btn) return;
+  let b = btn.querySelector('.tab-badge');
+  if (n > 0) {
+    if (!b) {
+      b = document.createElement('span');
+      b.className = 'tab-badge';
+      b.style.cssText = 'display:inline-block;min-width:16px;height:16px;line-height:16px;padding:0 4px;margin-left:6px;border-radius:8px;background:#dc2626;color:#fff;font-size:11px;font-weight:700;text-align:center;vertical-align:middle';
+      btn.appendChild(b);
+    }
+    b.textContent = String(n);
+  } else if (b) {
+    b.remove();
+  }
+}
 async function renderAccessRequests() {
   const block = document.getElementById('accessReqBlock');
   const tbody = document.querySelector('#accessReqTable tbody');
-  if (!block || !tbody) return;
   let rows = [];
   try { rows = await api('/api/admin/access-requests'); } catch (_) { return; }
-  if (!Array.isArray(rows) || !rows.length) { block.style.display = 'none'; return; }
+  const n = Array.isArray(rows) ? rows.length : 0;
+  _setAccessReqBadge(n);
+  if (!block || !tbody) return;
+  if (!n) { block.style.display = 'none'; return; }
   tbody.innerHTML = rows.map(r => {
     const units = (r.units || []).map(u => esc((u.name || u.uuid || '')).slice(0, 40))
       .filter(Boolean).join(', ');
@@ -246,6 +264,10 @@ async function loadAll() {
   renderPnlMatrix();
   renderOpsMatrix();
   renderTemplate();
+
+  // Бейдж со счётчиком pending-запросов на доступ — для админа, на загрузке
+  // (renderAccessRequests сам ставит/снимает .tab-badge на вкладке «Команда»).
+  if (state.me && state.me.is_admin) { renderAccessRequests().catch(() => {}); }
 
   // Онбординг: если шаблон ещё не загружен и пользователь не выбирал таб
   // вручную в этой сессии — лендим в «Структуру», там кнопка импорта.
