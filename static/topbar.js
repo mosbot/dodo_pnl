@@ -49,6 +49,8 @@
   // в настройки на вкладку «Команда» (/settings?tab=users).
   async function loadAccessReqBadge(me) {
     if (!me || !me.is_admin) return;
+    // Звоночек показываем ТОЛЬКО на Пульсе (/board) — на Финансах/настройках нет.
+    if (location.pathname.indexOf('/board') !== 0) return;
     let n = 0;
     try {
       const r = await fetch('/api/admin/access-requests', { credentials: 'same-origin' });
@@ -57,7 +59,8 @@
       n = Array.isArray(rows) ? rows.length : 0;
     } catch (e) { return; }
     if (n <= 0) return;
-    const ref = document.querySelector('.topbar a[href="/settings"]');
+    // Якорь — меню пользователя (есть на всех страницах: Финансы/Пульс/настройки).
+    const ref = document.getElementById('userMenu');
     if (!ref || !ref.parentNode) return;
     const a = document.createElement('a');
     a.href = '/settings?tab=users';
