@@ -1614,7 +1614,7 @@ async def _build_pnl_lite(
         },
         "total": {"amount": total_rev, "pct_of_revenue": 1.0 if total_rev else None},
     }
-    return {
+    result = {
         "lite": True,
         "projects": projects,
         "lines": [revenue_line],
@@ -1642,6 +1642,15 @@ async def _build_pnl_lite(
         ],
         "period": {"current": {"start": date_start, "end": date_end}},
     }
+    # S23: плитка «Заказы» — заказы из того же /finances/sales/units/monthly,
+    # что Lite уже тянет для выручки (PlanFact не нужен). Graceful: при сбое
+    # блок просто отсутствует.
+    await _attach_orders(
+        session=session, user=user, result=result,
+        date_start=date_start, date_end=date_end,
+        effective_projects=project_filter,
+    )
+    return result
 
 
 async def _require_capability(
