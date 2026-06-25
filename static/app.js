@@ -1387,7 +1387,7 @@ function fmtRubCompact(v) {
 }
 function pmFmtCell(kind, meta, v) {
   if (typeof v !== 'number' || isNaN(v)) return '—';
-  if (kind === 'rub') return fmtRubCompact(v);
+  if (kind === 'rub') return fmt(v) + ' ₽';
   if (kind === 'int') return Math.round(v).toLocaleString('ru-RU');
   if (kind === 'pct') return fmtNum(v, 1) + '%';
   if (meta && meta.format === 'mm_ss') {
