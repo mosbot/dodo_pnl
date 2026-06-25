@@ -1076,11 +1076,34 @@ function finTile(label, proj, opts = {}) {
   } else {
     hintHTML = '&nbsp;';
   }
+  // Разбивка выручки по каналам (Доставка/Ресторан) — как в плитке Заказы.
+  let chanHTML = '';
+  const rch = proj?.channels;
+  if (rch) {
+    const lfl = (rch.delivery_takeaway?.prev != null) || (rch.restaurant?.prev != null);
+    const d = (dp) => {
+      if (typeof dp !== 'number') return '';
+      const v = dp * 100; const dc = v >= 0 ? 'pos' : 'neg';
+      const sg = v > 0 ? '+' : (v < 0 ? '−' : '');
+      return `<span class="tile-delta ${dc}">${sg}${Math.abs(v).toFixed(1).replace('.', ',')}%</span>`;
+    };
+    const cell = (lab, c) => {
+      c = c || {};
+      let s = `<span class="ord-lbl">${lab}</span><span class="ord-cur">${fmt(c.value)}</span>`;
+      if (lfl) s += `<span class="ord-ly">${fmt(c.prev)}</span><span class="ord-d">${d(c.delta_pct)}</span>`;
+      return s;
+    };
+    chanHTML = `<div class="ord-channels${lfl ? ' lfl' : ''}">`
+      + cell('Доставка', rch.delivery_takeaway)
+      + cell('Ресторан', rch.restaurant)
+      + `</div>`;
+  }
   return `
     <div class="tile tile-fin ${cls}" title="${esc(label)}">
       <div class="tile-label">${esc(label)}</div>
       <div class="tile-value">${fmt(amt)}<span class="tile-unit">₽</span></div>
       <div class="tile-hint">${opts.hideSub && !proj?.previous_amount ? '&nbsp;' : hintHTML}</div>
+      ${chanHTML}
     </div>`;
 }
 

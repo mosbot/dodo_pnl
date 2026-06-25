@@ -1300,6 +1300,57 @@ async def _attach_orders(
     }
 
 
+def _rev_chan_block(cur_ch: dict | None, prev_ch: dict | None) -> dict:
+    """{delivery_takeaway, restaurant} с {value, prev?, delta_pct?} из
+    revenue_by_channel одного проекта/тотала. Доставка = delivery + takeaway
+    (как в плитке Заказы)."""
+    def grp(ch: dict | None) -> tuple[float, float]:
+        ch = ch or {}
+        return (
+            float(ch.get("delivery", 0) or 0) + float(ch.get("takeaway", 0) or 0),
+            float(ch.get("restaurant", 0) or 0),
+        )
+    cdt, crest = grp(cur_ch)
+    pdt, prest = grp(prev_ch) if prev_ch is not None else (None, None)
+
+    def blk(v: float, p: float | None) -> dict:
+        b: dict = {"value": v}
+        if p is not None:
+            b["prev"] = p
+            b["delta_pct"] = (v / p - 1.0) if p > 0 else None
+        return b
+    return {"delivery_takeaway": blk(cdt, pdt), "restaurant": blk(crest, prest)}
+
+
+def _attach_revenue_channels(
+    result: dict, *, cur_by_ch: dict, prev_by_ch: dict | None = None,
+) -> None:
+    """Вешает channels (Доставка/Ресторан, с LFL) на строку REVENUE — per-project
+    и total. cur_by_ch/prev_by_ch: {pid: {delivery,restaurant,takeaway,other}}."""
+    rev_line = next(
+        (ln for ln in result.get("lines", []) if ln.get("code") == "REVENUE"), None,
+    )
+    if rev_line is None:
+        return
+    for pid, entry in (rev_line.get("projects") or {}).items():
+        entry["channels"] = _rev_chan_block(
+            (cur_by_ch or {}).get(pid),
+            prev_by_ch.get(pid) if prev_by_ch is not None else None,
+        )
+
+    def _sum(by_ch: dict | None) -> dict:
+        agg: dict[str, float] = {}
+        for ch in (by_ch or {}).values():
+            for k, v in (ch or {}).items():
+                agg[k] = agg.get(k, 0.0) + float(v or 0)
+        return agg
+    if rev_line.get("total") is not None:
+        rev_line["total"]["channels"] = _rev_chan_block(
+            _sum(cur_by_ch),
+            _sum(prev_by_ch) if prev_by_ch is not None else None,
+        )
+
+
 async def _tenant_has_planfact(session: AsyncSession, pf_key_id: int) -> bool:
     """У тенанта (planfact_key) есть СОБСТВЕННЫЙ непустой api_key?
     Используется для решения Lite vs полный P&L. env-fallback (общий ключ)
@@ -1534,6 +1585,7 @@ async def _build_pnl_lite(
         pid: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for pid in proj_meta
     }
     prev_rev_by_pid: dict[str, float] = {}  # LFL: выручка периода сравнения
+    prev_chan_by_pid: dict[str, dict] = {}  # LFL: каналы периода сравнения
     if uuids:
         token = None
         try:
@@ -1584,7 +1636,7 @@ async def _build_pnl_lite(
                     )
                 )
                 try:
-                    prev_rev_by_pid, _ = await _lite_revenue(
+                    prev_rev_by_pid, prev_chan_by_pid = await _lite_revenue(
                         session, token, pf_key_id, cmp_pm,
                         compare_start, cmp_end,
                         list(proj_meta.keys()), uuid_to_pid, pid_to_uuid,
@@ -1693,6 +1745,11 @@ async def _build_pnl_lite(
         date_start=date_start, date_end=date_end,
         effective_projects=project_filter,
         compare_start=compare_start, compare_end=compare_end,
+    )
+    # Разбивка выручки по каналам (Доставка/Ресторан) на плитке Выручка + LFL.
+    _attach_revenue_channels(
+        result, cur_by_ch=chan_by_pid,
+        prev_by_ch=prev_chan_by_pid if lfl_ok else None,
     )
     return result
 
@@ -1922,6 +1979,7 @@ async def get_pnl(
         )
 
     pf = await planfact_for(session, user)
+    prev_rev_by_ch = None  # revenue_by_channel периода сравнения (для LFL каналов)
     try:
         result = await _build_pnl_for_period(
             session=session, user=user, pf=pf,
@@ -1940,6 +1998,7 @@ async def get_pnl(
                 period_month=prev_pm,
                 project_filter=effective_projects, method=method,
             )
+            prev_rev_by_ch = prev.get("revenue_by_channel")
             result = pnl_module.compare_pnl(result, prev, mode=compare_mode)
             result["period"] = {
                 "current": {"start": date_start, "end": date_end},
@@ -2016,6 +2075,11 @@ async def get_pnl(
         date_start=date_start, date_end=date_end,
         effective_projects=effective_projects,
         compare_start=compare_start, compare_end=compare_end,
+    )
+    # Разбивка выручки по каналам (Доставка/Ресторан) на плитке Выручка + LFL.
+    _attach_revenue_channels(
+        result, cur_by_ch=result.get("revenue_by_channel") or {},
+        prev_by_ch=prev_rev_by_ch,
     )
 
     return result
