@@ -2096,15 +2096,21 @@ async def get_pnl(
                     project_filter=effective_projects, method=method,
                 )
             by_node: dict[str, float | None] = {}
+            # pct_of_revenue считается build_pnl с ПРАВИЛЬНЫМ знаменателем
+            # (DC → выручка доставки, остальное → вся выручка), поэтому фронт
+            # должен брать готовый %, а не делить на общую выручку.
+            by_node_pct: dict[str, float | None] = {}
             for tn in month_result.get("template_lines", []) or []:
                 nid = tn.get("id")
                 if nid is not None:
-                    by_node[str(nid)] = (tn.get("total") or {}).get("amount")
+                    tot = tn.get("total") or {}
+                    by_node[str(nid)] = tot.get("amount")
+                    by_node_pct[str(nid)] = tot.get("pct_of_revenue")
             by_code: dict[str, float | None] = {
                 ln["code"]: (ln.get("total") or {}).get("amount")
                 for ln in month_result.get("lines", []) or []
             }
-            return m, {"by_node": by_node, "by_code": by_code}
+            return m, {"by_node": by_node, "by_node_pct": by_node_pct, "by_code": by_code}
 
         try:
             month_results = await asyncio.gather(
@@ -2324,15 +2330,20 @@ async def get_pnl_xlsx(
                     project_filter=effective_projects, method=method,
                 )
                 by_node = {}
+                by_node_pct = {}
                 for tn in month_result.get("template_lines") or []:
                     nid = tn.get("id")
                     if nid is not None:
-                        by_node[str(nid)] = (tn.get("total") or {}).get("amount")
+                        tot = tn.get("total") or {}
+                        by_node[str(nid)] = tot.get("amount")
+                        by_node_pct[str(nid)] = tot.get("pct_of_revenue")
                 by_code = {
                     ln["code"]: (ln.get("total") or {}).get("amount")
                     for ln in month_result.get("lines") or []
                 }
-                monthly_map[m] = {"by_node": by_node, "by_code": by_code}
+                monthly_map[m] = {
+                    "by_node": by_node, "by_node_pct": by_node_pct, "by_code": by_code,
+                }
             result["monthly"] = monthly_map
             result["months_in_range"] = months_in_range
     except PlanFactError as e:
