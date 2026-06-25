@@ -2334,6 +2334,7 @@ async def get_pnl_xlsx(
     _build_pnl_for_period (включая cache_history и LRU). Затем рендерим
     xlsx через xlsx_export.render_pnl_xlsx.
     """
+    await _require_capability(session, user, "finance")
     from . import xlsx_export
 
     effective_projects = await _resolve_project_filter(
@@ -2417,6 +2418,7 @@ async def get_revenue_history(
     session: AsyncSession = Depends(get_session),
 ):
     """Выручка по месяцам за окно [anchor-months+1 .. anchor], опционально + LFL (тот же месяц годом ранее)."""
+    await _require_capability(session, user, "finance")
     effective_projects = await _resolve_project_filter(
         session, user.id, user.planfact_key_id, project_ids,
     )
@@ -2518,6 +2520,7 @@ async def get_operations(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    await _require_capability(session, user, "finance")
     pf = await planfact_for(session, user)
     # Объединяем legacy single category_id и новый список category_ids.
     cat_id_set: set[str] = set()
@@ -2683,6 +2686,7 @@ async def get_operations_xlsx(
 ):
     """Скачать список операций в xlsx (S13.6). Те же параметры что у /api/operations,
     плюс label для пользовательского контекста (статья / итог)."""
+    await _require_capability(session, user, "finance")
     from . import xlsx_export
 
     pf = await planfact_for(session, user)
@@ -2960,6 +2964,7 @@ async def get_ops_metrics(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    await _require_capability(session, user, "finance")
     if not user.planfact_key_id:
         return {"metrics": {}, "meta": store.ops_metrics_meta(False), "targets": {}}
     kc_coeff, dc_coeff, dc_enabled = await store.get_calc_settings(
@@ -2983,6 +2988,7 @@ async def upsert_ops_metric(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    await _require_capability(session, user, "finance")
     pf_key_id = _require_user_pf_key(user)
     await store.upsert_ops_metric(
         session, pf_key_id, payload.project_id, payload.period_month,
@@ -2999,6 +3005,7 @@ async def delete_ops_metric(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    await _require_capability(session, user, "finance")
     pf_key_id = _require_user_pf_key(user)
     await store.delete_ops_metric(session, pf_key_id, project_id, period_month)
     return {"status": "ok"}
@@ -3264,6 +3271,7 @@ async def sync_ops_metrics_from_dodois(
     свежий, потому что in-memory кэш PF и snapshot закрытого месяца уже
     инвалидированы синхронно до возврата.
     """
+    await _require_capability(session, user, "finance")
     import asyncio as _asyncio
     from datetime import datetime
 
@@ -3855,6 +3863,7 @@ async def list_board_metrics(
     """Список ops-метрик rich-card на /board с флагами видимости.
     Источник списка — константа `board_module.BOARD_OPS_METRICS`,
     флаги — таблица board_card_metric_visibility per PF-ключ."""
+    await _require_capability(session, user, "pulse")
     if not user.planfact_key_id:
         return {"metrics": [], "no_planfact_key": True}
     vis_map = await store.get_board_metrics_visibility(
@@ -3879,6 +3888,7 @@ async def upsert_board_metric_visibility(
     session: AsyncSession = Depends(get_session),
 ):
     """Обновить флаг видимости одной board-метрики. Принимает {is_visible: bool}."""
+    await _require_capability(session, user, "pulse")
     pf_key_id = _require_user_pf_key(user)
     if code not in board_module.BOARD_OPS_METRIC_CODES:
         raise HTTPException(400, f"Неизвестный code: {code}")
