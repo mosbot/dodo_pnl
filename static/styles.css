@@ -862,7 +862,7 @@ body.license-blocked .table-wrap { display: none !important; }
   column-gap: 7px; row-gap: 2px; align-items: baseline;
   margin-top: 4px; font-size: 10px;
 }
-.ord-channels.lfl { grid-template-columns: 1fr auto auto auto; }
+.ord-channels.lfl { grid-template-columns: 1fr auto auto; }
 .ord-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ord-cur,
 .ord-ly,

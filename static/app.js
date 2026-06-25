@@ -1064,7 +1064,7 @@ function finTile(label, proj, opts = {}) {
     const cell = (lab, c) => {
       c = c || {};
       let s = `<span class="ord-lbl">${lab}</span><span class="ord-cur">${fmt(c.value)}</span>`;
-      if (lfl) s += `<span class="ord-ly">${fmt(c.prev)}</span><span class="ord-d">${pctDelta(c.delta_pct)}</span>`;
+      if (lfl) s += `<span class="ord-d">${pctDelta(c.delta_pct)}</span>`;
       return s;
     };
     const valDelta = (lfl && typeof proj.delta_pct === 'number') ? ' ' + pctDelta(proj.delta_pct) : '';
@@ -1134,7 +1134,6 @@ function ordersTile(o, lfl) {
       + `<span class="ord-cur">${intf(c.value)}</span>`;
     if (!lfl) return base;
     return base
-      + `<span class="ord-ly">${intf(c.prev)}</span>`
       + `<span class="ord-d">${delta(c.delta_pct)}</span>`;
   };
   const valDelta = (lfl && typeof o.delta_pct === 'number') ? ' ' + delta(o.delta_pct) : '';
