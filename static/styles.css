@@ -871,9 +871,9 @@ body.license-blocked .table-wrap { display: none !important; }
 .ord-ly { color: var(--muted); }
 .ord-d { min-width: 3.6em; }
 .ord-d .tile-delta { font-size: 10px; }
-/* Большой LFL-% итога — прижимаем к правому краю плитки. */
-.tile-orders .tile-value { display: flex; align-items: baseline; }
-.tile-orders .tile-value .tile-delta { margin-left: auto; font-size: 12px; }
+/* Большой LFL-% итога — прижимаем к правому краю плитки (Заказы + Выручка). */
+.tile-channels .tile-value { display: flex; align-items: baseline; }
+.tile-channels .tile-value .tile-delta { margin-left: auto; font-size: 12px; }
 /* Фин-плитки выравниваем по ВЕРХУ: значения Выручки и Заказов оказываются
  * на одной горизонтали, а блок каналов «Заказов» уходит вниз, не сдвигая
  * само значение. */
