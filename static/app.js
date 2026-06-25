@@ -1022,7 +1022,7 @@ function opsTile(meta, val, target, opsRow) {
   // на 2 на узких плитках 1280px).
   const targetStr = target != null
     ? `<span class="nb">цель&nbsp;${fmtVal(target)}${meta.unit ? '&nbsp;' + esc(meta.unit) : ''}</span>`
-    : '&nbsp;';
+    : '';
   // UX-4: tooltip с полным названием — на узких ops-плитках label обрезается
   // («ЗАКАЗОВ НА КУ…», «ПРОДУКТОВ В Ч…»).
   // Связываем «на» неразрывным пробелом со следующим словом — чтобы
@@ -1035,7 +1035,7 @@ function opsTile(meta, val, target, opsRow) {
       <div class="tile-label">${labelDisplay}</div>
       <div class="tile-value">${valueStr}<span class="tile-unit">${esc(meta.unit)}</span>${countStr}</div>
       ${subsStr}
-      <div class="tile-hint">${targetStr}</div>
+      ${targetStr ? `<div class="tile-hint">${targetStr}</div>` : ''}
     </div>`;
 }
 
