@@ -177,6 +177,12 @@ OPS_METRICS: list[dict] = [
         "field": "rko_rate",
         "direction": "higher",
         "digits": 0,
+        # Цветовые зоны (рендерит фронт): <80 красная, 80–85 жёлтая, ≥85 зелёная.
+        "zones": [80, 85],
+        # Под значением — скользящее среднее за 12 недель (всегда последнее
+        # доступное, не зависит от выбранного месяца). Свой цвет зоны.
+        "avg_field": "rko_avg12w",
+        "avg_label": "ср. 12 нед",
     },
     {
         "code": "RS",
@@ -186,6 +192,10 @@ OPS_METRICS: list[dict] = [
         "field": "rs_rate",
         "direction": "higher",
         "digits": 0,
+        "zones": [80, 85],
+        # Под значением — среднее за 6 последних проверок.
+        "avg_field": "rs_avg6",
+        "avg_label": "ср. 6 пров.",
     },
     # Customer Rating API: средняя оценка заказов клиентами 0..5 (зал+доставка,
     # взвешено по числу оценок). Больше — лучше.
@@ -620,6 +630,8 @@ async def list_ops_metrics(
             ),
             "rko_rate": r.rko_rate,
             "rs_rate": r.rs_rate,
+            "rko_avg12w": r.rko_avg12w,
+            "rs_avg6": r.rs_avg6,
             "customer_rating": r.customer_rating,
             "customer_rating_dinein": r.customer_rating_dinein,
             "customer_rating_delivery": r.customer_rating_delivery,
@@ -651,6 +663,8 @@ async def upsert_ops_metric(
     dc_live_pct: Optional[float] = None,
     rko_rate: Optional[int] = None,
     rs_rate: Optional[int] = None,
+    rko_avg12w: Optional[int] = None,
+    rs_avg6: Optional[int] = None,
     customer_rating: Optional[float] = None,
     customer_rating_dinein: Optional[float] = None,
     customer_rating_delivery: Optional[float] = None,
@@ -691,6 +705,8 @@ async def upsert_ops_metric(
             dc_live_pct=dc_live_pct,
             rko_rate=int(rko_rate) if rko_rate is not None else None,
             rs_rate=int(rs_rate) if rs_rate is not None else None,
+            rko_avg12w=int(rko_avg12w) if rko_avg12w is not None else None,
+            rs_avg6=int(rs_avg6) if rs_avg6 is not None else None,
             customer_rating=float(customer_rating) if customer_rating is not None else None,
             customer_rating_dinein=float(customer_rating_dinein) if customer_rating_dinein is not None else None,
             customer_rating_delivery=float(customer_rating_delivery) if customer_rating_delivery is not None else None,
@@ -728,6 +744,10 @@ async def upsert_ops_metric(
             existing.rko_rate = int(rko_rate)
         if rs_rate is not None:
             existing.rs_rate = int(rs_rate)
+        if rko_avg12w is not None:
+            existing.rko_avg12w = int(rko_avg12w)
+        if rs_avg6 is not None:
+            existing.rs_avg6 = int(rs_avg6)
         if customer_rating is not None:
             existing.customer_rating = float(customer_rating)
         if customer_rating_dinein is not None:
@@ -746,6 +766,36 @@ async def delete_ops_metric(
         OpsMetric.period_month == period_month,
     )
     await session.execute(stmt)
+
+
+async def get_rating_trailing_latest(
+    session: AsyncSession, planfact_key_id: int,
+) -> dict[str, dict]:
+    """Последнее доступное скользящее среднее рейтингов per project:
+    {project_id: {"rko_avg12w": int|None, "rs_avg6": int|None}}.
+
+    Берём по каждому проекту самую свежую строку ops_metrics, где есть хотя бы
+    одно из значений (пишутся только при синке текущего месяца). Значение
+    период-независимое — карточка любого месяца показывает свежее среднее.
+    """
+    stmt = (
+        select(
+            OpsMetric.project_id,
+            OpsMetric.rko_avg12w,
+            OpsMetric.rs_avg6,
+        )
+        .where(
+            OpsMetric.planfact_key_id == planfact_key_id,
+            (OpsMetric.rko_avg12w.isnot(None)) | (OpsMetric.rs_avg6.isnot(None)),
+        )
+        .order_by(OpsMetric.project_id, OpsMetric.period_month.desc())
+    )
+    out: dict[str, dict] = {}
+    for pid, rko, rs in (await session.execute(stmt)).all():
+        if pid in out:
+            continue  # первая строка проекта = самый свежий месяц
+        out[pid] = {"rko_avg12w": rko, "rs_avg6": rs}
+    return out
 
 
 async def ops_last_synced_at(

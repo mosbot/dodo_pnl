@@ -838,6 +838,16 @@ body.license-blocked .table-wrap { display: none !important; }
 .tile-delta.neg { color: var(--danger); }
 .tile-ly { color: var(--muted); }
 
+/* Цветовые зоны РКО/РС (<80 красная, 80–85 жёлтая, ≥85 зелёная).
+   Применяются к ЧИСЛУ — и к основному значению, и к среднему. */
+.zone-red { color: #dc2626; }
+.zone-yellow { color: #d97706; }
+.zone-green { color: #16a34a; }
+/* Строка скользящего среднего под значением: «ср. 12 нед NN». */
+.tile-avg { font-weight: 600; }
+.tile-avg-lbl { color: var(--muted); font-weight: 500; }
+.tile-avg-val { font-variant-numeric: tabular-nums; }
+
 /* ---- Статусы ---- */
 .tile.tile-ok {
   background: #ecfdf5; border-color: #a7f3d0;

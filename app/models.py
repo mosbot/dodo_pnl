@@ -267,6 +267,10 @@ class OpsMetric(Base):
     customer_rating: Mapped[Optional[float]] = mapped_column(Float)
     customer_rating_dinein: Mapped[Optional[float]] = mapped_column(Float)
     customer_rating_delivery: Mapped[Optional[float]] = mapped_column(Float)
+    # Скользящее среднее (0034), период-независимое: РКО за последние 12 недель,
+    # РС за последние 6 проверок. Пишется только при синке текущего месяца.
+    rko_avg12w: Mapped[Optional[int]] = mapped_column(Integer)
+    rs_avg6: Mapped[Optional[int]] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")

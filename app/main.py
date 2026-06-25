@@ -1356,6 +1356,34 @@ def _rev_chan_block(cur_ch: dict | None, prev_ch: dict | None) -> dict:
     return {"delivery_takeaway": blk(cdt, pdt), "restaurant": blk(crest, prest)}
 
 
+async def _attach_rating_trailing(
+    session: AsyncSession, user: User, result: dict,
+) -> None:
+    """Вливает скользящее среднее РКО/РС (rko_avg12w / rs_avg6) в ops каждой
+    пиццерии. Значение период-независимое («последнее доступное»), поэтому
+    одинаково на карточке любого месяца. Graceful — при сбое просто не добавляем."""
+    pf_key_id = user.planfact_key_id
+    if not pf_key_id:
+        return
+    try:
+        trailing = await store.get_rating_trailing_latest(session, pf_key_id)
+    except Exception:
+        return
+    if not trailing:
+        return
+    for p in result.get("projects") or []:
+        ops = p.get("ops")
+        if not isinstance(ops, dict):
+            continue
+        tv = trailing.get(p.get("id"))
+        if not tv:
+            continue
+        if tv.get("rko_avg12w") is not None:
+            ops["rko_avg12w"] = tv["rko_avg12w"]
+        if tv.get("rs_avg6") is not None:
+            ops["rs_avg6"] = tv["rs_avg6"]
+
+
 def _attach_revenue_channels(
     result: dict, *, cur_by_ch: dict, prev_by_ch: dict | None = None,
 ) -> None:
@@ -2135,6 +2163,9 @@ async def get_pnl(
         result, cur_by_ch=result.get("revenue_by_channel") or {},
         prev_by_ch=prev_rev_by_ch,
     )
+    # Скользящее среднее РКО/РС (последнее доступное, период-независимое) —
+    # в ops каждой пиццерии, чтобы карточка показывала «ср. 12 нед / 6 пров.».
+    await _attach_rating_trailing(session, user, result)
 
     return result
 
@@ -3413,6 +3444,43 @@ async def _run_ops_sync(
                 except (DodoISError, NoTokenError) as e:
                     log.warning("ops sync %s: %s FAILED: %s", period, label, e)
 
+            # Скользящее среднее (период-независимое): РКО за последние 12 недель,
+            # РС за последние 6 проверок. Считаем ТОЛЬКО при синке текущего месяца
+            # (для прошлых месяцев maps пустые → None → не перетираем). Берём
+            # широкое окно ~110 дней и последние N периодов по periodTo.
+            rko_avg12w_by_uuid: dict[str, int] = {}
+            rs_avg6_by_uuid: dict[str, int] = {}
+            if period == _current_month_str():
+                import datetime as _dt2
+                _t_to = _dt2.date.today()
+                _t_from = (_t_to - _dt2.timedelta(days=110)).isoformat()
+                for label, fn, dest, take_n in (
+                    ("rating-ce-trail",
+                     dodois_client.fetch_rating_history_customer_experience,
+                     rko_avg12w_by_uuid, 12),
+                    ("rating-std-trail",
+                     dodois_client.fetch_rating_history_standards,
+                     rs_avg6_by_uuid, 6),
+                ):
+                    try:
+                        rows = await _timed(label, with_dodois_retry(
+                            session, user, fn, unit_uuids, _t_from, _t_to.isoformat(),
+                        ))
+                        acc2: dict[str, list[tuple[str, int]]] = {}
+                        for r in rows:
+                            uid = (r.get("unitId") or "").lower().replace("-", "")
+                            rate = r.get("rate")
+                            pto = r.get("periodTo")
+                            if uid and rate is not None and pto:
+                                acc2.setdefault(uid, []).append((pto, int(rate)))
+                        for uid, vals in acc2.items():
+                            vals.sort(key=lambda t: t[0], reverse=True)
+                            last = [v for _, v in vals[:take_n]]
+                            if last:
+                                dest[uid] = round(sum(last) / len(last))
+                    except (DodoISError, NoTokenError) as e:
+                        log.warning("ops sync %s: %s FAILED: %s", period, label, e)
+
             # Рейтинг клиентов (0..5) за месяц — прямой диапазонный средний
             # (customer-feedback/customer-ratings), объединяем зал+доставку по
             # числу оценок. «Сегодня» недоступно → для текущего месяца to=вчера.
@@ -3553,6 +3621,8 @@ async def _run_ops_sync(
                 # → None → не перетираем закрытые месяцы).
                 rko_rate = rko_by_uuid.get(key)
                 rs_rate = rs_by_uuid.get(key)
+                rko_avg12w = rko_avg12w_by_uuid.get(key)
+                rs_avg6 = rs_avg6_by_uuid.get(key)
                 _cr = cust_by_uuid.get(key) or (None, None, None)
 
                 if not s:
@@ -3561,6 +3631,8 @@ async def _run_ops_sync(
                     session, pf_key_id, pid, period,
                     rko_rate=rko_rate,
                     rs_rate=rs_rate,
+                    rko_avg12w=rko_avg12w,
+                    rs_avg6=rs_avg6,
                     customer_rating=_cr[0],
                     customer_rating_dinein=_cr[1],
                     customer_rating_delivery=_cr[2],

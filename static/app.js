@@ -970,6 +970,14 @@ function pctTile(label, proj, target, opts = {}) {
     </div>`;
 }
 
+// Цветовая зона по meta.zones=[redMax, yellowMax]: v<redMax красная,
+// v<yellowMax жёлтая, иначе зелёная (РКО/РС). '' если зон нет / значения нет.
+function zoneCls(meta, v) {
+  if (!Array.isArray(meta.zones) || v == null || isNaN(v)) return '';
+  const [r, y] = meta.zones;
+  return v < r ? 'zone-red' : (v < y ? 'zone-yellow' : 'zone-green');
+}
+
 // Плитка ops. direction: 'higher' | 'lower'. Если у метрики есть count_field,
 // под основным значением рендерим количество в скобках (например процент сертификатов
 // + абс. число шт).
@@ -994,6 +1002,18 @@ function opsTile(meta, val, target, opsRow) {
     return fmtNum(v, digits);
   };
   const valueStr = hasVal ? fmtVal(val) : '—';
+  // Цвет зоны на основном значении (РКО/РС). Без зон — обычный текст.
+  const valInner = (Array.isArray(meta.zones) && hasVal)
+    ? `<span class="${zoneCls(meta, val)}">${valueStr}</span>`
+    : valueStr;
+  // Строка скользящего среднего (meta.avg_field): свой цвет зоны.
+  let avgStr = '';
+  if (meta.avg_field && opsRow && opsRow[meta.avg_field] != null) {
+    const av = opsRow[meta.avg_field];
+    avgStr = `<div class="tile-hint tile-avg">`
+      + `<span class="tile-avg-lbl">${esc(meta.avg_label || 'ср.')}</span> `
+      + `<span class="tile-avg-val ${zoneCls(meta, av)}">${fmtVal(av)}</span></div>`;
+  }
   // Абсолютное количество (для сертификатов — N штук). Рендерим инлайн
   // справа от значения. NBSP перед скобкой, чтобы не разъезжалось на 2
   // строки. При overflow JS-auto-fit ужмёт ТОЛЬКО шрифт .tile-sub —
@@ -1033,7 +1053,8 @@ function opsTile(meta, val, target, opsRow) {
     <div class="tile tile-metric ${stateCls}" title="${esc(meta.title || meta.label)}">
       ${meta.coeff_applied ? '<span class="tile-coeff-badge" title="Применён налоговый коэффициент">K</span>' : ''}
       <div class="tile-label">${labelDisplay}</div>
-      <div class="tile-value">${valueStr}<span class="tile-unit">${esc(meta.unit)}</span>${countStr}</div>
+      <div class="tile-value">${valInner}<span class="tile-unit">${esc(meta.unit)}</span>${countStr}</div>
+      ${avgStr}
       ${subsStr}
       ${targetStr ? `<div class="tile-hint">${targetStr}</div>` : ''}
     </div>`;
