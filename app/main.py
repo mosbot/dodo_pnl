@@ -2085,6 +2085,93 @@ async def get_pnl(
     return result
 
 
+@app.get("/api/pnl/project-monthly")
+async def get_project_monthly(
+    project_id: str = Query(...),
+    date_start: str = Query(..., description="YYYY-MM-DD"),
+    date_end: str = Query(..., description="YYYY-MM-DD"),
+    method: str = Query("accrual", regex="^(accrual|cash)$"),
+    user: User = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Помесячная динамика метрик ОДНОЙ пиццерии за период (модалка «Сравнение»
+    в режиме Период). На каждый месяц считаем тот же per-проект результат, что
+    /api/pnl (lite/full + заказы + каналы), и возвращаем срез проекта в той же
+    форме (lines/ops/orders) — фронт переиспользует извлечение значений, чтобы
+    набор/формат метрик совпадал с карточкой."""
+    import logging
+    log = logging.getLogger("uvicorn.error")
+    await _require_capability(session, user, "finance")
+
+    # Доступ к проекту: должен входить в эффективный фильтр пользователя.
+    allowed = await _resolve_project_filter(
+        session, user.id, user.planfact_key_id, [project_id],
+    )
+    if allowed is not None and project_id not in (allowed or []):
+        raise HTTPException(403, "Нет доступа к пиццерии.")
+
+    try:
+        months = _months_between(date_start, date_end)
+    except Exception:
+        raise HTTPException(400, "Некорректный диапазон дат.")
+    if not months:
+        return {"project": {"id": project_id, "name": project_id},
+                "months": [], "by_month": {}}
+
+    is_lite = bool(user.planfact_key_id) and not await _tenant_has_planfact(
+        session, user.planfact_key_id,
+    )
+    pf = None if is_lite else await planfact_for(session, user)
+    name_holder = {"name": None}
+
+    def _slice(result: dict) -> dict:
+        ops = None
+        for p in result.get("projects", []) or []:
+            if str(p.get("id")) == project_id:
+                ops = p.get("ops")
+                if p.get("name"):
+                    name_holder["name"] = p.get("name")
+        lines = []
+        for ln in result.get("lines", []) or []:
+            pe = (ln.get("projects") or {}).get(project_id)
+            lines.append({
+                "code": ln.get("code"),
+                "projects": ({project_id: pe} if pe is not None else {}),
+            })
+        orders = ((result.get("orders") or {}).get("projects") or {}).get(project_id)
+        return {"lines": lines, "ops": ops, "orders": orders}
+
+    by_month: dict[str, dict] = {}
+    for m in months:
+        ms, me = _month_range_dates(m)
+        try:
+            if is_lite:
+                res = await _build_pnl_lite(session, user, ms, me, m, [project_id])
+            else:
+                res = await _build_pnl_for_period(
+                    session=session, user=user, pf=pf,
+                    date_start=ms, date_end=me, period_month=m,
+                    project_filter=[project_id], method=method,
+                )
+                await _attach_orders(
+                    session=session, user=user, result=res,
+                    date_start=ms, date_end=me, effective_projects=[project_id],
+                )
+                _attach_revenue_channels(
+                    res, cur_by_ch=res.get("revenue_by_channel") or {},
+                )
+            by_month[m] = _slice(res)
+        except Exception:
+            log.exception("project-monthly %s %s: build failed", project_id, m)
+            by_month[m] = {"lines": [], "ops": None, "orders": None}
+
+    return {
+        "project": {"id": project_id, "name": name_holder["name"] or project_id},
+        "months": months,
+        "by_month": by_month,
+    }
+
+
 def _month_range_dates(month_key: str) -> tuple[str, str]:
     """'YYYY-MM' → ('YYYY-MM-01', 'YYYY-MM-<last>')."""
     from calendar import monthrange
