@@ -1469,7 +1469,11 @@ function renderProjectMonthlyTable(data) {
     const cells = r.values.map(v => `<td>${pmFmtCell(r.kind, r.meta, v)}</td>`).join('');
     return `<tr><td class="pm-mlabel">${esc(r.label)}</td><td class="pm-spark">${pmSparkline(r.values)}</td>${cells}</tr>`;
   }).join('');
-  return `<div class="pm-table-wrap"><table class="pm-table" style="width:${tableW}px">${colg}<thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  // width:100% + min-width = сумма колонок: при свободном месте (мало месяцев)
+  // колонки растягиваются и заполняют ширину (table-layout:fixed раздаёт
+  // лишнее пропорционально); при нехватке min-width включает горизонтальный
+  // скролл, а «Метрика» остаётся прилипшей слева.
+  return `<div class="pm-table-wrap"><table class="pm-table" style="min-width:${tableW}px;width:100%">${colg}<thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 async function openProjectMonthlyModal(projectId, projectName) {
   let overlay = el('pmModal');
