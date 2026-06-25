@@ -1434,7 +1434,7 @@ function renderProjectMonthlyTable(data) {
   const head = `<tr><th class="pm-mlabel">Метрика</th><th class="pm-spark"></th>${months.map(m => `<th>${pmMonthLabel(m)}</th>`).join('')}</tr>`;
   const body = rows.map(r => {
     const cells = r.values.map(v => `<td>${pmFmtCell(r.kind, r.meta, v)}</td>`).join('');
-    return `<tr><td class="pm-mlabel">${esc(r.label)}</td><td class="pm-spark">${pmSparkline(r.values)}</td>${cells}</tr>`;
+    return `<tr><td class="pm-mlabel"><span class="pm-mname">${esc(r.label)}</span></td><td class="pm-spark">${pmSparkline(r.values)}</td>${cells}</tr>`;
   }).join('');
   return `<div class="pm-table-wrap"><table class="pm-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
