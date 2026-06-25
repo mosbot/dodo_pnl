@@ -24,6 +24,7 @@
       if (me.is_admin) nameEl.textContent = '★ ' + nameEl.textContent;
       menu.classList.remove('hidden');
       buildServiceSwitch(me);
+      loadAccessReqBadge(me);
     } catch (e) {
       // Сетевая ошибка — оставляем меню скрытым
       console.warn('topbar: /auth/me failed', e);
@@ -42,6 +43,32 @@
         ? 'https://sa.dodotool.ru/dodois/logout'
         : '/login';
     });
+  }
+
+  // Бейдж со счётчиком запросов на доступ (для админа). Кликабельный — ведёт
+  // в настройки на вкладку «Команда» (/settings?tab=users).
+  async function loadAccessReqBadge(me) {
+    if (!me || !me.is_admin) return;
+    let n = 0;
+    try {
+      const r = await fetch('/api/admin/access-requests', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const rows = await r.json();
+      n = Array.isArray(rows) ? rows.length : 0;
+    } catch (e) { return; }
+    if (n <= 0) return;
+    const ref = document.querySelector('.topbar a[href="/settings"]');
+    if (!ref || !ref.parentNode) return;
+    const a = document.createElement('a');
+    a.href = '/settings?tab=users';
+    a.className = 'btn-secondary pb-link';
+    a.title = n + ' запрос(ов) на доступ';
+    a.setAttribute('aria-label', 'Запросы на доступ: ' + n);
+    a.style.cssText = 'text-decoration:none;position:relative';
+    a.innerHTML = '🔔<span class="ar-count">' + n + '</span>';
+    const badge = a.querySelector('.ar-count');
+    badge.style.cssText = 'display:inline-block;min-width:16px;height:16px;line-height:16px;padding:0 5px;margin-left:4px;border-radius:8px;background:#dc2626;color:#fff;font-size:11px;font-weight:700;text-align:center;vertical-align:middle';
+    ref.parentNode.insertBefore(a, ref);
   }
 
   // Переключатель сервисов в платформенной шапке: Финансы / Пульс / хаб.

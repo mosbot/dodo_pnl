@@ -185,9 +185,12 @@ function initTabs() {
   // Стартовая вкладка: localStorage либо «Цели» по умолчанию.
   // Финальное переключение на «Структуру» — если шаблон ещё не загружен —
   // делается в loadAll() после получения /api/template.
+  // ?tab= в URL (напр. из бейджа на главной → /settings?tab=users) имеет
+  // приоритет над сохранённой вкладкой.
+  const urlTab = new URLSearchParams(location.search).get('tab');
   let saved = null;
   try { saved = localStorage.getItem(TAB_STORAGE_KEY); } catch (_) {}
-  showTab(saved || 'targets');
+  showTab(urlTab || saved || 'targets');
 }
 
 // ---------- Load ----------
@@ -271,9 +274,10 @@ async function loadAll() {
 
   // Онбординг: если шаблон ещё не загружен и пользователь не выбирал таб
   // вручную в этой сессии — лендим в «Структуру», там кнопка импорта.
+  const urlTab = new URLSearchParams(location.search).get('tab');
   let savedTab = null;
   try { savedTab = localStorage.getItem(TAB_STORAGE_KEY); } catch (_) {}
-  if (!savedTab && state.template.nodes.length === 0) {
+  if (!urlTab && !savedTab && state.template.nodes.length === 0) {
     showTab('structure');
   }
 }
