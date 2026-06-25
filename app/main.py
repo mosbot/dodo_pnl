@@ -1406,14 +1406,20 @@ async def _lite_revenue(
     uuid_to_pid: dict[str, str],
     pid_to_uuid: dict[str, str],
     *,
-    cacheable: bool,
+    cacheable: bool = True,
+    lmw: int = 2,
     log=None,
 ) -> tuple[dict[str, float], dict[str, dict]]:
     """Выручка + разбивка по каналам для Lite-режима.
 
-    Закрытый полный месяц → из immutable-кэша `lite_revenue_cache` (Dodo IS не
-    дёргаем вовсе, если все проекты в кэше; недостающие — догружаем и пишем).
-    Текущий/частичный период — всегда live из /finances/sales/units/monthly.
+    Диапазон дробится на КАЛЕНДАРНЫЕ МЕСЯЦЫ, и по каждому решение принимается
+    отдельно: закрытый полный месяц (вне live-окна `lmw`) → immutable-кэш
+    `lite_revenue_cache` (Dodo IS не дёргаем, если все проекты в кэше; недостающие
+    догружаем и пишем); текущий/частичный месяц → live из
+    `/finances/sales/units/monthly`. Помесячное дробление обязательно: эндпоинт
+    ограничен 62 днями, поэтому «Период» из нескольких месяцев одним запросом
+    падает 400, и без разбивки закрытые месяцы периода не брались бы из кэша.
+    (`period_month`/`cacheable` — legacy-параметры, решение теперь per-month.)
     """
     rev_by_pid: dict[str, float] = {pid: 0.0 for pid in pids}
     chan_by_pid: dict[str, dict] = {
@@ -1431,52 +1437,58 @@ async def _lite_revenue(
                 into_chan[pid][ch] = into_chan[pid].get(ch, 0.0) + s
                 into_rev[pid] = into_rev.get(pid, 0.0) + s
 
-    # Текущий/частичный месяц или многомесячный «Период» — live, без кэша.
-    # monthly-эндпоинт ограничен 62 днями → дробим на помесячные под-запросы.
-    if not cacheable or pf_key_id is None or not period_month:
+    cur = _current_month_str()
+    for sub_start, sub_end in _split_range_by_month(date_start, date_end):
+        sub_pm = sub_start[:7]
+        closed = (
+            pf_key_id is not None
+            and _is_full_month(sub_start, sub_end, sub_pm)
+            and not store.is_period_in_live_window(sub_pm, cur, lmw)
+        )
         uu = [pid_to_uuid[p] for p in pids if pid_to_uuid.get(p)]
-        if uu:
-            for sub_start, sub_end in _split_range_by_month(date_start, date_end):
+        if not closed:
+            # текущий/частичный месяц — live, без кэша
+            if uu:
                 rows = await dodois_client.fetch_finance_sales_monthly(
                     token, uu, sub_start, sub_end,
                 )
                 _accumulate(rows, rev_by_pid, chan_by_pid)
-        return rev_by_pid, chan_by_pid
-
-    # Закрытый месяц: кэш → догрузка недостающих → запись → перечитываем.
-    cached = await store.get_lite_revenue_cache(
-        session, pf_key_id, pids, period_month,
-    )
-    missing = [
-        (p, pid_to_uuid[p]) for p in pids
-        if p not in cached and pid_to_uuid.get(p)
-    ]
-    if missing:
-        per_rev: dict[str, float] = {p: 0.0 for p, _ in missing}
-        per_chan: dict[str, dict] = {
-            p: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for p, _ in missing
-        }
-        rows = await dodois_client.fetch_finance_sales_monthly(
-            token, [u for _, u in missing], date_start, date_end,
-        )
-        _accumulate(rows, per_rev, per_chan, pid_allow=set(per_rev))
-        for p, _ in missing:
-            await store.upsert_lite_revenue_cache(
-                session, pf_key_id, p, period_month,
-                {"total": per_rev[p], "channels": per_chan[p]},
-            )
-        await session.commit()
-        cached = await store.get_lite_revenue_cache(
-            session, pf_key_id, pids, period_month,
-        )
-    for pid in pids:
-        pl = cached.get(pid)
-        if not pl:
             continue
-        rev_by_pid[pid] = float(pl.get("total") or 0)
-        src = pl.get("channels") or {}
-        for ch in pnl_module.REVENUE_CHANNELS:
-            chan_by_pid[pid][ch] = float(src.get(ch) or 0)
+
+        # закрытый месяц: кэш → догрузка недостающих → запись → перечитываем
+        cached = await store.get_lite_revenue_cache(
+            session, pf_key_id, pids, sub_pm,
+        )
+        missing = [
+            (p, pid_to_uuid[p]) for p in pids
+            if p not in cached and pid_to_uuid.get(p)
+        ]
+        if missing:
+            per_rev: dict[str, float] = {p: 0.0 for p, _ in missing}
+            per_chan: dict[str, dict] = {
+                p: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for p, _ in missing
+            }
+            rows = await dodois_client.fetch_finance_sales_monthly(
+                token, [u for _, u in missing], sub_start, sub_end,
+            )
+            _accumulate(rows, per_rev, per_chan, pid_allow=set(per_rev))
+            for p, _ in missing:
+                await store.upsert_lite_revenue_cache(
+                    session, pf_key_id, p, sub_pm,
+                    {"total": per_rev[p], "channels": per_chan[p]},
+                )
+            await session.commit()
+            cached = await store.get_lite_revenue_cache(
+                session, pf_key_id, pids, sub_pm,
+            )
+        for pid in pids:
+            pl = cached.get(pid)
+            if not pl:
+                continue
+            rev_by_pid[pid] += float(pl.get("total") or 0)
+            src = pl.get("channels") or {}
+            for ch in pnl_module.REVENUE_CHANNELS:
+                chan_by_pid[pid][ch] += float(src.get(ch) or 0)
     return rev_by_pid, chan_by_pid
 
 
@@ -1561,7 +1573,7 @@ async def _build_revenue_history_lite(
         try:
             rev_by_pid, chan_by_pid = await _lite_revenue(
                 session, token, pf_key_id, m, ms, me,
-                pids, uuid_to_pid, pid_to_uuid, cacheable=cacheable,
+                pids, uuid_to_pid, pid_to_uuid, cacheable=cacheable, lmw=lmw,
             )
         except Exception:
             log.exception("Lite history: месяц %s не получен", m)
@@ -1658,7 +1670,7 @@ async def _build_pnl_lite(
                     session, token, pf_key_id, period_month,
                     date_start, date_end,
                     list(proj_meta.keys()), uuid_to_pid, pid_to_uuid,
-                    cacheable=cacheable, log=log,
+                    cacheable=cacheable, lmw=lmw, log=log,
                 )
             except Exception:
                 log.exception("Lite: выручка из Dodo IS недоступна")
@@ -1676,7 +1688,7 @@ async def _build_pnl_lite(
                         session, token, pf_key_id, cmp_pm,
                         compare_start, cmp_end,
                         list(proj_meta.keys()), uuid_to_pid, pid_to_uuid,
-                        cacheable=cmp_cacheable, log=log,
+                        cacheable=cmp_cacheable, lmw=lmw, log=log,
                     )
                 except Exception:
                     log.exception("Lite LFL: выручка периода сравнения недоступна")
