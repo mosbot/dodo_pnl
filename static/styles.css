@@ -889,7 +889,7 @@ body.license-blocked .table-wrap { display: none !important; }
 /* Модалка «помесячно»: таблица метрики×месяцы + спарклайны */
 .pm-table-wrap { overflow-x: auto; }
 .pm-table {
-  width: auto; border-collapse: separate; border-spacing: 0;
+  width: max-content; max-width: none; border-collapse: separate; border-spacing: 0;
   font-size: 13px; font-variant-numeric: tabular-nums;
 }
 .pm-table th, .pm-table td {
