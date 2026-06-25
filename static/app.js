@@ -1318,9 +1318,14 @@ function renderCards() {
       </div>` : '';
 
     const div = document.createElement('div');
-    div.className = 'card ' + cls;
+    div.className = 'card ' + cls + (state.mode === 'period' ? ' card-clickable' : '');
+    if (state.mode === 'period') {
+      div.dataset.projectId = p.id;
+      div.title = 'Помесячная детализация по пиццерии';
+      div.addEventListener('click', () => openProjectMonthlyModal(p.id, p.name));
+    }
     div.innerHTML = `
-      <div class="card-title">${esc(p.name)}</div>
+      <div class="card-title">${esc(p.name)}${state.mode === 'period' ? '<span class="card-monthly-hint">↗ помесячно</span>' : ''}</div>
       <div class="card-block">
         <div class="card-block-head">Финансовые показатели</div>
         <div class="tile-grid tile-grid-fin">${finTiles}</div>
@@ -1345,6 +1350,122 @@ function renderCards() {
     box.querySelectorAll('.tile-hint').forEach(e => fitTextInTile(e, 9));
     box.querySelectorAll('.tile-label').forEach(fitTileLabel);
   });
+}
+
+// ===== Период: помесячная детализация по пиццерии (модалка «Сравнение») =====
+const MONTHS_RU_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+function pmMonthLabel(m) {
+  const [y, mo] = m.split('-');
+  return `${MONTHS_RU_SHORT[(+mo) - 1]} ${y.slice(2)}`;
+}
+// Тот же набор/порядок метрик, что на карточке (fin + Заказы + pct + ops).
+function cardMetricRows() {
+  const all = (state.pnl?.metrics || []).filter(m => m.is_visible !== false).slice();
+  if (!state.pnl?.metrics?.find(m => m.code === 'MARGIN')) {
+    all.push({ code: 'MARGIN', label: 'Маржин. прибыль', format: 'rub', sort_order: 50 });
+  }
+  all.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const hidden = loadMetricsHidden();
+  const order = loadMetricsOrder();
+  const fin = applyUserOrder(all.filter(m => m.format === 'rub'), order).filter(m => !hidden.has(m.code));
+  const pct = applyUserOrder(all.filter(m => m.format !== 'rub'), order).filter(m => !hidden.has(m.code));
+  const ops = applyUserOrder((state.pnl?.ops_metrics_meta || []).slice(), order).filter(om => !hidden.has(om.code));
+  return { fin, pct, ops };
+}
+function pmLineVal(slice, code, pid, field) {
+  if (!slice || !slice.lines) return null;
+  const ln = slice.lines.find(l => l.code === code);
+  const v = ln && ln.projects && ln.projects[pid] ? ln.projects[pid][field] : null;
+  return (typeof v === 'number' && !isNaN(v)) ? v : null;
+}
+function fmtRubCompact(v) {
+  if (typeof v !== 'number' || isNaN(v)) return '—';
+  const a = Math.abs(v);
+  if (a >= 1e6) return (v / 1e6).toFixed(2).replace('.', ',') + ' М';
+  if (a >= 1e4) return Math.round(v / 1e3) + ' к';
+  return Math.round(v).toLocaleString('ru-RU');
+}
+function pmFmtCell(kind, meta, v) {
+  if (typeof v !== 'number' || isNaN(v)) return '—';
+  if (kind === 'rub') return fmtRubCompact(v);
+  if (kind === 'int') return Math.round(v).toLocaleString('ru-RU');
+  if (kind === 'pct') return fmtNum(v, 1) + '%';
+  if (meta && meta.format === 'mm_ss') {
+    const s = Math.round(Math.abs(v));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+  return fmtNum(v, (meta && typeof meta.digits === 'number') ? meta.digits : 2)
+    + (meta && meta.unit ? meta.unit : '');
+}
+function pmSparkline(values) {
+  const vals = values.map(v => (typeof v === 'number' && !isNaN(v)) ? v : null);
+  const nums = vals.filter(v => v != null);
+  if (nums.length < 2) return '';
+  const min = Math.min(...nums), max = Math.max(...nums), rng = (max - min) || 1;
+  const W = 60, H = 16, pad = 2, n = values.length;
+  const pts = vals.map((v, i) => {
+    if (v == null) return null;
+    const x = pad + (W - 2 * pad) * (n === 1 ? 0 : i / (n - 1));
+    const y = H - pad - (H - 2 * pad) * ((v - min) / rng);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).filter(Boolean).join(' ');
+  return `<svg class="pm-spark-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>`;
+}
+function renderProjectMonthlyTable(data) {
+  const months = data.months || [];
+  const pid = String(data.project.id);
+  const bm = data.by_month || {};
+  if (!months.length) return '<p class="muted">Нет данных за период.</p>';
+  const { fin, pct, ops } = cardMetricRows();
+  const rows = [];
+  fin.forEach(m => {
+    rows.push({ label: m.label, kind: 'rub', meta: null,
+      values: months.map(mm => pmLineVal(bm[mm], m.code, pid, 'amount')) });
+    if (m.code === 'REVENUE') {
+      rows.push({ label: 'Заказы', kind: 'int', meta: null,
+        values: months.map(mm => (bm[mm] && bm[mm].orders) ? bm[mm].orders.value : null) });
+    }
+  });
+  pct.forEach(m => rows.push({ label: m.label, kind: 'pct', meta: null,
+    values: months.map(mm => { const v = pmLineVal(bm[mm], m.code, pid, 'pct_of_revenue'); return v == null ? null : v * 100; }) }));
+  ops.forEach(om => rows.push({ label: om.label, kind: 'ops', meta: om,
+    values: months.map(mm => (bm[mm] && bm[mm].ops) ? bm[mm].ops[om.field] : null) }));
+
+  const head = `<tr><th class="pm-mlabel">Метрика</th><th class="pm-spark"></th>${months.map(m => `<th>${pmMonthLabel(m)}</th>`).join('')}</tr>`;
+  const body = rows.map(r => {
+    const cells = r.values.map(v => `<td>${pmFmtCell(r.kind, r.meta, v)}</td>`).join('');
+    return `<tr><td class="pm-mlabel">${esc(r.label)}</td><td class="pm-spark">${pmSparkline(r.values)}</td>${cells}</tr>`;
+  }).join('');
+  return `<div class="pm-table-wrap"><table class="pm-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+async function openProjectMonthlyModal(projectId, projectName) {
+  let overlay = el('pmModal');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'pmModal';
+    overlay.className = 'modal';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="modal-content wide">
+      <div class="modal-header">
+        <h3>${esc(projectName)} · помесячно</h3>
+        <button class="close-btn" data-close>×</button>
+      </div>
+      <div id="pmBody"><p class="muted">Загрузка…</p></div>
+    </div>`;
+  overlay.classList.remove('hidden');
+  const close = () => overlay.classList.add('hidden');
+  overlay.querySelectorAll('[data-close]').forEach(b => b.onclick = close);
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  const ds = el('dateStart').value, de = el('dateEnd').value;
+  const params = new URLSearchParams({ project_id: projectId, date_start: ds, date_end: de });
+  try {
+    const data = await api('/api/pnl/project-monthly?' + params.toString());
+    const b = el('pmBody'); if (b) b.innerHTML = renderProjectMonthlyTable(data);
+  } catch (e) {
+    const b = el('pmBody'); if (b) b.innerHTML = `<p class="profile-msg err">Не удалось загрузить: ${esc(e.message)}</p>`;
+  }
 }
 
 // Сокращения для подписей плиток. Применяются, если оригинал не

@@ -880,6 +880,37 @@ body.license-blocked .table-wrap { display: none !important; }
 .tile-grid-fin .tile { justify-content: flex-start; }
 .tile-grid-fin .tile-label { flex: 0 0 auto; }
 
+/* Период: кликабельная карточка → помесячная детализация */
+.card-clickable { cursor: pointer; transition: box-shadow .12s, border-color .12s; }
+.card-clickable:hover { box-shadow: 0 2px 12px rgba(0,0,0,.08); border-color: var(--primary); }
+.card-monthly-hint { float: right; font-size: 11px; font-weight: 600; color: var(--primary); }
+.card-clickable:hover .card-monthly-hint { text-decoration: underline; }
+
+/* Модалка «помесячно»: таблица метрики×месяцы + спарклайны */
+.pm-table-wrap { overflow-x: auto; }
+.pm-table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.pm-table th, .pm-table td {
+  padding: 5px 9px; text-align: right; white-space: nowrap;
+  border-bottom: 1px solid var(--border-light);
+}
+.pm-table thead th {
+  background: #f9fafb; color: var(--muted); font-weight: 600;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  position: sticky; top: 0; z-index: 1;
+}
+.pm-table .pm-mlabel {
+  text-align: left; color: var(--text); font-weight: 500;
+  position: sticky; left: 0; background: #fff;
+}
+.pm-table thead .pm-mlabel { background: #f9fafb; z-index: 2; }
+.pm-table .pm-spark { width: 66px; color: var(--primary); padding: 5px 6px; }
+.pm-spark-svg { width: 60px; height: 16px; display: block; }
+.pm-table tbody tr:hover td { background: #fafbfc; }
+.pm-table tbody tr:hover .pm-mlabel { background: #fafbfc; }
+
 .pos { color: var(--success); }
 .neg { color: var(--danger); }
 
