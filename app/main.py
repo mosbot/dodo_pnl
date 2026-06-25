@@ -1153,6 +1153,36 @@ def _months_between(date_start: str, date_end: str) -> list[str]:
     return out
 
 
+def _split_range_by_month(date_start: str, date_end: str) -> list[tuple[str, str]]:
+    """[date_start..date_end] → список помесячных под-диапазонов (clamped по краям).
+
+    `/finances/sales/units/monthly` ограничен 62 днями: на «Период» (несколько
+    месяцев) один запрос падает 400 DateOutOfRange. Помесячные куски ≤31 дня
+    проходят. Частичные края (MTD) сохраняются (06-01..06-24 → один кусок).
+    """
+    from datetime import date
+    from calendar import monthrange
+    try:
+        d1 = date.fromisoformat(date_start)
+        d2 = date.fromisoformat(date_end)
+    except ValueError:
+        return [(date_start, date_end)]
+    if d1 > d2:
+        return []
+    out: list[tuple[str, str]] = []
+    y, m = d1.year, d1.month
+    cur_start = d1
+    while date(y, m, 1) <= d2:
+        m_end = date(y, m, monthrange(y, m)[1])
+        out.append((cur_start.isoformat(), min(m_end, d2).isoformat()))
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+        cur_start = date(y, m, 1)
+    return out
+
+
 # ── S23: количество заказов из Dodo IS (с LFL год-к-году) для карточек ──
 # Каналы Dodo → 2 группы как в Dodo IS UI: «Доставка+самовывоз» и «Ресторан».
 _ORDERS_CH_GROUP = {
@@ -1199,9 +1229,13 @@ async def _fetch_monthly_orders(
     hit = _ORDERS_CACHE.get(key)
     if hit and (_t.time() - hit[0]) < ttl:
         return hit[1]
-    rows = await dodois_client.fetch_finance_sales_monthly(
-        token, uuids, date_start, date_end,
-    )
+    # monthly-эндпоинт ограничен 62 днями → помесячные под-запросы (период
+    # может охватывать много месяцев). ordersCount по юниту суммируется.
+    rows: list = []
+    for sub_start, sub_end in _split_range_by_month(date_start, date_end):
+        rows.extend(await dodois_client.fetch_finance_sales_monthly(
+            token, uuids, sub_start, sub_end,
+        ))
     out: dict[str, dict[str, int]] = {}
     for r in rows:
         u = board_module._normalize_uuid(r.get("unitId", ""))
@@ -1397,14 +1431,16 @@ async def _lite_revenue(
                 into_chan[pid][ch] = into_chan[pid].get(ch, 0.0) + s
                 into_rev[pid] = into_rev.get(pid, 0.0) + s
 
-    # Текущий/частичный месяц — всегда live, без кэша.
+    # Текущий/частичный месяц или многомесячный «Период» — live, без кэша.
+    # monthly-эндпоинт ограничен 62 днями → дробим на помесячные под-запросы.
     if not cacheable or pf_key_id is None or not period_month:
         uu = [pid_to_uuid[p] for p in pids if pid_to_uuid.get(p)]
         if uu:
-            rows = await dodois_client.fetch_finance_sales_monthly(
-                token, uu, date_start, date_end,
-            )
-            _accumulate(rows, rev_by_pid, chan_by_pid)
+            for sub_start, sub_end in _split_range_by_month(date_start, date_end):
+                rows = await dodois_client.fetch_finance_sales_monthly(
+                    token, uu, sub_start, sub_end,
+                )
+                _accumulate(rows, rev_by_pid, chan_by_pid)
         return rev_by_pid, chan_by_pid
 
     # Закрытый месяц: кэш → догрузка недостающих → запись → перечитываем.

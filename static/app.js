@@ -1436,13 +1436,13 @@ function renderProjectMonthlyTable(data) {
   const CW_MONTH = narrow ? 96 : 110;
   const CW_SPARK = narrow ? 52 : 64;
   const tableW = CW_METRIC + months.length * CW_MONTH + CW_SPARK;
-  const colg = `<colgroup><col style="width:${CW_METRIC}px">`
+  const colg = `<colgroup><col style="width:${CW_METRIC}px"><col style="width:${CW_SPARK}px">`
     + months.map(() => `<col style="width:${CW_MONTH}px">`).join('')
-    + `<col style="width:${CW_SPARK}px"></colgroup>`;
-  const head = `<tr><th class="pm-mlabel">Метрика</th>${months.map(m => `<th>${pmMonthLabel(m)}</th>`).join('')}<th class="pm-spark">тренд</th></tr>`;
+    + `</colgroup>`;
+  const head = `<tr><th class="pm-mlabel">Метрика</th><th class="pm-spark">тренд</th>${months.map(m => `<th>${pmMonthLabel(m)}</th>`).join('')}</tr>`;
   const body = rows.map(r => {
     const cells = r.values.map(v => `<td>${pmFmtCell(r.kind, r.meta, v)}</td>`).join('');
-    return `<tr><td class="pm-mlabel">${esc(r.label)}</td>${cells}<td class="pm-spark">${pmSparkline(r.values)}</td></tr>`;
+    return `<tr><td class="pm-mlabel">${esc(r.label)}</td><td class="pm-spark">${pmSparkline(r.values)}</td>${cells}</tr>`;
   }).join('');
   return `<div class="pm-table-wrap"><table class="pm-table" style="width:${tableW}px">${colg}<thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
