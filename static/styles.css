@@ -856,20 +856,21 @@ body.license-blocked .table-wrap { display: none !important; }
 /* S23: плитка «Заказы» — штуки, не ₽. Каналы — ЕДИНЫЙ грид (обе строки
  * делят колонки), числа right-align + tabular, колонка % фикс-ширины →
  * при процентах разного порядка числовые значения не сдвигаются. */
-.tile-orders .ord-channels {
+/* Грид разбивки по каналам — общий для плиток Заказы и Выручка. */
+.ord-channels {
   display: grid; grid-template-columns: 1fr auto;
   column-gap: 7px; row-gap: 2px; align-items: baseline;
   margin-top: 4px; font-size: 10px;
 }
-.tile-orders .ord-channels.lfl { grid-template-columns: 1fr auto auto auto; }
-.tile-orders .ord-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile-orders .ord-cur,
-.tile-orders .ord-ly,
-.tile-orders .ord-d { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-.tile-orders .ord-cur { color: var(--text); font-weight: 600; }
-.tile-orders .ord-ly { color: var(--muted); }
-.tile-orders .ord-d { min-width: 3.6em; }
-.tile-orders .ord-d .tile-delta { font-size: 10px; }
+.ord-channels.lfl { grid-template-columns: 1fr auto auto auto; }
+.ord-lbl { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ord-cur,
+.ord-ly,
+.ord-d { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.ord-cur { color: var(--text); font-weight: 600; }
+.ord-ly { color: var(--muted); }
+.ord-d { min-width: 3.6em; }
+.ord-d .tile-delta { font-size: 10px; }
 /* Большой LFL-% итога — прижимаем к правому краю плитки. */
 .tile-orders .tile-value { display: flex; align-items: baseline; }
 .tile-orders .tile-value .tile-delta { margin-left: auto; font-size: 12px; }
