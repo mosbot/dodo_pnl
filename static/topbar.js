@@ -49,8 +49,6 @@
   // в настройки на вкладку «Команда» (/settings?tab=users).
   async function loadAccessReqBadge(me) {
     if (!me || !me.is_admin) return;
-    // Звоночек показываем ТОЛЬКО на Пульсе (/board) — на Финансах/настройках нет.
-    if (location.pathname.indexOf('/board') !== 0) return;
     let n = 0;
     try {
       const r = await fetch('/api/admin/access-requests', { credentials: 'same-origin' });
