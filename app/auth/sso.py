@@ -53,37 +53,58 @@ async def resolve_sa_user(sa_cookie: str) -> Optional[dict]:
     return {"sub": me["sub"], "name": (me.get("name") or "").strip()}
 
 
+async def _all_units(sa_cookie: str) -> list[dict]:
+    """Все юниты пользователя из /entitlements (с любыми capability)."""
+    ent = await _sa_get("/entitlements", sa_cookie)
+    return list((ent or {}).get("units", []))
+
+
+def _licensed(units: list[dict]) -> list[dict]:
+    """Подмножество юнитов с capability finance/pulse (= лицензия pnl)."""
+    return [
+        u for u in units
+        if set(u.get("capabilities") or []) & set(PNL_CAPABILITIES)
+    ]
+
+
 async def _licensed_units(sa_cookie: str) -> list[dict]:
     """Юниты с активной capability finance/pulse (= лицензия pnl)."""
-    ent = await _sa_get("/entitlements", sa_cookie)
-    out: list[dict] = []
-    for u in (ent or {}).get("units", []):
-        if set(u.get("capabilities") or []) & set(PNL_CAPABILITIES):
-            out.append(u)
-    return out
+    return _licensed(await _all_units(sa_cookie))
 
 
 async def get_or_provision_user(
     db: AsyncSession, sa_cookie: str, sub: str, name: str,
-) -> Optional[User]:
-    """pnl-юзер по sub. Нет — JIT-провижн при наличии лицензии pnl. Иначе None."""
+) -> tuple[Optional[User], str]:
+    """Резолв pnl-юзера по Dodo IS `sub`. Возвращает `(user, status)`:
+
+      - `(user, "ok")` — найден ИЛИ провижнен как владелец (первый юзер
+        лицензированной, ещё не онбордённой сети → network_admin);
+      - `(None, "request")` — тенант сети УЖЕ существует → нужен запрос доступа
+        его сетевому админу (тенант/юзера не плодим);
+      - `(None, "nosub")` — ни тенанта, ни лицензии pnl → доступа нет.
+    """
     u = (await db.execute(
         select(User).where(User.dodois_sub == sub)
     )).scalar_one_or_none()
     if u is not None:
-        return u
+        return u, "ok"
 
-    # Незнакомый Dodo-аккаунт. Авто-провижн выключен (admin-managed) → нет
-    # доступа: пусть войдёт локально и привяжет Dodo IS, либо админ заведёт.
-    if not settings.sso_auto_provision:
-        log.info("SSO: sub=%s не привязан, авто-провижн off → нет доступа", sub)
-        return None
+    from .access_requests import find_tenant_by_units
 
-    units = await _licensed_units(sa_cookie)
+    all_units = await _all_units(sa_cookie)
+    uuids = [x.get("dodois_uuid") for x in all_units if x.get("dodois_uuid")]
+    # Сеть этих заведений уже заведена тенантом → не плодим, шлём на запрос.
+    if await find_tenant_by_units(db, uuids) is not None:
+        log.info("SSO: sub=%s сеть уже заведена → запрос доступа админу", sub)
+        return None, "request"
+
+    units = _licensed(all_units)
     if not units:
-        log.info("SSO: sub=%s без лицензии pnl — доступ не выдаём", sub)
-        return None
+        log.info("SSO: sub=%s без тенанта и без лицензии pnl → нет доступа", sub)
+        return None, "nosub"
 
+    # Первый пользователь лицензированной, ещё не онбордённой сети → владелец
+    # (network_admin). Дубли исключены проверкой find_tenant_by_units выше.
     from .. import dodois_client, store
     from .tokens import get_dodois_token
 
@@ -127,5 +148,7 @@ async def get_or_provision_user(
             dodo_unit_uuid=uuid,
         )
     await db.commit()
-    log.info("SSO provision: tenant=%s sub=%s units=%d", pk.id, sub, len(units))
-    return admin
+    log.info(
+        "SSO provision (owner): tenant=%s sub=%s units=%d", pk.id, sub, len(units)
+    )
+    return admin, "ok"

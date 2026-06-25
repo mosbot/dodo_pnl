@@ -249,3 +249,49 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog id={self.id} action={self.action!r} user_id={self.user_id}>"
+
+
+class AccessRequest(Base):
+    """Запрос доступа от Dodo IS-пользователя без локального аккаунта.
+
+    Пользователь вошёл через Dodo IS (SSO), но `dodois_sub` не привязан ни к
+    одному pnl-юзеру, а тенант его сети уже существует. Он жмёт «Запросить
+    доступ» → создаётся pending-запрос для `planfact_key_id` этой сети. Сетевой
+    админ одобряет (выбирает уровень видимости) → создаётся User с привязкой
+    `dodois_sub`, запрос → approved. `dodois_sub` берётся ТОЛЬКО из валидной
+    sa-сессии (не из формы). Один pending на (planfact_key, dodois_sub).
+    """
+    __tablename__ = "access_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    planfact_key_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("planfact_keys.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    dodois_sub: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Снимок заведений запросившего (uuid+имя) — чтобы админ видел, кто просит.
+    units: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    # pending | approved | denied
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default=text("'pending'"),
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("NOW()"),
+    )
+    decided_by: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    decided_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<AccessRequest id={self.id} pf={self.planfact_key_id} "
+            f"sub={self.dodois_sub[:8]} status={self.status!r}>"
+        )

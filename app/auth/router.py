@@ -10,12 +10,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..planfact import invalidate_planfact_for
 from . import audit
-from .dependencies import SESSION_COOKIE, require_user
+from .dependencies import SESSION_COOKIE, require_admin, require_user
 from .models import User
 from .passwords import verify_password
 from .ratelimit import login_limiter, username_limiter
@@ -169,11 +170,13 @@ async def auth_sso(
     sa_user = await sso_mod.resolve_sa_user(sa_cookie)
     if not sa_user:
         return RedirectResponse("/login?sso=invalid", status_code=302)
-    u = await sso_mod.get_or_provision_user(
+    u, status = await sso_mod.get_or_provision_user(
         db, sa_cookie, sa_user["sub"], sa_user["name"],
     )
     if u is None:
-        return RedirectResponse("/login?sso=noaccount", status_code=302)
+        # status: "request" — тенант сети есть, можно запросить доступ админу;
+        #         "nosub" — ни тенанта, ни лицензии pnl.
+        return RedirectResponse(f"/login?sso={status}", status_code=302)
 
     ip = request.client.host if request.client else None
     s = await create_session(
@@ -330,6 +333,141 @@ async def auth_unlink(
     db_user.dodois_sub = None
     await db.commit()
     return {"status": "ok"}
+
+
+# ---------- Запрос доступа (Dodo IS-юзер без локального аккаунта) ----------
+
+@router.post("/auth/access-request")
+async def auth_access_request(
+    request: Request, db: AsyncSession = Depends(get_session),
+):
+    """Запрос доступа с экрана `?sso=request`. `sub` — ТОЛЬКО из валидной
+    sa-сессии. Резолвим тенант сети по юнитам и создаём pending для его админа."""
+    from . import access_requests as ar
+    from . import sso as sso_mod
+
+    sa_cookie = request.cookies.get(sso_mod.SA_COOKIE_NAME)
+    if not sa_cookie:
+        raise HTTPException(400, "Нет активной сессии Dodo IS — войдите заново.")
+    sa_user = await sso_mod.resolve_sa_user(sa_cookie)
+    if not sa_user:
+        raise HTTPException(400, "Сессия Dodo IS недействительна.")
+    sub, name = sa_user["sub"], sa_user["name"]
+
+    already = (await db.execute(
+        select(User).where(User.dodois_sub == sub)
+    )).scalar_one_or_none()
+    if already is not None:
+        return {"status": "linked"}  # уже привязан — запрос не нужен
+
+    all_units = await sso_mod._all_units(sa_cookie)
+    uuids = [x.get("dodois_uuid") for x in all_units if x.get("dodois_uuid")]
+    tenant_id = await ar.find_tenant_by_units(db, uuids)
+    if tenant_id is None:
+        raise HTTPException(404, "Сеть не найдена. Подписка на сервис не найдена.")
+    units_snap = [
+        {"uuid": x.get("dodois_uuid"), "name": x.get("name")}
+        for x in all_units if x.get("dodois_uuid")
+    ]
+    req = await ar.create_request(
+        db, planfact_key_id=tenant_id, dodois_sub=sub,
+        name=name, email=None, units=units_snap,
+    )
+    await db.commit()
+    return {"status": "pending", "id": req.id}
+
+
+class AccessRequestOut(BaseModel):
+    id: int
+    dodois_sub: str
+    name: Optional[str]
+    email: Optional[str]
+    units: Optional[list]
+    created_at: datetime
+
+
+@router.get("/api/admin/access-requests", response_model=list[AccessRequestOut])
+async def list_access_requests(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Pending-запросы доступа для тенанта админа (network_admin/super_admin)."""
+    from . import access_requests as ar
+    if not admin.planfact_key_id:
+        return []
+    rows = await ar.list_pending_for_key(db, admin.planfact_key_id)
+    return [
+        AccessRequestOut(
+            id=r.id, dodois_sub=r.dodois_sub, name=r.name, email=r.email,
+            units=r.units, created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+class ApproveRequest(BaseModel):
+    # «manager, кроме network_admin» = role=user + уровень видимости.
+    visibility_level: int = Field(default=10, ge=0, le=100)
+
+
+@router.post("/api/admin/access-requests/{req_id}/approve", response_model=UserPublic)
+async def approve_access_request(
+    req_id: int,
+    body: ApproveRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Одобрить: создать User (role=user + visibility) с привязкой dodois_sub.
+    network_admin создавать через этот поток НЕЛЬЗЯ."""
+    from . import access_requests as ar
+    req = await ar.get_request(db, req_id)
+    if req is None or req.status != "pending":
+        raise HTTPException(404, "Запрос не найден или уже обработан.")
+    if req.planfact_key_id != admin.planfact_key_id:
+        raise HTTPException(403, "Запрос относится к другому тенанту.")
+    # Не плодим дубль по уже занятому sub.
+    taken = (await db.execute(
+        select(User).where(User.dodois_sub == req.dodois_sub)
+    )).scalar_one_or_none()
+    if taken is not None:
+        await ar.mark_decided(db, req, status="approved", decided_by=admin.id)
+        await db.commit()
+        return UserPublic.from_user(taken)
+    new_user = User(
+        username=f"sso-{req.dodois_sub[:12]}",
+        password_hash=None,
+        display_name=req.name or f"Сотрудник {req.dodois_sub[:6]}",
+        dodois_sub=req.dodois_sub,
+        role="user",
+        visibility_level=body.visibility_level,
+        planfact_key_id=req.planfact_key_id,
+    )
+    db.add(new_user)
+    await db.flush()
+    await ar.mark_decided(db, req, status="approved", decided_by=admin.id)
+    await audit.log_audit(
+        db, audit.ACTION_ADMIN_USER_CREATED, user_id=admin.id,
+        details={"access_request": req_id, "new_user": new_user.id, "via": "sso"},
+    )
+    await db.commit()
+    return UserPublic.from_user(new_user)
+
+
+@router.post("/api/admin/access-requests/{req_id}/deny", status_code=204)
+async def deny_access_request(
+    req_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Отклонить запрос доступа."""
+    from . import access_requests as ar
+    req = await ar.get_request(db, req_id)
+    if req is None or req.status != "pending":
+        raise HTTPException(404, "Запрос не найден или уже обработан.")
+    if req.planfact_key_id != admin.planfact_key_id:
+        raise HTTPException(403, "Запрос относится к другому тенанту.")
+    await ar.mark_decided(db, req, status="denied", decided_by=admin.id)
+    await db.commit()
 
 
 @router.post("/auth/logout")
