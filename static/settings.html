@@ -248,6 +248,19 @@
 
   <!-- ============ TAB: ПОЛЬЗОВАТЕЛИ (admin only) ============ -->
   <section class="tab-pane admin-only hidden" data-pane="users" role="tabpanel">
+    <!-- Запросы на доступ: сотрудники, вошедшие через Dodo IS, ждут одобрения. -->
+    <div class="dense-block" id="accessReqBlock" style="display:none">
+      <div class="block-head">
+        <h2>Запросы на доступ</h2>
+        <span class="block-sub muted">Вошли через Dodo IS и ожидают доступа. Одобрите — создадим пользователя и привяжем Dodo IS.</span>
+      </div>
+      <div class="block-body block-scroll-x">
+        <table class="dense-table" id="accessReqTable">
+          <thead><tr><th>Имя</th><th>Dodo IS</th><th>Заведения</th><th style="width:170px">Уровень доступа</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
     <!-- Каталог PF-ключей вынесен во вкладку «Платформа» (super_admin). -->
     <div class="dense-block">
       <div class="block-head">
@@ -544,6 +557,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=28"></script>
-<script src="/static/settings.js?v=31"></script>
+<script src="/static/settings.js?v=32"></script>
 </body>
 </html>

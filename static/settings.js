@@ -110,7 +110,54 @@ function showTab(name) {
   document.querySelectorAll('.tab-pane').forEach(p => {
     p.classList.toggle('active', p.dataset.pane === name);
   });
+  if (name === 'users') { try { renderAccessRequests(); } catch (_) {} }
   try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (_) {}
+}
+
+// Запросы на доступ (network_admin/super_admin): сотрудники, вошедшие через
+// Dodo IS и ждущие одобрения. Одобрение создаёт User + привязку dodois_sub.
+const _AR_VIS = [[10, 'Управляющий'], [30, 'Территориальный'], [60, 'Директор'], [100, 'Партнёр']];
+async function renderAccessRequests() {
+  const block = document.getElementById('accessReqBlock');
+  const tbody = document.querySelector('#accessReqTable tbody');
+  if (!block || !tbody) return;
+  let rows = [];
+  try { rows = await api('/api/admin/access-requests'); } catch (_) { return; }
+  if (!Array.isArray(rows) || !rows.length) { block.style.display = 'none'; return; }
+  tbody.innerHTML = rows.map(r => {
+    const units = (r.units || []).map(u => esc((u.name || u.uuid || '')).slice(0, 40))
+      .filter(Boolean).join(', ');
+    const sel = `<select class="ar-vis" data-id="${r.id}">`
+      + _AR_VIS.map(([v, l]) => `<option value="${v}"${v === 10 ? ' selected' : ''}>${l}</option>`).join('')
+      + `</select>`;
+    return `<tr data-id="${r.id}">
+      <td>${esc(r.name || '—')}</td>
+      <td class="muted" style="font-size:11px">${esc((r.dodois_sub || '').slice(0, 10))}…</td>
+      <td class="muted" style="font-size:11px">${units || '—'}</td>
+      <td>${sel}</td>
+      <td style="white-space:nowrap">
+        <button type="button" class="btn-primary ar-approve" data-id="${r.id}">Одобрить</button>
+        <button type="button" class="btn-secondary ar-deny" data-id="${r.id}">Отклонить</button>
+      </td></tr>`;
+  }).join('');
+  block.style.display = '';
+  tbody.querySelectorAll('.ar-approve').forEach(b => b.addEventListener('click', async () => {
+    const id = b.dataset.id;
+    const visEl = tbody.querySelector(`.ar-vis[data-id="${id}"]`);
+    const vis = parseInt(visEl && visEl.value, 10) || 10;
+    b.disabled = true;
+    try {
+      await post(`/api/admin/access-requests/${id}/approve`, { visibility_level: vis });
+      await renderAccessRequests();
+    } catch (_) { b.disabled = false; alert('Не удалось одобрить'); }
+  }));
+  tbody.querySelectorAll('.ar-deny').forEach(b => b.addEventListener('click', async () => {
+    const id = b.dataset.id;
+    if (!confirm('Отклонить запрос?')) return;
+    b.disabled = true;
+    try { await api(`/api/admin/access-requests/${id}/deny`, { method: 'POST' }); await renderAccessRequests(); }
+    catch (_) { b.disabled = false; }
+  }));
 }
 
 function initTabs() {
