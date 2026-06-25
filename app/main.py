@@ -3308,9 +3308,12 @@ async def _run_ops_sync(
             )
 
             cfg = await store.list_projects_config(session, pf_key_id)
+            # ТОЛЬКО активные проекты (доступные тенанту). Неактивные точки с
+            # UUID Dodo IS не отдаёт (нет доступа) → лишние запросы и rate-limit.
             targets = [
                 (pid, c["dodo_unit_uuid"])
-                for pid, c in cfg.items() if c.get("dodo_unit_uuid")
+                for pid, c in cfg.items()
+                if c.get("dodo_unit_uuid") and c.get("is_active", True)
             ]
             if not targets:
                 log.info("ops sync %s: no units linked, ничего не делаем", period)
