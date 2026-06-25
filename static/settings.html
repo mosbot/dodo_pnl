@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/favicon.svg?v=1" type="image/svg+xml">
 <link rel="icon" href="/static/favicon-32.png?v=1" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=1">
-<link rel="stylesheet" href="/static/styles.css?v=44">
+<link rel="stylesheet" href="/static/styles.css?v=45">
 </head>
 <body class="settings-body">
 
@@ -222,6 +222,10 @@
       <label class="inline">Период
         <select id="opsMonthSelect" class="month-select"></select>
       </label>
+      <button type="button" id="copyTargetsBtn" class="btn-secondary hidden"
+        title="Скопировать все цели из предыдущего месяца в выбранный — потом останется только поправить отличия">
+        ⧉ Скопировать из <span id="copyTargetsFromLabel">прошлого месяца</span>
+      </button>
     </div>
 
     <section class="dense-block">
@@ -557,6 +561,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=31"></script>
-<script src="/static/settings.js?v=35"></script>
+<script src="/static/settings.js?v=36"></script>
 </body>
 </html>

@@ -31,6 +31,13 @@ class DefaultTargetIn(BaseModel):
     period_month: str = Field(default="__default__", pattern=PERIOD_MONTH_RE)
 
 
+class CopyTargetsIn(BaseModel):
+    """Скопировать ВСЕ цели (P&L defaults+per-project, ops defaults+per-project)
+    из одного месяца в другой. Перезаписывает совпадающие ключи в to_month."""
+    from_month: str = Field(..., pattern=PERIOD_MONTH_RE)
+    to_month: str = Field(..., pattern=PERIOD_MONTH_RE)
+
+
 class MetricIn(BaseModel):
     code: str = Field(..., min_length=1, max_length=32,
                       description="UC | LC | DC | TC | EBITDA | ... — стабильный код")

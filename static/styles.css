@@ -947,7 +947,46 @@ body.license-blocked .table-wrap { display: none !important; }
  * прятаться за кнопкой «⚙ Графики» ниже на странице). */
 .charts-toolbar:has(details[open]) { z-index: 20; }
 /* Тулбар над блоком карточек — то же оформление, ниже отступ. */
-.kpi-toolbar { margin-bottom: 4px; }
+.kpi-toolbar { margin-bottom: 4px; gap: 8px; }
+
+/* Ссылка «🎯 Цели» — слева от «⚙ Метрики», только десктоп, только ≥30. */
+.goals-link {
+  display: inline-flex; align-items: center; text-decoration: none;
+  padding: 5px 12px; font-size: 12px; font-weight: 500; line-height: 1.4;
+  background: white; color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; user-select: none;
+}
+.goals-link:hover {
+  background: var(--bg); border-color: var(--primary); color: var(--primary-dark);
+}
+.goals-link.hidden { display: none; }
+@media (max-width: 760px) { .goals-link { display: none !important; } }
+
+/* Баннер «цели на месяц не заданы» */
+.goals-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a;
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; font-size: 13px;
+}
+.goals-banner.hidden { display: none; }
+.goals-banner-text { flex: 1 1 260px; }
+.goals-banner-actions {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.goals-banner-btn {
+  text-decoration: none; font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 6px; white-space: nowrap;
+  border: 1px solid #bfdbfe; color: var(--primary-dark); background: white;
+}
+.goals-banner-btn.primary {
+  background: var(--primary); color: white; border-color: var(--primary-dark);
+}
+.goals-banner-btn:hover { filter: brightness(0.97); }
+.goals-banner-close {
+  border: none; background: transparent; color: #64748b; cursor: pointer;
+  font-size: 14px; padding: 4px; line-height: 1;
+}
 
 /* Стрелки ↑↓ в строках попапа «⚙ Метрики» / «⚙ Графики». Touch-friendly:
  * минимум 24×24 (на мобиле уйдёт до 32×32 через media query — на этом

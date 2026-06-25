@@ -281,6 +281,15 @@ async function loadAll() {
   if (!urlTab && !savedTab && state.template.nodes.length === 0) {
     showTab('structure');
   }
+
+  // Баннер с главной может прислать ?copy=1 → авто-копирование целей из
+  // прошлого месяца (после загрузки таргетов). Param снимаем, чтобы не
+  // повторялось при перезагрузке.
+  if (new URLSearchParams(location.search).get('copy') === '1' && canEditTargets()) {
+    showTab('targets');
+    history.replaceState(null, '', location.pathname + '?tab=targets');
+    copyTargetsFromPrev();
+  }
 }
 
 // ---------- Dodo IS units sync ----------
@@ -378,7 +387,57 @@ function initMonthSelect() {
     await Promise.all([loadOpsMetrics(), reloadTargets()]);
     renderPnlMatrix();
     renderOpsMatrix();
+    updateCopyTargetsBtn();
   });
+  const copyBtn = el('copyTargetsBtn');
+  if (copyBtn) copyBtn.addEventListener('click', copyTargetsFromPrev);
+  updateCopyTargetsBtn();
+}
+
+// ---------- «Скопировать цели из прошлого месяца» ----------
+// YYYY-MM → ключ предыдущего месяца.
+function prevMonthKey(pm) {
+  const [y, m] = String(pm).split('-').map(Number);
+  const d = new Date(y, m - 2, 1);   // m 1-based → m-2 = предыдущий месяц (0-based)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthLabelRu(key) {
+  const [y, m] = String(key).split('-').map(Number);
+  const s = new Date(y, m - 1, 1)
+    .toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function currentTargetsEmpty() {
+  return Object.keys(state.projectTargets || {}).length === 0
+    && Object.keys(state.defaultTargets || {}).length === 0
+    && Object.keys(state.opsTargets || {}).length === 0
+    && Object.keys(state.opsProjectTargets || {}).length === 0;
+}
+function updateCopyTargetsBtn() {
+  const btn = el('copyTargetsBtn');
+  if (!btn) return;
+  if (!canEditTargets()) { btn.classList.add('hidden'); return; }
+  const lbl = el('copyTargetsFromLabel');
+  if (lbl) lbl.textContent = monthLabelRu(prevMonthKey(state.targetsPeriod));
+  btn.classList.remove('hidden');
+}
+async function copyTargetsFromPrev() {
+  const to = state.targetsPeriod;
+  const from = prevMonthKey(to);
+  if (!currentTargetsEmpty()) {
+    if (!confirm(`В «${monthLabelRu(to)}» уже заданы цели. Перезаписать значениями `
+      + `из «${monthLabelRu(from)}»?\nНесовпадающие ячейки текущего месяца останутся.`))
+      return;
+  }
+  try {
+    const res = await post('/api/targets/copy', { from_month: from, to_month: to });
+    await reloadTargets();
+    renderPnlMatrix();
+    renderOpsMatrix();
+    toast(`Скопировано целей: ${res.copied || 0}`, res.copied ? 'ok' : '');
+  } catch (e) {
+    toast('Не удалось скопировать: ' + e.message, 'error');
+  }
 }
 
 // Перезагружает таргеты под выбранный period_month. Все цели month-specific —

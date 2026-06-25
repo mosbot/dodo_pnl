@@ -33,6 +33,7 @@ from .dodois_client import DodoISError
 from .planfact import PlanFactClient, PlanFactError, get_planfact_client, invalidate_planfact_for
 from .planfact_export import ExportParseError, parse_pnl_export
 from .schemas import (
+    CopyTargetsIn,
     DefaultTargetIn,
     OpsMetricIn,
     OpsProjectTargetIn,
@@ -2850,6 +2851,49 @@ async def delete_default_target(
         session, pf_key_id, metric_code, period_month=period_month,
     )
     return {"status": "ok"}
+
+
+@app.post("/api/targets/copy")
+async def copy_targets(
+    payload: CopyTargetsIn,
+    user: User = Depends(require_territorial),
+    session: AsyncSession = Depends(get_session),
+):
+    """Скопировать ВСЕ цели из from_month в to_month: P&L (defaults + per-project)
+    и ops (defaults + per-project). Перезаписывает совпадающие ключи в to_month.
+    Удобно начать новый месяц от прошлого и лишь поправить отличия."""
+    pf_key_id = _require_user_pf_key(user)
+    fm, tm = payload.from_month, payload.to_month
+    if fm == tm:
+        return {"status": "ok", "copied": 0}
+    copied = 0
+    # P&L: сетевые дефолты
+    for code, pct in (await store.list_default_targets(
+            session, pf_key_id, period_month=fm)).items():
+        await store.upsert_default_target(
+            session, pf_key_id, code, pct, period_month=tm)
+        copied += 1
+    # P&L: per-project
+    for t in await store.list_targets(
+            session, pf_key_id, None, period_month=fm):
+        await store.upsert_target(
+            session, pf_key_id, t["project_id"], t["metric_code"],
+            t["target_pct"], period_month=tm)
+        copied += 1
+    # ops: сетевые дефолты
+    for code, val in (await store.list_ops_targets(
+            session, pf_key_id, period_month=fm)).items():
+        await store.upsert_ops_target(
+            session, pf_key_id, code, val, period_month=tm)
+        copied += 1
+    # ops: per-project
+    for t in await store.list_ops_project_targets(
+            session, pf_key_id, period_month=fm):
+        await store.upsert_ops_project_target(
+            session, pf_key_id, t["project_id"], t["metric_code"],
+            t["target_value"], period_month=tm)
+        copied += 1
+    return {"status": "ok", "copied": copied}
 
 
 # --- App settings ---

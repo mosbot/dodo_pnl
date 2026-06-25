@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/favicon.svg?v=1" type="image/svg+xml">
 <link rel="icon" href="/static/favicon-32.png?v=1" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=1">
-<link rel="stylesheet" href="/static/styles.css?v=69">
+<link rel="stylesheet" href="/static/styles.css?v=70">
 <script src="/static/vendor/chart-4.5.0.umd.js"></script>
 </head>
 <body>
@@ -125,7 +125,18 @@
     </div>
   </section>
 
+  <div id="goalsBanner" class="goals-banner hidden">
+    <span class="goals-banner-text">🎯 Цели на этот месяц ещё не заданы — задайте план, чтобы видеть «факт vs цель» на карточках.</span>
+    <span class="goals-banner-actions">
+      <a class="goals-banner-btn primary" href="/settings?tab=targets&amp;copy=1">Скопировать из прошлого месяца</a>
+      <a class="goals-banner-btn" href="/settings?tab=targets">Задать вручную</a>
+      <button type="button" id="goalsBannerClose" class="goals-banner-close" aria-label="Скрыть">✕</button>
+    </span>
+  </div>
+
   <div class="charts-toolbar kpi-toolbar">
+    <a id="goalsLink" class="charts-config-trigger goals-link hidden"
+       href="/settings?tab=targets" title="Настроить цели по P&amp;L и Ops">🎯 Цели</a>
     <details class="charts-config">
       <summary class="charts-config-trigger" title="Выбрать видимые метрики на карточках">⚙ Метрики</summary>
       <div class="charts-config-popover">
@@ -238,6 +249,6 @@
 </div>
 
 <script src="/static/topbar.js?v=31"></script>
-<script src="/static/app.js?v=70"></script>
+<script src="/static/app.js?v=71"></script>
 </body>
 </html>

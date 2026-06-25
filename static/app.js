@@ -779,6 +779,47 @@ function render() {
   renderCharts();
   renderTable();
   updateOnboardingHints();
+  renderGoalsBanner();
+}
+
+// === Цели: ссылка в тулбаре + баннер «цели не заданы» (visibility ≥ 30) ===
+// state.meVis / state.meAdmin проставляются в initGoalsUi() из /auth/me.
+function goalsCanEdit() {
+  return !!(state.meAdmin || (state.meVis || 0) >= 30);
+}
+function targetsEmptyInPnl() {
+  const p = state.pnl || {};
+  const empty = (o) => !o
+    || (Array.isArray(o) ? o.length === 0 : Object.keys(o).length === 0);
+  return empty(p.targets) && empty(p.default_targets)
+    && empty(p.ops_targets) && empty(p.ops_project_targets);
+}
+function renderGoalsBanner() {
+  const b = document.getElementById('goalsBanner');
+  if (!b) return;
+  // Показываем только: редактор целей (≥30), режим «Месяц», данные загружены,
+  // целей на месяц нет, и баннер не скрыт в этой сессии.
+  const show = goalsCanEdit()
+    && state.mode === 'month'
+    && !!state.pnl
+    && targetsEmptyInPnl()
+    && sessionStorage.getItem('goalsBannerDismissed') !== '1';
+  b.classList.toggle('hidden', !show);
+}
+async function initGoalsUi() {
+  try {
+    const me = await (await fetch('/auth/me', { credentials: 'same-origin' })).json();
+    state.meVis = me.visibility_level || 0;
+    state.meAdmin = !!me.is_admin;
+  } catch (e) { return; }
+  const link = document.getElementById('goalsLink');
+  if (link && goalsCanEdit()) link.classList.remove('hidden');
+  const close = document.getElementById('goalsBannerClose');
+  if (close) close.addEventListener('click', () => {
+    sessionStorage.setItem('goalsBannerDismissed', '1');
+    document.getElementById('goalsBanner')?.classList.add('hidden');
+  });
+  renderGoalsBanner();
 }
 
 // S3.6: бейдж + кнопка «⟳ Метрики» рядом с пикером периода.
@@ -2935,6 +2976,7 @@ async function initSsoBanner() {
 document.addEventListener('DOMContentLoaded', async () => {
   initMonthSelect();
   initSsoBanner();
+  initGoalsUi();
 
   // Drawer (мобильный сайдбар проектов) — открывается hamburger-ом,
   // закрывается по клику на backdrop или по Escape.
