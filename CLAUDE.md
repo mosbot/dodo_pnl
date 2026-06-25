@@ -279,6 +279,12 @@ window_to_key, payload JSONB, computed_at)` PK всё это, insert-only
   частичный месяц всегда live). Раньше Lite дёргал Dodo IS на КАЖДЫЙ просмотр
   истории. Условие кэшируемости — `_is_full_month` И не в live-окне
   (`store.is_period_in_live_window`, глубина с ключа).
+  `_lite_revenue` дробит диапазон на КАЛЕНДАРНЫЕ МЕСЯЦЫ
+  (`_split_range_by_month`) и решает кэш/live ПО КАЖДОМУ месяцу. Это
+  обязательно: эндпоинт `/finances/sales/units/monthly` ограничен **62 днями** —
+  «Период» из нескольких месяцев одним запросом падает 400 `DateOutOfRange`
+  (был баг: пустые карточки в Lite-периоде). Тот же помесячный split — в
+  `_fetch_monthly_orders` (заказы, полный + Lite).
 - `ops_metrics` (S16/S18) для Финансов — персистентная месячная таблица (не
   TTL): для закрытых месяцев immutable, для текущего пере-синкается фоновым
   `_run_ops_sync`. Включает `avg_delivery_fulfillment_sec` (S18, миграция 0030,
