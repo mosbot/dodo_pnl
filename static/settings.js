@@ -167,6 +167,7 @@ async function renderAccessRequests() {
     try {
       await post(`/api/admin/access-requests/${id}/approve`, { visibility_level: vis });
       await renderAccessRequests();
+      if (typeof renderUsersTable === 'function') await renderUsersTable();
     } catch (_) { b.disabled = false; alert('Не удалось одобрить'); }
   }));
   tbody.querySelectorAll('.ar-deny').forEach(b => b.addEventListener('click', async () => {
