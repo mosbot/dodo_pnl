@@ -1431,12 +1431,20 @@ function renderProjectMonthlyTable(data) {
   ops.forEach(om => rows.push({ label: om.label, kind: 'ops', meta: om,
     values: months.map(mm => (bm[mm] && bm[mm].ops) ? bm[mm].ops[om.field] : null) }));
 
+  const narrow = (window.innerWidth || 800) <= 800;
+  const CW_METRIC = narrow ? 104 : 130;
+  const CW_MONTH = narrow ? 96 : 110;
+  const CW_SPARK = narrow ? 52 : 64;
+  const tableW = CW_METRIC + months.length * CW_MONTH + CW_SPARK;
+  const colg = `<colgroup><col style="width:${CW_METRIC}px">`
+    + months.map(() => `<col style="width:${CW_MONTH}px">`).join('')
+    + `<col style="width:${CW_SPARK}px"></colgroup>`;
   const head = `<tr><th class="pm-mlabel">Метрика</th>${months.map(m => `<th>${pmMonthLabel(m)}</th>`).join('')}<th class="pm-spark">тренд</th></tr>`;
   const body = rows.map(r => {
     const cells = r.values.map(v => `<td>${pmFmtCell(r.kind, r.meta, v)}</td>`).join('');
-    return `<tr><td class="pm-mlabel"><span class="pm-mname">${esc(r.label)}</span></td>${cells}<td class="pm-spark">${pmSparkline(r.values)}</td></tr>`;
+    return `<tr><td class="pm-mlabel">${esc(r.label)}</td>${cells}<td class="pm-spark">${pmSparkline(r.values)}</td></tr>`;
   }).join('');
-  return `<div class="pm-table-wrap"><table class="pm-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="pm-table-wrap"><table class="pm-table" style="width:${tableW}px">${colg}<thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 async function openProjectMonthlyModal(projectId, projectName) {
   let overlay = el('pmModal');
