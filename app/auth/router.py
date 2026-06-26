@@ -198,26 +198,57 @@ async def auth_sso(
 
 @router.get("/auth/link/start")
 async def auth_link_start(user: User = Depends(require_user)):
-    """Начать привязку Dodo IS к текущему аккаунту: OAuth sa → возврат на /auth/link."""
+    """Начать привязку Dodo IS к текущему аккаунту: OAuth sa → возврат на /auth/link.
+
+    Identity pnl-юзера несём подписанным link-token'ом в `return_to`, т.к. cookie
+    `pnl_session` (SameSite=Lax) не доживает до возврата после OAuth-раунда через
+    auth.dodois.io (иначе `/auth/link` ловит 401)."""
+    from urllib.parse import quote
     from ..config import settings
+    from .. import crypto
     if not (settings.sa_login_url and settings.public_base_url):
         return RedirectResponse("/settings?link=unavailable", status_code=302)
-    rt = settings.public_base_url.rstrip("/") + "/auth/link"
-    return RedirectResponse(f"{settings.sa_login_url}?return_to={rt}", status_code=302)
+    base = settings.public_base_url.rstrip("/") + "/auth/link"
+    lt = crypto.make_link_token(str(user.id))
+    rt = f"{base}?lt={quote(lt, safe='')}" if lt else base
+    return RedirectResponse(
+        f"{settings.sa_login_url}?return_to={quote(rt, safe='')}", status_code=302,
+    )
 
 
 @router.get("/auth/link")
 async def auth_link(
     request: Request,
-    user: User = Depends(require_user),
+    lt: str = "",
     db: AsyncSession = Depends(get_session),
 ):
-    """Привязать Dodo-аккаунт (из sa-сессии) к текущему pnl-юзеру.
+    """Привязать Dodo-аккаунт (из sa-сессии) к pnl-юзеру.
 
     Юзер подтверждает владение Dodo-аккаунтом, пройдя OAuth; берём его sub из
-    sa /me и биндим к текущему (залогиненному локально) аккаунту."""
+    sa /me и биндим к pnl-юзеру. Identity pnl-юзера определяем по подписанному
+    link-token'у `lt` (переживает OAuth-раунд), с fallback на cookie-сессию.
+    НЕ требуем `require_user` напрямую — иначе cookie SameSite=Lax, потерянная
+    на возврате из auth.dodois.io, давала сырой 401."""
     from sqlalchemy import select
     from . import sso as sso_mod
+    from .. import crypto
+    from .dependencies import _resolve_user
+
+    # 1) identity: link-token → fallback cookie.
+    uid_str = crypto.read_link_token(lt) if lt else None
+    db_user = None
+    if uid_str:
+        try:
+            db_user = await db.get(User, int(uid_str))
+        except (TypeError, ValueError):
+            db_user = None
+    if db_user is None:
+        pair = await _resolve_user(request, db)
+        if pair is not None:
+            db_user = pair[1]
+    if db_user is None:
+        # Сессия не доехала и токен невалиден — просим перелогиниться, не 401.
+        return RedirectResponse("/login?next=/settings&link=relogin", status_code=302)
 
     sa_cookie = request.cookies.get(sso_mod.SA_COOKIE_NAME)
     if not sa_cookie:
@@ -229,10 +260,10 @@ async def auth_link(
     other = (await db.execute(
         select(User).where(User.dodois_sub == sub)
     )).scalar_one_or_none()
-    if other is not None and other.id != user.id:
+    if other is not None and other.id != db_user.id:
         return RedirectResponse("/settings?link=taken", status_code=302)
-    db_user = await db.get(User, user.id)
-    db_user.dodois_sub = sub
+    fresh = await db.get(User, db_user.id)
+    fresh.dodois_sub = sub
     await db.commit()
     return RedirectResponse("/settings?link=ok", status_code=302)
 

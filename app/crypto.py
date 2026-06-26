@@ -99,3 +99,30 @@ def decrypt_secret(value: Optional[str]) -> str:
             "сменился. Перевыпусти PlanFact-ключ через /settings."
         )
         return ""
+
+
+def make_link_token(payload: str) -> Optional[str]:
+    """Короткоживущий подписанный токен (Fernet, со встроенным timestamp).
+
+    Используется для переноса идентичности pnl-юзера через внешний OAuth-раунд
+    привязки Dodo IS: cookie `pnl_session` (SameSite=Lax) не доживает до возврата
+    на `/auth/link` после редиректа через auth.dodois.io, поэтому identity несём
+    в `return_to`. Если secret_key не настроен → None (вызов откатится на cookie).
+    """
+    f = _get_fernet()
+    if f is None:
+        return None
+    return f.encrypt(payload.encode("utf-8")).decode("ascii")
+
+
+def read_link_token(token: str, max_age_sec: int = 600) -> Optional[str]:
+    """Проверить link-token и вернуть payload, либо None (битый/протухший/нет ключа)."""
+    if not token:
+        return None
+    f = _get_fernet()
+    if f is None:
+        return None
+    try:
+        return f.decrypt(token.encode("ascii"), ttl=max_age_sec).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return None
