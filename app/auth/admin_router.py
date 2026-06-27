@@ -476,7 +476,25 @@ async def admin_user_visibility(
     pk = await session.get(PlanfactKey, u.planfact_key_id)
     pf_key = decrypt_secret((pk.api_key or "").strip()) if pk else ""
     if not pf_key:
-        return {"projects": [], "message": "PF-ключ пустой."}
+        # Lite-тенант (нет PlanFact api_key): доступ к заведениям выдаём по
+        # projects_config (юниты Dodo IS), а не по PlanFact-проектам.
+        visibility = await store.list_user_visibility(session, u.id)
+        cfg = await store.list_projects_config(session, u.planfact_key_id)
+        out = []
+        for pid, c in cfg.items():
+            if not bool(c.get("is_admin_managed", True)):
+                continue
+            out.append({
+                "id": pid,
+                "planfact_name": c.get("display_name") or pid,
+                "is_visible": visibility.get(pid, True),
+                "is_admin_managed": True,
+                "planfact_active": True,
+                "project_group_id": None,
+                "project_group_title": "Заведения",
+                "project_group_is_undistributed": False,
+            })
+        return {"projects": out}
 
     pf = PlanFactClient(api_key=pf_key)
     try:
@@ -558,7 +576,27 @@ async def admin_key_projects(
         raise HTTPException(404, "Ключ не найден")
     pf_key = decrypt_secret((pk.api_key or "").strip())
     if not pf_key:
-        return {"projects": [], "message": "PF-ключ пустой."}
+        # Lite-тенант: структура заведений из projects_config (юниты Dodo IS).
+        cfg = await store.list_projects_config(session, key_id)
+        out = []
+        for pid, c in cfg.items():
+            is_admin_managed = bool(c.get("is_admin_managed", True))
+            if admin.is_network_admin and not is_admin_managed:
+                continue
+            out.append({
+                "id": pid,
+                "planfact_name": c.get("display_name") or pid,
+                "is_active": bool(c.get("is_active", True)),
+                "is_admin_managed": is_admin_managed,
+                "display_name": c.get("display_name"),
+                "sort_order": c.get("sort_order"),
+                "dodo_unit_uuid": c.get("dodo_unit_uuid"),
+                "planfact_active": True,
+                "project_group_id": None,
+                "project_group_title": "Заведения",
+                "project_group_is_undistributed": False,
+            })
+        return {"projects": out, "viewer_role": admin.role}
 
     pf = PlanFactClient(api_key=pf_key)
     try:
