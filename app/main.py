@@ -2378,24 +2378,31 @@ async def get_pnl_xlsx(
         raise HTTPException(400, "Не выбрано ни одной пиццерии.")
 
     pm = period_month or _derive_period_month(date_start, date_end)
-    pf = await planfact_for(session, user)
-    try:
-        result = await _build_pnl_for_period(
+    # Lite-тенант (нет PlanFact): xlsx собираем из Lite-данных (выручка/каналы),
+    # а не из _build_pnl_for_period (он ходит в PlanFact и упал бы).
+    is_lite = bool(user.planfact_key_id) and not await _tenant_has_planfact(
+        session, user.planfact_key_id
+    )
+    pf = None if is_lite else await planfact_for(session, user)
+
+    async def _build_x(ds: str, de: str, p: str | None) -> dict:
+        if is_lite:
+            return await _build_pnl_lite(session, user, ds, de, p, effective_projects)
+        return await _build_pnl_for_period(
             session=session, user=user, pf=pf,
-            date_start=date_start, date_end=date_end, period_month=pm,
+            date_start=ds, date_end=de, period_month=p,
             project_filter=effective_projects, method=method,
         )
+
+    try:
+        result = await _build_x(date_start, date_end, pm)
         is_period_mode = group_by == "month"
         if is_period_mode:
             months_in_range = _months_between(date_start, date_end)
             monthly_map: dict[str, dict] = {}
             for m in months_in_range:
                 ms, me = _month_range_dates(m)
-                month_result = await _build_pnl_for_period(
-                    session=session, user=user, pf=pf,
-                    date_start=ms, date_end=me, period_month=m,
-                    project_filter=effective_projects, method=method,
-                )
+                month_result = await _build_x(ms, me, m)
                 by_node = {}
                 by_node_pct = {}
                 for tn in month_result.get("template_lines") or []:
@@ -2555,6 +2562,14 @@ async def get_operations(
     session: AsyncSession = Depends(get_session),
 ):
     await _require_capability(session, user, "finance")
+    # Lite-тенант: операционной детализации из PlanFact нет — пусто, не 502.
+    if user.planfact_key_id and not await _tenant_has_planfact(
+        session, user.planfact_key_id
+    ):
+        return {
+            "items": [], "total": 0, "raw_count": 0,
+            "filtered_count": 0, "sum_value": 0.0,
+        }
     pf = await planfact_for(session, user)
     # Объединяем legacy single category_id и новый список category_ids.
     cat_id_set: set[str] = set()
@@ -2722,6 +2737,29 @@ async def get_operations_xlsx(
     плюс label для пользовательского контекста (статья / итог)."""
     await _require_capability(session, user, "finance")
     from . import xlsx_export
+
+    # Lite-тенант: операций из PlanFact нет — отдаём пустой xlsx (в Lite кнопка
+    # детализации скрыта, это защита от прямого вызова).
+    if user.planfact_key_id and not await _tenant_has_planfact(
+        session, user.planfact_key_id
+    ):
+        iso = (
+            date_start[:7] if date_start[:7] == date_end[:7]
+            else f"{date_start[:7]}_{date_end[:7]}"
+        )
+        blob = xlsx_export.render_operations_xlsx(
+            items=[], sum_value=0.0,
+            period_label=_human_period_label(date_start, date_end),
+            project_label="—", category_label=label or "—",
+        )
+        return Response(
+            content=blob,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="{xlsx_export.make_filename("operations", iso)}"'
+            },
+        )
 
     pf = await planfact_for(session, user)
     cat_id_set: set[str] = set()
