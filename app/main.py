@@ -429,6 +429,40 @@ async def health(
 async def get_projects(
     user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
 ):
+    # Lite-тенант (нет своего PlanFact): список проектов для сайдбара строим из
+    # projects_config (заведения Dodo IS), а НЕ из PlanFact. Иначе сайдбар пуст
+    # («Нет доступных проектов») — баг: /api/pnl Lite уже ходит в projects_config,
+    # а /api/projects оставался на PlanFact (у Lite пустой).
+    if user.planfact_key_id and not await _tenant_has_planfact(
+        session, user.planfact_key_id
+    ):
+        cfg = await store.list_projects_config(session, user.planfact_key_id)
+        hidden = await store.get_user_hidden_projects(session, user.id)
+        show_admin_unmanaged = user.is_super_admin
+        norm = []
+        for pid, c in cfg.items():
+            if not bool(c.get("is_admin_managed", True)) and not show_admin_unmanaged:
+                continue
+            key_active = bool(c.get("is_active", True))
+            user_visible = pid not in hidden
+            name = c.get("display_name") or pid
+            norm.append({
+                "id": pid,
+                "planfact_name": name,
+                "name": name,
+                "display_name": c.get("display_name"),
+                "is_active": key_active and user_visible,
+                "key_active": key_active,
+                "user_visible": user_visible,
+                "sort_order": c.get("sort_order"),
+                "planfact_active": True,
+                "dodo_unit_uuid": c.get("dodo_unit_uuid"),
+                "project_group_id": None,
+                "project_group_title": "Заведения",
+                "project_group_is_undistributed": False,
+            })
+        return {"projects": norm}
+
     pf = await planfact_for(session, user)
     try:
         projects = await pf.list_projects()
