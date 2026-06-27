@@ -56,7 +56,10 @@ class PlanFactClient:
         base_url: str | None = None,
         cache_ttl: int | None = None,
     ):
-        self.api_key = api_key or settings.planfact_api_key
+        # БЕЗ env-fallback (2026-06-26): пустой ключ → PlanFact ответит 401 (явно),
+        # а не подмена общим settings.planfact_api_key (тихая утечка). Все реальные
+        # вызовы передают ключ явно (get_planfact_client / admin с decrypt_secret).
+        self.api_key = (api_key or "").strip()
         self.base_url = (base_url or settings.planfact_base_url).rstrip("/")
         self.cache_ttl = cache_ttl if cache_ttl is not None else settings.cache_ttl
         # OrderedDict для LRU-эвикции (move_to_end на hit, popitem(last=False) на overflow)
@@ -518,8 +521,3 @@ def invalidate_planfact_for(user_id: int) -> None:
     if c is not None:
         _fire_and_forget_close(c)
         c.invalidate_cache()
-
-
-# Глобальный singleton — оставлен только для совместимости со старым кодом,
-# который ещё не перешёл на per-user. Удалить, когда все вызовы переедут.
-client = PlanFactClient()

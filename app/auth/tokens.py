@@ -10,10 +10,14 @@ Dodo IS access token:
     public.dodois_credentials.name, имя привязывается к нашему юзеру через
     pnl_service.users.dodois_credentials_name.
 
-Fallback на env-токены (settings.planfact_api_key / settings.dodo_is_access_token)
-оставлен для переходного периода: пока andrey не настроил свой ключ через
-UI/CLI, его дашборд продолжает работать на общих env-кредах. После того как
-у юзера прописан свой ключ — fallback не срабатывает.
+env-fallback на общие токены (settings.planfact_api_key / dodo_is_access_token)
+УБРАН (2026-06-26, security-hardening). Раньше при отсутствии своего ключа/привязки
+код молча отдавал ОБЩИЙ ключ/токен — для Lite-тенанта это тихая утечка чужих данных
+при первой же забытой is_lite-ветке. Теперь «нет данных тенанта» = явная ошибка
+(NoTokenError → 4xx/5xx), а не подмена чужими кредами. На момент сноса ни один
+прод-юзер на fallback не сидел (full-тенанты имеют свой api_key; SSO-юзеры идут в
+брокер по dodois_sub; у Lite планфакт-ключа нет). env-переменные можно удалить из
+.env — код их больше не читает.
 """
 from __future__ import annotations
 
@@ -46,12 +50,12 @@ async def get_planfact_key(session: AsyncSession, user: User) -> str:
             decrypted = decrypt_secret(pk.api_key)
             if decrypted:
                 return decrypted
-    fallback = (settings.planfact_api_key or "").strip()
-    if fallback:
-        return fallback
+    # env-fallback УБРАН: не отдаём общий PlanFact-ключ (тихая утечка). У Lite-
+    # тенанта своего ключа нет — он идёт в _build_pnl_lite и сюда не заходит;
+    # если зашёл (забытая is_lite-ветка) — пусть падает явно, а не утекает.
     raise NoTokenError(
-        "Не настроен PlanFact API key. Попросите администратора назначить "
-        "ключ через /settings → Пользователи."
+        "Не настроен PlanFact API key. Lite-тенанту PlanFact не нужен; для "
+        "полного P&L назначьте ключ через /settings → Пользователи."
     )
 
 
@@ -102,12 +106,11 @@ async def get_dodois_token(session: AsyncSession, user: User) -> str:
 
     name = (user.dodois_credentials_name or "").strip()
     if not name:
-        fallback = (settings.dodo_is_access_token or "").strip()
-        if fallback:
-            return fallback
+        # env-fallback УБРАН: общий Dodo-токен = чужой аккаунт → утечка ролей/
+        # данных. Нет привязки (ни sub, ни name) → явная ошибка, не подмена.
         raise NoTokenError(
-            "Не настроена привязка к Dodo IS. В /settings → Интеграции "
-            "пропиши имя из dodois_credentials (логин Dodo IS)."
+            "Не настроена привязка к Dodo IS. Войдите через Dodo IS (SSO) или "
+            "пропишите имя из dodois_credentials в /settings → Интеграции."
         )
 
     # 1) Токен-брокер sa (целевой путь на SA-VPS).
