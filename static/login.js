@@ -44,7 +44,7 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearError();
-    const linkMode = !!window.__ssoLinkMode;  // привязка с экрана входа (sso=noaccount)
+    const linkMode = !!window.__ssoLinkMode;  // привязка с экрана входа (sso=noaccount/request/nosub)
     submit.disabled = true;
     submit.textContent = linkMode ? 'Привязываем…' : 'Вход…';
 
@@ -61,7 +61,7 @@
         const data = await r.json().catch(() => ({}));
         showError(data.detail || `Ошибка ${r.status}`);
         submit.disabled = false;
-        submit.textContent = 'Войти';
+        submit.textContent = linkMode ? 'Привязать и войти' : 'Войти';
         return;
       }
       // Успех — редирект на ?next или /
@@ -75,70 +75,97 @@
 })();
 
 // ── Обработчик ?sso= (перенесён из инлайна login.html: CSP `script-src 'self'`
-// глушил инлайн-скрипт → состояние «request»/«nosub» после входа через Dodo IS
-// не рендерилось, новый юзер видел обычную форму = «кнопка ничего не делает»).
+// глушил инлайн-скрипт → состояние после входа через Dodo IS не рендерилось,
+// новый юзер видел обычную форму = «кнопка ничего не делает»).
+// UX: у нового сотрудника локального логина/пароля нет — ведём с «Запросить
+// доступ», форму логин/пароль прячем под ссылку.
 (function () {
   var p = new URLSearchParams(location.search).get('sso');
   if (!p) return;
-  // Вход через Dodo IS выполнен, но аккаунта нет → предлагаем привязать:
-  // юзер вводит локальные логин/пароль, форма уходит на /auth/sso-link.
+  var subEl = document.querySelector('.login-sub');
+  var formWrap = document.getElementById('loginFormWrap');
+  var orEl = document.querySelector('.login-or');
+  var ssoLink = document.getElementById('ssoLink');        // «Войти через Dodo IS» (ретрай)
+  var toggle = document.getElementById('showPwToggle');    // «Есть логин и пароль? Ввести вручную»
+  var submit = document.getElementById('loginSubmit');
+  var rq = document.getElementById('ssoRequestBtn');
+  var rm = document.getElementById('ssoRequestMsg');
+
+  function hideForm() {
+    if (formWrap) formWrap.style.display = 'none';
+    if (orEl) orEl.style.display = 'none';
+    if (ssoLink) ssoLink.style.display = 'none';
+  }
+  function revealForm() {
+    window.__ssoLinkMode = true;
+    if (formWrap) formWrap.style.display = 'block';
+    if (submit) submit.textContent = 'Привязать и войти';
+    if (toggle) toggle.style.display = 'none';
+    var uname = document.getElementById('username');
+    if (uname) uname.focus();
+  }
+  function showToggle() {
+    if (toggle) { toggle.style.display = 'block'; toggle.addEventListener('click', revealForm); }
+  }
+  function showRetry() {
+    if (ssoLink) { ssoLink.style.display = 'block'; ssoLink.textContent = 'Войти через Dodo IS'; }
+  }
+  function successMsg(text) {
+    if (!rm) return;
+    rm.style.display = 'block';
+    rm.style.background = '#dcfce7';
+    rm.style.color = '#166534';
+    rm.style.padding = '11px 12px';
+    rm.style.borderRadius = '8px';
+    rm.style.marginTop = '12px';
+    rm.textContent = text;
+  }
+
+  // noaccount (legacy): незнакомый sub при выключенном авто-провижне → привязка.
   if (p === 'noaccount') {
     window.__ssoLinkMode = true;
-    var sub = document.querySelector('.login-sub');
-    if (sub) sub.textContent =
-      'Вход через Dodo IS выполнен, но аккаунт ещё не привязан. Есть логин и пароль? Введите их — привяжем Dodo IS к вашему аккаунту.';
-    var sb = document.getElementById('loginSubmit');
-    if (sb) sb.textContent = 'Привязать и войти';
-    var or = document.querySelector('.login-or');
-    var sso = document.querySelector('.login-sso');
-    if (or) or.style.display = 'none';
-    if (sso) sso.style.display = 'none';
+    if (subEl) subEl.textContent = 'Вход через Dodo IS выполнен, но аккаунт ещё не привязан. Есть логин и пароль? Введите — привяжем Dodo IS к вашему аккаунту.';
+    if (submit) submit.textContent = 'Привязать и войти';
+    if (orEl) orEl.style.display = 'none';
+    if (ssoLink) ssoLink.style.display = 'none';
     return;
   }
-  // Незнакомый Dodo-аккаунт: сеть уже заведена ('request') или нет тенанта
-  // ('nosub'). В обоих случаях оставляем форму привязки (вдруг локальный
-  // аккаунт уже есть — введите логин/пароль). Для 'request' добавляем кнопку
-  // «Запросить доступ» (создаст заявку админу сети).
+
+  // request — сеть уже заведена, нужен доступ у админа; nosub — нет подписки.
   if (p === 'request' || p === 'nosub') {
-    window.__ssoLinkMode = true;
-    var subEl = document.querySelector('.login-sub');
-    if (subEl) subEl.textContent = (p === 'request')
-      ? 'Вход через Dodo IS выполнен. Есть логин/пароль — введите для привязки. Либо запросите доступ у администратора сети.'
-      : 'Вход через Dodo IS выполнен, но подписка на сервис не найдена. Если у вас есть логин/пароль — введите их.';
-    var sbtn = document.getElementById('loginSubmit');
-    if (sbtn) sbtn.textContent = 'Привязать и войти';
-    var or2 = document.querySelector('.login-or');
-    var sso2 = document.querySelector('.login-sso');
-    if (or2) or2.style.display = 'none';
-    if (sso2) sso2.style.display = 'none';
+    hideForm();
+    window.__ssoLinkMode = true;  // если раскроют форму — она в режиме привязки
     if (p === 'request') {
-      var rb = document.getElementById('ssoRequestBtn');
-      var rm = document.getElementById('ssoRequestMsg');
-      if (rb) {
-        rb.style.display = 'block';
-        rb.addEventListener('click', async function () {
-          rb.disabled = true; rb.textContent = 'Отправляем…';
-          try {
-            var r = await fetch('/auth/access-request', { method: 'POST' });
-            var j = await r.json().catch(function(){return {};});
-            rm.style.display = 'block';
-            if (r.ok && (j.status === 'pending' || j.status === 'linked')) {
-              rb.style.display = 'none';
-              rm.textContent = j.status === 'linked'
-                ? 'Ваш аккаунт уже привязан — просто войдите через Dodo IS.'
-                : 'Запрос отправлен администратору сети. Дождитесь подтверждения и войдите снова через Dodo IS.';
-            } else {
-              rb.disabled = false; rb.textContent = 'Запросить доступ у администратора';
-              rm.textContent = (j.detail || 'Не удалось отправить запрос.');
-            }
-          } catch (e) {
-            rb.disabled = false; rb.textContent = 'Запросить доступ у администратора';
-          }
+      if (subEl) subEl.textContent = 'Ваш аккаунт Dodo IS ещё не подключён к этой сети в Финансах. Запросите доступ у администратора — после подтверждения вы войдёте через Dodo IS.';
+      if (rq) {
+        rq.style.display = 'block';
+        rq.addEventListener('click', function () {
+          rq.disabled = true; rq.textContent = 'Отправляем…';
+          fetch('/auth/access-request', { method: 'POST', credentials: 'same-origin' })
+            .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (res) {
+              if (res.ok && (res.j.status === 'pending' || res.j.status === 'linked')) {
+                rq.style.display = 'none';
+                successMsg(res.j.status === 'linked'
+                  ? 'Ваш аккаунт уже привязан — просто войдите через Dodo IS.'
+                  : 'Запрос отправлен администратору сети. Когда он подтвердит — нажмите «Войти через Dodo IS».');
+                showRetry();
+              } else {
+                rq.disabled = false; rq.textContent = 'Запросить доступ у администратора';
+                if (rm) { rm.style.display = 'block'; rm.textContent = (res.j.detail || 'Не удалось отправить запрос.'); }
+              }
+            })
+            .catch(function () { rq.disabled = false; rq.textContent = 'Запросить доступ у администратора'; });
         });
       }
+    } else {
+      if (subEl) subEl.textContent = 'Для ваших заведений не найдено активной подписки на Финансы. Обратитесь к владельцу сети. Если подписку уже добавили — попробуйте войти снова.';
+      showRetry();
     }
+    showToggle();
     return;
   }
+
   var msg = {
     nolicense: 'У этого аккаунта Dodo IS нет лицензии на Финансы. Обратитесь к администратору.',
     invalid: 'Сессия Dodo IS недействительна — войдите заново.',

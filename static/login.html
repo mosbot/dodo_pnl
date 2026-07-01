@@ -99,6 +99,7 @@
     <!-- method=POST + action=# чтобы при неудаче выполнения JS форма всё
          равно НЕ слила пароль в URL через default GET. Реальный submit
          перехватывается JS (login.js, e.preventDefault). -->
+    <div id="loginFormWrap">
     <form id="loginForm" class="login-form" autocomplete="on" method="POST" action="#">
       <label>Логин
         <input type="text" name="username" id="username" required autofocus autocomplete="username">
@@ -109,13 +110,15 @@
       <div id="loginError" class="login-error"></div>
       <button type="submit" id="loginSubmit" class="login-submit">Войти</button>
     </form>
+    </div>
     <div class="login-or">или</div>
-    <a href="/auth/sso" class="login-sso">Войти через Dodo IS</a>
+    <a href="/auth/sso" class="login-sso" id="ssoLink">Войти через Dodo IS</a>
     <button type="button" id="ssoRequestBtn" class="login-sso" style="display:none;border:0;cursor:pointer;width:100%">Запросить доступ у администратора</button>
     <div id="ssoRequestMsg" class="login-sub" style="display:none;margin-top:8px"></div>
+    <button type="button" id="showPwToggle" style="display:none;background:none;border:0;color:#6b7280;font-size:13px;text-decoration:underline;cursor:pointer;margin-top:14px;width:100%">Есть логин и пароль? Ввести вручную</button>
   </div>
 </div>
 
-<script src="/static/login.js?v=3"></script>
+<script src="/static/login.js?v=4"></script>
 </body>
 </html>
