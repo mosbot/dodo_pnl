@@ -162,6 +162,26 @@ async def _no_token_handler(request: Request, exc: NoTokenError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+from starlette.exceptions import HTTPException as _StarletteHTTPException  # noqa: E402
+from fastapi.exception_handlers import (  # noqa: E402
+    http_exception_handler as _default_http_handler,
+)
+
+
+@app.exception_handler(_StarletteHTTPException)
+async def _dodo_no_access_handler(request: Request, exc):
+    """403 NoAccessToUnit из Dodo IS → понятное сообщение вместо сырого 502
+    с JSON-ошибкой Dodo. Для всех прочих HTTPException — стандартное
+    поведение FastAPI (делегируем дефолтному обработчику)."""
+    d = getattr(exc, "detail", None)
+    if isinstance(d, str) and "NoAccessToUnit" in d:
+        return JSONResponse(status_code=403, content={"detail":
+            "Аккаунт Dodo IS этой сети не имеет доступа к её пиццериям в "
+            "Dodo IS. Обратитесь к владельцу сети или проверьте права доступа "
+            "к заведениям в Dodo IS."})
+    return await _default_http_handler(request, exc)
+
+
 def _require_user_pf_key(user: User) -> int:
     """Достать planfact_key_id юзера или вернуть 400 если не настроен.
 
@@ -3870,6 +3890,76 @@ async def delete_template(
     return {"status": "ok"}
 
 
+def _opu_tree_to_nodes(report_data: dict) -> list[dict]:
+    """v2 ОПУ (operationCategoryByProjects) → плоский DFS-список узлов шаблона
+    формата replace_template_tree. Уровни (pnl_code) авто-классифицируются
+    тем же `classify_category`, что и raw/preview-путь. Расчётных строк
+    (EBITDA/чистая прибыль) в ОПУ-категориях нет — они синтезируются формулами
+    метрик на шаге сева."""
+    from .pnl import classify_category
+    ocp = (report_data or {}).get("operationCategoryByProjects") or {}
+    nodes: list[dict] = []
+
+    def walk(items, parent_idx, ancestors):
+        for it in items or []:
+            oc = it.get("operationCategory") or {}
+            title = (oc.get("title") or "").strip() or "—"
+            path = ancestors + [title]
+            info = {
+                "path_str": " / ".join(path).lower(),
+                "op_type": oc.get("operationCategoryType"),
+                "activity_type": oc.get("activityTypeId"),
+                "outcome_class": oc.get("outcomeClassificationId"),
+            }
+            details = it.get("details") or []
+            idx = len(nodes)
+            nodes.append({
+                "title": title,
+                "depth": len(ancestors),
+                "parent_idx": parent_idx,
+                "path": path,
+                "is_leaf": not details,
+                "is_calc": False,
+                "pnl_code": classify_category(info),
+                "sort_order": int(oc.get("sort") or (idx + 1)),
+            })
+            walk(details, idx, path)
+
+    walk(ocp.get("incomeItems"), None, [])
+    walk(ocp.get("outcomeItems"), None, [])
+    walk(ocp.get("dividendsItems"), None, [])
+    return nodes
+
+
+@app.post("/api/template/import-from-planfact")
+async def import_template_from_planfact(
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Онбординг-мастер: построить дерево статей P&L прямо из PlanFact API
+    (v2 ОПУ за прошлый полный месяц) — без загрузки xlsx. Возвращает preview
+    того же формата, что POST /api/template/preview (nodes с авто-уровнями)."""
+    from datetime import date, timedelta
+    pf = await planfact_for(session, user)
+    first_this = date.today().replace(day=1)
+    last_prev = first_this - timedelta(days=1)
+    ds, de = last_prev.replace(day=1).isoformat(), last_prev.isoformat()
+    try:
+        data = await pf.report_opu(date_start=ds, date_end=de)
+    except PlanFactError as e:
+        raise HTTPException(502, f"PlanFact вернул ошибку: {e.body[:200]}")
+    nodes = _opu_tree_to_nodes(data)
+    if not nodes:
+        raise HTTPException(
+            400,
+            "PlanFact вернул пустую структуру ОПУ за прошлый месяц. Убедитесь, "
+            "что в PlanFact настроен отчёт ОПУ и по нему есть операции.",
+        )
+    leaf = sum(1 for n in nodes if n["is_leaf"])
+    return {"nodes": nodes, "warnings": [], "total": len(nodes),
+            "leaf_count": leaf, "calc_count": 0}
+
+
 # --- P&L metrics (KPI с формулами) ---
 # Привязаны к planfact_key (см. модель PnLMetric). Read — любой юзер с ключом,
 # write — admin only. Формулы валидируются перед сохранением.
@@ -3888,7 +3978,7 @@ async def list_metrics(
 @app.put("/api/metrics/{code}")
 async def upsert_metric(
     code: str, payload: schemas.MetricIn,
-    user: User = Depends(require_super_admin),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
@@ -3919,12 +4009,32 @@ async def upsert_metric(
 @app.delete("/api/metrics/{code}")
 async def delete_metric(
     code: str,
-    user: User = Depends(require_super_admin),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     pf_key_id = _require_user_pf_key(user)
     await store.delete_metric(session, pf_key_id, code)
     return {"status": "ok"}
+
+
+@app.post("/api/metrics/seed")
+async def seed_metrics_for_tenant(
+    reseed: bool = False,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Онбординг-мастер: авто-сев формул метрик из размеченного шаблона своего
+    тенанта (in-process, вместо CLI `seed_metrics`). Idempotent: по умолчанию
+    добавляет недостающие; reseed=True — DELETE+INSERT. Скоуп — свой ключ
+    (`_require_user_pf_key`), чужой тенант не тронуть."""
+    from .seed_metrics import _seed_one_key
+    from .auth.models import PlanfactKey
+    pf_key_id = _require_user_pf_key(user)
+    pk = await session.get(PlanfactKey, pf_key_id)
+    name = pk.name if pk else str(pf_key_id)
+    await _seed_one_key(session, pf_key_id, name, reseed=reseed, dry_run=False)
+    metrics = await store.list_metrics(session, pf_key_id)
+    return {"ok": True, "count": len(metrics), "metrics": metrics}
 
 
 @app.get("/api/board-metrics")

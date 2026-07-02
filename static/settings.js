@@ -97,7 +97,7 @@ function flashErr(inputEl) {
 
 // ---------- Tabs (Профиль / Проекты и статьи / Показатели / Цели / Команда) ----------
 // «Интеграции» свёрнуты в «Профиль»; «Цели» — для visibility ≥ 30 (.lvl30-only).
-const TABS = ['profile', 'structure', 'metrics', 'targets', 'users', 'platform'];
+const TABS = ['profile', 'source', 'structure', 'metrics', 'targets', 'users', 'platform'];
 const TAB_STORAGE_KEY = 'pnlSettings.activeTab';
 
 function showTab(name) {
@@ -482,8 +482,16 @@ async function loadOpsMetrics() {
     state.opsMetrics = {};
     return;
   }
-  const res = await api(`/api/ops-metrics?period_month=${state.currentMonth}`);
-  state.opsMetrics = res.metrics || {};
+  try {
+    const res = await api(`/api/ops-metrics?period_month=${state.currentMonth}`);
+    state.opsMetrics = res.metrics || {};
+  } catch (e) {
+    // Нет ключа / нет данных → не роняем loadAll. Иначе в DOMContentLoaded
+    // не вызовется initUsersTab и у админа без ключа не раскроются вкладки
+    // (в т.ч. «Платформа», где ключ и добавляется). Cold-start catch-22.
+    console.error('[loadOpsMetrics] failed:', e);
+    state.opsMetrics = {};
+  }
 }
 
 // ======================================================
@@ -1317,8 +1325,24 @@ async function loadIntegrationStatus() {
     if (pfName) pfName.textContent = s.planfact_key_name || '— не назначен —';
     const di = document.getElementById('dodoisName');
     if (di) di.textContent = s.dodois_credentials_name || '— не назначен —';
+    renderSourceBlock(s);
   } catch (e) {
     console.warn('integrations status failed', e);
+  }
+}
+
+// Витрина «Источник данных P&L»: Lite → предложить подключить, Full → статус.
+function renderSourceBlock(s) {
+  const statusEl = document.getElementById('sourceStatus');
+  const connectEl = document.getElementById('sourceConnect');
+  if (!statusEl || !connectEl) return;
+  const kind = (s && s.source_kind) || 'lite';
+  if (kind === 'planfact') {
+    statusEl.innerHTML = 'Подключён источник: <strong>PlanFact</strong> — доступен полный P&L.';
+    connectEl.style.display = 'none';
+  } else {
+    statusEl.innerHTML = 'Текущий режим: <strong>Lite</strong> — выручка и метрики из Dodo IS.';
+    connectEl.style.display = 'block';
   }
 }
 
@@ -1344,6 +1368,307 @@ function initIntegrationsTab() {
     });
   }
   loadIntegrationStatus();
+}
+
+// Статус источника в разделе «Источник P&L» (Lite/Full + число проектов) +
+// подпись кнопки запуска мастера.
+async function loadSourceTabStatus() {
+  const box = document.getElementById('srcTabStatus');
+  if (!box) return;
+  try {
+    const s = await api('/api/me/integrations');
+    const full = (s.source_kind === 'planfact');
+    const n = (state.projects || []).length;
+    box.innerHTML = full
+      ? `Источник: <strong>PlanFact</strong> — доступен полный P&L. Проектов: <strong>${n}</strong>.`
+      : 'Текущий режим: <strong>Lite</strong> (данные из Dodo IS). Подключите P&L для полного анализа: себестоимость, ФОТ, расходы и прибыльность.';
+    const btn = document.getElementById('btnOpenWizard');
+    if (btn) btn.textContent = full ? 'Перенастроить P&L' : 'Настроить P&L';
+  } catch (e) { box.textContent = ''; }
+}
+
+// ======================================================
+// Мастер «Источник P&L» — единый онбординг (4 шага)
+// ======================================================
+function initSourceWizard() {
+  const modal = document.getElementById('pnlWizardModal');
+  if (!modal) return;
+  const steps = [...modal.querySelectorAll('.wiz-step')];
+  const wpanes = [...modal.querySelectorAll('.wiz-pane')];
+  const ORDER = ['1', '2', '3', '4'];
+  let curStep = '1';
+  function showStep(n) {
+    n = String(n);
+    curStep = n;
+    wpanes.forEach(p => { p.style.display = (p.dataset.wpane === n) ? 'block' : 'none'; });
+    steps.forEach(s => {
+      const active = s.dataset.wstep === n;
+      s.style.background = active ? 'var(--primary)' : '#fff';
+      s.style.color = active ? '#fff' : 'var(--text)';
+      s.style.borderColor = active ? 'var(--primary)' : 'var(--border)';
+    });
+    const backBtn = document.getElementById('wizBack');
+    const nextBtn = document.getElementById('wizNext');
+    const idx = ORDER.indexOf(n);
+    if (backBtn) backBtn.style.visibility = idx <= 0 ? 'hidden' : 'visible';
+    if (nextBtn) nextBtn.textContent = idx >= ORDER.length - 1 ? 'Готово ✓' : 'Далее →';
+    if (n === '2' && !state._wizUnitsLoaded) loadWizUnits();
+    if (n === '3') maybeAutoImportStructure();
+  }
+  window._wizShowStep = showStep;
+  steps.forEach(s => s.addEventListener('click', () => showStep(s.dataset.wstep)));
+  document.getElementById('wizBack')?.addEventListener('click', () => {
+    const i = ORDER.indexOf(curStep); if (i > 0) showStep(ORDER[i - 1]);
+  });
+  document.getElementById('wizNext')?.addEventListener('click', () => {
+    const i = ORDER.indexOf(curStep);
+    if (i >= ORDER.length - 1) { closeModal('pnlWizardModal'); loadSourceTabStatus(); return; }
+    showStep(ORDER[i + 1]);
+  });
+  function openWizard(step) { openModal('pnlWizardModal'); showStep(step || '1'); }
+  window.openPnlWizard = openWizard;
+  document.getElementById('btnOpenWizard')?.addEventListener('click', () => openWizard('1'));
+
+  // Подключение ключа прямо в модале — без перезагрузки: обновляем состояние и
+  // переходим на шаг 2.
+  const pfConnect = document.getElementById('srcPfConnect');
+  if (pfConnect) pfConnect.addEventListener('click', async () => {
+    const inp = document.getElementById('srcPfKey');
+    const key = ((inp && inp.value) || '').trim();
+    if (!key) { setMsg('srcPfMsg', 'Вставьте ключ PlanFact.', 'err'); return; }
+    pfConnect.disabled = true;
+    setMsg('srcPfMsg', 'Проверяю ключ у PlanFact…', 'ok');
+    try {
+      const r = await post('/api/me/source/planfact', { api_key: key });
+      setMsg('srcPfMsg', `Готово! Ключ принят, проектов: ${r.projects}.`, 'ok');
+      try {
+        const s = await api('/api/me/integrations'); renderSourceBlock(s);
+        const pr = await api('/api/projects'); state.projects = pr.projects || [];
+        renderWizProjects(); renderWizMap(); loadSourceTabStatus();
+      } catch (_) {}
+      setTimeout(() => showStep('2'), 700);
+    } catch (err) {
+      setMsg('srcPfMsg', err.message, 'err');
+      pfConnect.disabled = false;
+    }
+  });
+
+  renderWizProjects();
+  renderWizMap();
+  loadSourceTabStatus();
+
+  const autoLinkBtn = document.getElementById('wizAutoLink');
+  if (autoLinkBtn) autoLinkBtn.addEventListener('click', async () => {
+    const st = document.getElementById('wizUnitsStatus');
+    autoLinkBtn.disabled = true; st.textContent = 'Сопоставляю по имени…';
+    try {
+      if (!state._wizUnitsLoaded) await loadWizUnits();
+      const r = await post('/api/projects/auto-link-dodois', {});
+      const pr = await api('/api/projects');
+      state.projects = pr.projects || state.projects;
+      st.textContent = r.summary || 'Готово';
+      renderWizMap(); renderWizProjects();
+    } catch (e) { st.textContent = 'Ошибка: ' + e.message; }
+    finally { autoLinkBtn.disabled = false; }
+  });
+  const pruneBtn = document.getElementById('wizPrune');
+  if (pruneBtn) pruneBtn.addEventListener('click', async () => {
+    const st = document.getElementById('wizUnitsStatus');
+    const unmapped = (state.projects || []).filter(p => !p.dodo_unit_uuid && p.is_active);
+    if (!unmapped.length) { st.textContent = 'Несопоставленных активных проектов нет.'; return; }
+    if (!confirm(`Отключить ${unmapped.length} несопоставленных проектов? Вернуть можно во вкладке «Проекты и статьи».`)) return;
+    pruneBtn.disabled = true; st.textContent = 'Отсекаю…';
+    try {
+      for (const p of unmapped) {
+        await post('/api/projects/config', { project_id: p.id, is_active: false });
+        p.is_active = false;
+      }
+      st.textContent = `Отсечено проектов: ${unmapped.length}`;
+      renderWizMap(); renderWizProjects();
+    } catch (e) { st.textContent = 'Ошибка: ' + e.message; }
+    finally { pruneBtn.disabled = false; }
+  });
+
+  const tplFromPfBtn = document.getElementById('wizTplFromPf');
+  if (tplFromPfBtn) tplFromPfBtn.addEventListener('click', () => importStructureFromPf(false));
+
+  const tplPreviewBtn = document.getElementById('wizTplPreview');
+  if (tplPreviewBtn) tplPreviewBtn.addEventListener('click', async () => {
+    const f = document.getElementById('wizTplFile').files[0];
+    const st = document.getElementById('wizTplStatus');
+    if (!f) { st.textContent = 'Выберите .xlsx'; return; }
+    st.textContent = 'Разбираю…';
+    try {
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch('/api/template/preview', { method: 'POST', body: fd });
+      if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+      const data = await r.json();
+      state.wizTplPreview = data.nodes || [];
+      st.textContent = `Узлов: ${data.total} · листьев ${data.leaf_count} · расчётных ${data.calc_count}`;
+      document.getElementById('wizTplSave').classList.remove('hidden');
+      renderWizTree(state.wizTplPreview);
+    } catch (e) { st.textContent = 'Ошибка: ' + e.message; }
+  });
+  const tplSaveBtn = document.getElementById('wizTplSave');
+  if (tplSaveBtn) tplSaveBtn.addEventListener('click', async () => {
+    const st = document.getElementById('wizTplStatus');
+    if (!state.wizTplPreview) return;
+    st.textContent = 'Сохраняю…';
+    try {
+      const r = await fetch('/api/template', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodes: state.wizTplPreview }) });
+      if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+      st.textContent = 'Структура сохранена. Перейдите к шагу 4.';
+      toast('Структура P&L сохранена');
+    } catch (e) { st.textContent = 'Ошибка: ' + e.message; }
+  });
+
+  const seedBtn = document.getElementById('wizSeedMetrics');
+  if (seedBtn) seedBtn.addEventListener('click', async () => {
+    const st = document.getElementById('wizMetricsStatus');
+    seedBtn.disabled = true; st.textContent = 'Генерирую формулы…';
+    try {
+      const r = await post('/api/metrics/seed', {});
+      // Обновляем конструктор ниже (тот же state.metrics + рендер).
+      try { await loadMetrics(); renderMetrics(); renderMetricsLineList(); } catch (_) {}
+      st.textContent = r.count ? `Сгенерировано метрик: ${r.count}. Проверьте и правьте в конструкторе ниже.` : 'Метрики не созданы — сначала загрузите структуру (шаг 3).';
+    } catch (e) { st.textContent = 'Ошибка: ' + e.message; }
+    finally { seedBtn.disabled = false; }
+  });
+
+  // Авто-открытие мастера по ?wizard=1 (переход с баннера дашборда).
+  try { if (new URLSearchParams(location.search).get('wizard') === '1') openWizard('1'); } catch (_) {}
+}
+
+function renderWizProjects() {
+  const box = document.getElementById('wizProjects');
+  if (!box) return;
+  const ps = state.projects || [];
+  if (!ps.length) { box.innerHTML = '<p class="muted" style="font-size:12px;">Проектов нет — подключите PlanFact выше.</p>'; return; }
+  box.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:6px;">Проектов из источника: <strong>${ps.length}</strong> (✓ = привязан к Dodo)</div>` +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+    ps.map(p => `<span style="border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:12px;">${esc(p.name || p.id)}${p.dodo_unit_uuid ? ' ✓' : ''}</span>`).join('') +
+    '</div>';
+}
+
+// Инверсия: строки — заведения Dodo (первичны), в каждой дропдаун проекта
+// PlanFact. Одно заведение = один проект (при выборе чистим прежнюю привязку
+// как заведения, так и проекта). Несопоставленные проекты не мешают.
+function _wizNorm(s) { return (s || '').toLowerCase().replace(/[-\s_]/g, ''); }
+
+function renderWizMap() {
+  const box = document.getElementById('wizMapTable');
+  if (!box) return;
+  const units = state.dodoUnits || [];
+  const projs = state.projects || [];
+  if (!units.length) {
+    box.innerHTML = '<p class="muted" style="font-size:12px;">Загружаю заведения…</p>';
+    return;
+  }
+  const projByUuid = {};
+  projs.forEach(p => { if (p.dodo_unit_uuid) projByUuid[_wizNorm(p.dodo_unit_uuid)] = p; });
+  const mappedCount = Object.keys(projByUuid).length;
+  box.innerHTML =
+    `<div class="muted" style="font-size:12px;margin-bottom:6px;">Заведений Dodo: <strong>${units.length}</strong> · сопоставлено: <strong>${mappedCount}</strong></div>` +
+    '<table class="dense-table"><thead><tr><th>Заведение Dodo</th><th>Проект PlanFact</th><th></th></tr></thead><tbody>' +
+    units.map(u => {
+      const linked = projByUuid[_wizNorm(u.id)];
+      const optionsHtml = ['<option value="">— не задан —</option>']
+        .concat(projs.map(p => `<option value="${esc(p.id)}" ${linked && linked.id === p.id ? 'selected' : ''}>${esc(p.name || p.id)}</option>`))
+        .join('');
+      return `<tr data-uuid="${esc(u.id)}"><td>${esc(u.name)}</td>` +
+        `<td><select class="wiz-proj" style="font-size:12px;min-width:240px;max-width:100%;">${optionsHtml}</select></td>` +
+        `<td>${linked ? '<span style="color:green;">✓</span>' : ''}</td></tr>`;
+    }).join('') +
+    '</tbody></table>';
+  box.querySelectorAll('.wiz-proj').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const uuid = sel.closest('tr').dataset.uuid;
+      const pid = sel.value;
+      try {
+        // 1:1 — снять привязку у другого проекта, что стоял на этом заведении,
+        // и снять прежнее заведение у выбранного проекта.
+        for (const p of (state.projects || [])) {
+          if (p.dodo_unit_uuid && _wizNorm(p.dodo_unit_uuid) === _wizNorm(uuid) && p.id !== pid) {
+            await post('/api/projects/config', { project_id: p.id, dodo_unit_uuid: '' });
+            p.dodo_unit_uuid = null;
+          }
+        }
+        if (pid) {
+          await post('/api/projects/config', { project_id: pid, dodo_unit_uuid: uuid, is_active: true });
+          const p = (state.projects || []).find(x => x.id === pid);
+          if (p) { p.dodo_unit_uuid = uuid; p.is_active = true; }
+        }
+        toast('Сопоставление сохранено');
+        renderWizMap(); renderWizProjects();
+      } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+    });
+  });
+}
+
+async function loadWizUnits() {
+  const st = document.getElementById('wizUnitsStatus');
+  try {
+    const res = await api('/api/dodois/units');
+    state.dodoUnits = res.units || [];
+    state._wizUnitsLoaded = true;
+    if (st) st.textContent = `Заведений Dodo: ${state.dodoUnits.length}`;
+    renderWizMap();
+  } catch (e) { if (st) st.textContent = 'Не удалось загрузить заведения: ' + e.message; }
+}
+
+async function importStructureFromPf(auto) {
+  const st = document.getElementById('wizTplStatus');
+  const btn = document.getElementById('wizTplFromPf');
+  if (btn) btn.disabled = true;
+  if (st) st.textContent = auto ? 'Импортирую структуру из PlanFact…' : 'Обновляю структуру из PlanFact…';
+  try {
+    const data = await post('/api/template/import-from-planfact', {});
+    state.wizTplPreview = data.nodes || [];
+    if (st) st.textContent = `Импортировано: ${data.total} статей (листьев ${data.leaf_count}). Проверьте уровни и сохраните.`;
+    const save = document.getElementById('wizTplSave'); if (save) save.classList.remove('hidden');
+    renderWizTree(state.wizTplPreview);
+  } catch (e) { if (st) st.textContent = 'Ошибка импорта: ' + e.message; }
+  finally { if (btn) btn.disabled = false; }
+}
+
+// Шаг 3 при входе: превью в работе → показать; сохранённый шаблон → статус;
+// свежий тенант → авто-импорт из PlanFact.
+function maybeAutoImportStructure() {
+  if (state.wizTplPreview) { renderWizTree(state.wizTplPreview); return; }
+  if (state.template && state.template.nodes && state.template.nodes.length) {
+    const st = document.getElementById('wizTplStatus');
+    if (st) st.textContent = `Структура загружена: ${state.template.nodes.length} статей. «Обновить структуру» — перечитать из PlanFact.`;
+    return;
+  }
+  importStructureFromPf(true);
+}
+
+function renderWizTree(nodes) {
+  const box = document.getElementById('wizTplTree');
+  if (!box) return;
+  const CODES = ['', 'REVENUE', 'UC', 'LC', 'DC', 'RENT', 'MARKETING', 'FRANCHISE', 'MGMT', 'OTHER_OPEX', 'OTHER_INCOME', 'TAX', 'INTEREST', 'DIVIDENDS'];
+  box.innerHTML = '<table class="dense-table"><thead><tr><th>Статья</th><th style="width:150px;">Уровень</th></tr></thead><tbody>' +
+    nodes.map((n, i) => {
+      const pad = (n.depth || 0) * 16;
+      const sel = CODES.map(c => `<option value="${c}" ${((n.pnl_code || '') === c) ? 'selected' : ''}>${c || '—'}</option>`).join('');
+      return `<tr><td style="padding-left:${pad}px;">${esc(n.title)}</td>` +
+        `<td><select data-i="${i}" class="wiz-code" style="font-size:12px;">${sel}</select></td></tr>`;
+    }).join('') + '</tbody></table>';
+  box.querySelectorAll('.wiz-code').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const i = parseInt(sel.dataset.i, 10);
+      if (state.wizTplPreview && state.wizTplPreview[i]) state.wizTplPreview[i].pnl_code = sel.value || null;
+    });
+  });
+}
+
+function renderWizMetrics(metrics) {
+  const box = document.getElementById('wizMetricsList');
+  if (!box) return;
+  if (!metrics.length) { box.innerHTML = '<p class="muted" style="font-size:12px;">Пока нет метрик.</p>'; return; }
+  box.innerHTML = '<table class="dense-table"><thead><tr><th>Код</th><th>Название</th><th>Формула</th></tr></thead><tbody>' +
+    metrics.map(m => `<tr><td><code>${esc(m.code)}</code></td><td>${esc(m.label || '')}</td><td><code>${esc(m.formula || '')}</code></td></tr>`).join('') +
+    '</tbody></table>';
 }
 
 // ======================================================
@@ -2572,12 +2897,17 @@ async function initMetricsTab() {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await loadAll();
-    initProfileTab();
-    initIntegrationsTab();
-    initUsersTab();
-    initMetricsTab();
   } catch (e) {
     console.error(e);
     toast('Ошибка загрузки: ' + e.message, 'error');
+  } finally {
+    // Инициализация табов/ролей обязана пройти даже если loadAll частично
+    // упал — иначе у админа без ключа не раскроются вкладки (в т.ч.
+    // «Платформа», где ключ и добавляется). Cold-start catch-22.
+    try { initProfileTab(); } catch (_) {}
+    try { initIntegrationsTab(); } catch (_) {}
+    try { initSourceWizard(); } catch (_) {}
+    try { initUsersTab(); } catch (_) {}
+    try { initMetricsTab(); } catch (_) {}
   }
 });

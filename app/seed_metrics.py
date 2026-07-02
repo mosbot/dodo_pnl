@@ -157,6 +157,14 @@ def _gather_metrics_for_template(
         top_lines_by_code[code] = sorted(t["line_no"] for t in tops)
     by_code = top_lines_by_code
 
+    # Для синтеза EBITDA / чистой прибыли (в API-импорте нет is_calc-строк):
+    # EBITDA = выручка − операционные расходы; чистая прибыль = − ещё налоги/%.
+    _OPEX = ("UC", "LC", "DC", "RENT", "MARKETING", "FRANCHISE", "MGMT", "OTHER_OPEX")
+    _opex_nodes = [n for c in _OPEX for n in nodes_by_code.get(c, [])]
+    opex_tops = sorted(t["line_no"] for t in _top_level_in_group(_opex_nodes)) if _opex_nodes else []
+    _netp_nodes = _opex_nodes + [n for c in ("TAX", "INTEREST") for n in nodes_by_code.get(c, [])]
+    netp_tops = sorted(t["line_no"] for t in _top_level_in_group(_netp_nodes)) if _netp_nodes else []
+
     out: list[tuple[str, str, str, str, bool, int, int]] = []
     for sort_order, (code, label, fmt, is_target, min_level) in enumerate(
         _METRIC_SPEC, start=1
@@ -181,9 +189,13 @@ def _gather_metrics_for_template(
         elif code == "EBITDA":
             if ebitda_line is not None:
                 formula = f"[{ebitda_line}]"
+            elif revenue_line is not None and opex_tops:
+                formula = f"[{revenue_line}] - (" + " + ".join(f"[{n}]" for n in opex_tops) + ")"
         elif code == "NET_PROFIT":
             if net_profit_line is not None:
                 formula = f"[{net_profit_line}]"
+            elif revenue_line is not None and netp_tops:
+                formula = f"[{revenue_line}] - (" + " + ".join(f"[{n}]" for n in netp_tops) + ")"
         else:
             line_nos = by_code.get(code, [])
             if line_nos and revenue_line is not None:

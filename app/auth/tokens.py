@@ -86,19 +86,55 @@ async def _fetch_token_from_broker(sub: str, name: str) -> str:
     return token
 
 
+async def _resolve_tenant_dodois_sub(
+    session: AsyncSession, planfact_key_id: int
+) -> Optional[str]:
+    """Sub «аккаунта сети» — владельца тенанта, у которого есть доступ к юнитам
+    в Dodo IS.
+
+    Данные СЕТИ (продажи, юниты, ops) одинаковы для всех её пользователей,
+    поэтому тянуть их надо авторитетным Dodo-аккаунтом сети, а НЕ личным
+    токеном зрителя. Иначе сотрудник, которому выдали логин/пароль, но чей
+    личный Dodo-аккаунт не имеет доступа к пиццериям сети, ловит
+    403 NoAccessToUnit.
+
+    Владелец = самый ранний админ (super_admin/network_admin) этого ключа с
+    непустым dodois_sub (он заводил тенант, у него полный доступ к юнитам).
+    None — если такого нет (fallback на личный sub зрителя).
+    """
+    from sqlalchemy import select
+    stmt = (
+        select(User.dodois_sub)
+        .where(
+            User.planfact_key_id == planfact_key_id,
+            User.role.in_(("super_admin", "network_admin")),
+            User.dodois_sub.isnot(None),
+            User.dodois_sub != "",
+        )
+        .order_by(User.id)
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def get_dodois_token(session: AsyncSession, user: User) -> str:
-    """Dodo IS access token для пользователя.
+    """Dodo IS access token для запроса данных СЕТИ пользователя.
 
     Источник по приоритету:
-      1) Токен-брокер sa — если задан settings.sa_token_broker_url И имя есть
-         в settings.dodois_sub_map (name → sub аккаунта в sa). Целевой путь.
-      2) Legacy: public.dodois_credentials по name (старый VPS, где токены
-         рефрешит соседский сервис «касса»). Используется, если брокер не
-         настроен или для имени нет sub.
-      3) env-fallback (settings.dodo_is_access_token) — ТОЛЬКО когда у юзера
-         нет привязки (пустой name), чтобы не отдать токен чужого аккаунта.
+      0) Токен СЕТИ — Dodo-аккаунт владельца тенанта (у него доступ ко всем
+         юнитам). Целевой путь: данные сети тянем авторитетным аккаунтом, а не
+         личным токеном зрителя (иначе 403 NoAccessToUnit у сотрудника без прав
+         в Dodo IS).
+      1) Личный sub зрителя (SSO) — если у тенанта нет владельца с sub.
+      2) Legacy: public.dodois_credentials по name (старый VPS).
     """
-    # SSO-юзер: его Dodo sub известен напрямую → токен у брокера sa по sub
+    # 0) Токен сети — по владельцу тенанта.
+    if user.planfact_key_id and settings.sa_token_broker_url:
+        owner_sub = await _resolve_tenant_dodois_sub(session, user.planfact_key_id)
+        if owner_sub:
+            return await _fetch_token_from_broker(owner_sub, owner_sub)
+
+    # 1) SSO-юзер: его Dodo sub известен напрямую → токен у брокера sa по sub
     # (без карты DODOIS_SUB_MAP — она для ручных/legacy юзеров).
     sso_sub = (getattr(user, "dodois_sub", None) or "").strip()
     if sso_sub and settings.sa_token_broker_url:

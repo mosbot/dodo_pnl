@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Настройки · P&L Dashboard</title>
+<title>Настройки · Финансы</title>
 <link rel="icon" href="/static/favicon.svg?v=1" type="image/svg+xml">
 <link rel="icon" href="/static/favicon-32.png?v=1" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=1">
@@ -32,8 +32,9 @@
   <div class="service-bar">
     <nav class="settings-tabs" role="tablist" aria-label="Разделы настроек">
       <button type="button" class="tab-btn" data-tab="profile" role="tab" aria-selected="false">Профиль</button>
-      <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false">Проекты и статьи</button>
-      <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false">Показатели</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="source" role="tab" aria-selected="false">Источник P&amp;L</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="structure" role="tab" aria-selected="false" style="display:none">Проекты и статьи</button>
+      <button type="button" class="tab-btn admin-only hidden" data-tab="metrics" role="tab" aria-selected="false" style="display:none">Показатели</button>
       <button type="button" class="tab-btn lvl30-only hidden" data-tab="targets" role="tab" aria-selected="false">Цели и нормативы</button>
       <button type="button" class="tab-btn admin-only hidden" data-tab="users" role="tab" aria-selected="false">Команда</button>
       <button type="button" class="tab-btn super-only hidden" data-tab="platform" role="tab" aria-selected="false">Платформа</button>
@@ -114,6 +115,207 @@
   </section>
 
   <!-- ============ TAB: СТРУКТУРА (admin only) ============ -->
+  <!-- ============ TAB: ИСТОЧНИК P&L (мастер онбординга, admin) ============ -->
+  <section class="tab-pane admin-only hidden" data-pane="source" role="tabpanel">
+
+    <section class="dense-block">
+      <div class="block-head"><h2>Источник данных P&amp;L</h2>
+        <span class="block-sub muted">Статус и настройка источника P&amp;L вашей сети.</span></div>
+      <div class="block-body body-pad">
+        <div id="srcTabStatus" class="profile-row"><span class="muted" style="font-size:12px;">Загрузка…</span></div>
+        <div style="margin-top:12px;">
+          <button type="button" id="btnOpenWizard" class="btn-primary">Настроить P&amp;L</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Расчётные KC/DC — коэффициенты. Управление, доступно и в Lite. -->
+    <section class="dense-block">
+      <div class="block-head">
+        <h2>Расчётные KC / DC</h2>
+        <span class="muted block-sub">
+          ФОТ из Dodo IS (смены). KC% = кухня ÷ общая выручка, DC% = курьеры ÷
+          выручка доставки. Коэффициент — множитель «налоги» (напр. 1.3 = +30%).
+          Работает и в Lite-режиме.
+        </span>
+      </div>
+      <div class="block-body" id="calcSettingsBox">
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
+          <label>Коэф. налогов KC
+            <input type="number" id="csKcTax" step="0.01" min="0" max="10" style="width:110px;">
+          </label>
+          <label style="flex-direction:row;align-items:center;gap:8px;">
+            <input type="checkbox" id="csDcEnabled" style="width:auto;">
+            Показывать расчётный DC (курьеры)
+          </label>
+          <label>Коэф. налогов DC
+            <input type="number" id="csDcTax" step="0.01" min="0" max="10" style="width:110px;">
+          </label>
+          <button type="button" id="csSave" class="btn-secondary">Сохранить</button>
+          <span id="csMsg" class="muted" style="font-size:12px;"></span>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <!-- ============ Модал-мастер настройки P&L ============ -->
+  <div id="pnlWizardModal" class="modal hidden">
+    <div class="modal-content" style="max-width:980px;width:94%;">
+      <div class="modal-header">
+        <h3>Настройка P&amp;L</h3>
+        <button class="close-btn" data-close>×</button>
+      </div>
+      <div class="modal-body" id="wizModalBody" style="max-height:66vh;overflow:auto;padding:8px 20px;">
+    <div id="wizContent">
+    <div id="wizStepper" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+      <button type="button" class="wiz-step" data-wstep="1" style="border:1px solid var(--border);background:#fff;border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;">1 · Источник</button>
+      <button type="button" class="wiz-step" data-wstep="2" style="border:1px solid var(--border);background:#fff;border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;">2 · Заведения</button>
+      <button type="button" class="wiz-step" data-wstep="3" style="border:1px solid var(--border);background:#fff;border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;">3 · Структура P&amp;L</button>
+      <button type="button" class="wiz-step" data-wstep="4" style="border:1px solid var(--border);background:#fff;border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;">4 · Метрики</button>
+    </div>
+
+    <!-- STEP 1 -->
+    <div class="wiz-pane" data-wpane="1">
+      <section class="dense-block">
+        <div class="block-head"><h2>Шаг 1 · Источник данных</h2>
+          <span class="block-sub muted">Выберите, откуда брать полный P&amp;L: PlanFact, загрузка XLS или Google Sheets.</span></div>
+        <div class="block-body body-pad" id="sourceBlock">
+          <div id="sourceStatus" class="profile-row"><span class="muted" style="font-size:12px;">Загрузка…</span></div>
+          <div id="sourceConnect" style="display:none;margin-top:12px;">
+            <p class="muted" style="font-size:12px;margin-bottom:12px;">
+              Сейчас — <strong>Lite</strong>: выручка и метрики из Dodo IS. Подключите
+              P&amp;L для полного анализа: себестоимость, ФОТ, расходы и прибыльность.
+            </p>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+              <div style="flex:1 1 260px;border:1px solid var(--border);border-radius:8px;padding:14px;">
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;"><strong>PlanFact</strong>
+                  <span class="muted" style="font-size:11px;">управленческий учёт</span></div>
+                <input type="password" id="srcPfKey" autocomplete="off" placeholder="PlanFact API key"
+                  style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+                <div class="muted" style="font-size:11px;margin:6px 0 10px;">app.planfact.io → Настройки → Безопасность</div>
+                <button type="button" id="srcPfConnect" class="btn-primary">Подключить</button>
+                <div id="srcPfMsg" class="profile-msg" style="margin-top:8px;word-break:break-word;overflow-wrap:anywhere;max-height:120px;overflow:auto;"></div>
+              </div>
+              <div style="flex:1 1 200px;border:1px dashed var(--border);border-radius:8px;padding:14px;opacity:.6;">
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;"><strong>Загрузка XLS</strong>
+                  <span style="font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 7px;">скоро</span></div>
+                <p class="muted" style="font-size:11px;">Файл на пиццерию, вы отмечаете «месяц готов».</p>
+              </div>
+              <div style="flex:1 1 200px;border:1px dashed var(--border);border-radius:8px;padding:14px;opacity:.6;">
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;"><strong>Google Sheets</strong>
+                  <span style="font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 7px;">скоро</span></div>
+                <p class="muted" style="font-size:11px;">Подключение листа по ссылке.</p>
+              </div>
+            </div>
+          </div>
+          <div id="wizProjects" style="margin-top:16px;"></div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="wiz-pane" data-wpane="2" style="display:none;">
+      <section class="dense-block">
+        <div class="block-head"><h2>Шаг 2 · Заведения и проекты</h2>
+          <span class="block-sub muted">Заведения берутся из Dodo IS (первичны). Каждому — свой проект PlanFact: одно заведение = один проект. Несопоставленные проекты (технические/мусорные) можно отсечь.</span></div>
+        <div class="block-body body-pad">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+            <button type="button" id="wizAutoLink" class="btn-primary">Авто-сопоставить по имени</button>
+            <button type="button" id="wizPrune" class="btn-secondary">Отсечь несопоставленные проекты</button>
+            <span id="wizUnitsStatus" class="muted" style="font-size:12px;"></span>
+          </div>
+          <div id="wizMapTable" class="block-scroll-x"><p class="muted" style="font-size:12px;">Загружаю заведения…</p></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="wiz-pane" data-wpane="3" style="display:none;">
+      <section class="dense-block">
+        <div class="block-head"><h2>Шаг 3 · Структура P&amp;L и уровни маржинальности</h2>
+          <span class="block-sub muted">Структура берётся из PlanFact автоматически. Проверьте уровни (UC/LC/DC/…) и сохраните. «Обновить структуру» — перечитать из PlanFact заново.</span></div>
+        <div class="block-body body-pad">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button type="button" id="wizTplFromPf" class="btn-secondary">Обновить структуру</button>
+            <span class="muted" style="font-size:12px;">или из файла:</span>
+            <input type="file" id="wizTplFile" accept=".xlsx" style="font-size:13px;">
+            <button type="button" id="wizTplPreview" class="btn-secondary">Разобрать xlsx</button>
+            <button type="button" id="wizTplSave" class="btn-primary hidden">Сохранить структуру</button>
+            <span id="wizTplStatus" class="muted" style="font-size:12px;"></span>
+          </div>
+          <div id="wizTplTree" style="margin-top:12px;max-height:420px;overflow:auto;"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="wiz-pane" data-wpane="4" style="display:none;">
+      <section class="dense-block">
+        <div class="block-head"><h2>Шаг 4 · Метрики P&amp;L</h2>
+          <span class="block-sub muted">Сгенерируйте формулы KPI из размеченной структуры, затем правьте в конструкторе. Ссылки на строки шаблона — <code>[N]</code> (справочник справа).</span></div>
+        <div class="block-body body-pad">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button type="button" id="wizSeedMetrics" class="btn-primary">Сгенерировать метрики</button>
+            <span id="wizMetricsStatus" class="muted" style="font-size:12px;"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Конструктор метрик (перенесён из «Платформа») -->
+      <div class="metrics-layout">
+        <section class="dense-block metrics-main">
+          <div class="block-head">
+            <h2>Формулы KPI</h2>
+            <span class="muted block-sub">
+              Клик по строке справочника подставляет <code>[N]</code> в активную формулу.
+            </span>
+            <div class="block-inline-ctl">
+              <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
+            </div>
+          </div>
+          <div class="block-body block-scroll-x" id="metricsTableWrap">
+            <table class="metrics-table" id="metricsTable">
+              <thead>
+                <tr>
+                  <th style="width:90px">Код</th>
+                  <th>Название</th>
+                  <th>Формула</th>
+                  <th style="width:80px">Формат</th>
+                  <th style="width:80px">Цель</th>
+                  <th style="width:90px" title="Рисовать ли плитку метрики на карточке проекта на главной">Отображать</th>
+                  <th style="width:60px">Сорт.</th>
+                  <th style="width:120px" title="Минимальный уровень доступа юзера, при котором метрика видна (0=все, 100=партнёр)">Доступ от</th>
+                  <th style="width:90px"></th>
+                </tr>
+              </thead>
+              <tbody id="metricsTbody"></tbody>
+            </table>
+          </div>
+        </section>
+        <aside class="dense-block metrics-aside">
+          <div class="block-head">
+            <h3>Строки шаблона</h3>
+          </div>
+          <div class="block-body body-pad">
+            <input type="search" id="metricsLineSearch" placeholder="Поиск по названию или [N]…" class="metrics-line-search">
+            <div id="metricsLineList" class="metrics-line-list"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+    </div><!-- #wizContent -->
+      </div><!-- #wizModalBody -->
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button type="button" class="btn-secondary" id="wizBack">← Назад</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button type="button" class="btn-secondary" data-close>Закрыть</button>
+          <button type="button" class="btn-primary" id="wizNext">Далее →</button>
+        </div>
+      </div>
+    </div><!-- .modal-content -->
+  </div><!-- #pnlWizardModal -->
+
   <section class="tab-pane admin-only hidden" data-pane="structure" role="tabpanel">
 
     <div class="tab-toolbar">
@@ -167,33 +369,7 @@
   <section class="tab-pane admin-only hidden" data-pane="metrics" role="tabpanel">
 
 
-    <!-- Расчётные KC/DC: налоговые коэффициенты + показ DC -->
-    <section class="dense-block">
-      <div class="block-head">
-        <h2>Расчётные KC / DC</h2>
-        <span class="muted block-sub">
-          ФОТ из Dodo IS (смены сотрудников). KC% = кухня ÷ общая выручка,
-          DC% = курьеры ÷ выручка доставки. Коэффициент — множитель «налоги»
-          (напр. 1.3 = +30%). Применяется на лету, пере-синк не нужен.
-        </span>
-      </div>
-      <div class="block-body" id="calcSettingsBox">
-        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
-          <label>Коэф. налогов KC
-            <input type="number" id="csKcTax" step="0.01" min="0" max="10" style="width:110px;">
-          </label>
-          <label style="flex-direction:row;align-items:center;gap:8px;">
-            <input type="checkbox" id="csDcEnabled" style="width:auto;">
-            Показывать расчётный DC (курьеры)
-          </label>
-          <label>Коэф. налогов DC
-            <input type="number" id="csDcTax" step="0.01" min="0" max="10" style="width:110px;">
-          </label>
-          <button type="button" id="csSave" class="btn-secondary">Сохранить</button>
-          <span id="csMsg" class="muted" style="font-size:12px;"></span>
-        </div>
-      </div>
-    </section>
+    <!-- Расчётные KC/DC (коэффициенты) перенесены в мастер «Источник P&L», шаг 4. -->
 
     <!-- Ops-метрики на карточке /board -->
     <section class="dense-block" style="margin-top:16px">
@@ -310,48 +486,8 @@
       </div>
     </div>
 
-    <div class="metrics-layout">
-      <section class="dense-block metrics-main">
-        <div class="block-head">
-          <h2>Формулы KPI</h2>
-          <span class="muted block-sub">
-            Формулы расчёта KPI из PnL (PlanFact/xls). Ссылки на строки шаблона —
-            <code>[N]</code> (см. справа). Клик по строке справочника подставляет
-            <code>[N]</code> в активную формулу.
-          </span>
-          <div class="block-inline-ctl">
-            <button id="btnAddMetric" type="button" class="btn-secondary">+ Метрика</button>
-          </div>
-        </div>
-        <div class="block-body block-scroll-x" id="metricsTableWrap">
-          <table class="metrics-table" id="metricsTable">
-            <thead>
-              <tr>
-                <th style="width:90px">Код</th>
-                <th>Название</th>
-                <th>Формула</th>
-                <th style="width:80px">Формат</th>
-                <th style="width:80px">Цель</th>
-                <th style="width:90px" title="Рисовать ли плитку метрики на карточке проекта на главной">Отображать</th>
-                <th style="width:60px">Сорт.</th>
-                <th style="width:120px" title="Минимальный уровень доступа юзера, при котором метрика видна (0=все, 100=партнёр)">Доступ от</th>
-                <th style="width:90px"></th>
-              </tr>
-            </thead>
-            <tbody id="metricsTbody"></tbody>
-          </table>
-        </div>
-      </section>
-      <aside class="dense-block metrics-aside">
-        <div class="block-head">
-          <h3>Строки шаблона</h3>
-        </div>
-        <div class="block-body body-pad">
-          <input type="search" id="metricsLineSearch" placeholder="Поиск по названию или [N]…" class="metrics-line-search">
-          <div id="metricsLineList" class="metrics-line-list"></div>
-        </div>
-      </aside>
-    </div>
+    <!-- Конструктор «Формулы KPI» перенесён в мастер «Источник P&L», шаг 4
+         (доступен network_admin, не только super). -->
 
   </section>
 
@@ -561,6 +697,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=31"></script>
-<script src="/static/settings.js?v=36"></script>
+<script src="/static/settings.js?v=44"></script>
 </body>
 </html>

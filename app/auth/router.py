@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -682,6 +682,10 @@ class IntegrationStatus(BaseModel):
     planfact_key_id: Optional[int]
     planfact_key_name: Optional[str]
     dodois_credentials_name: Optional[str]
+    # Источник данных P&L тенанта: "lite" (Dodo IS) | "planfact" (полный P&L).
+    # Будущие источники: "xls" | "gsheet". Определяется наличием api_key у
+    # tenant_key (planfact_keys.api_key).
+    source_kind: str = "lite"
 
 
 # ---------- Audit log: свои события ----------
@@ -729,12 +733,89 @@ async def get_integrations(
     """Текущие интеграции пользователя. Только метаданные (имя ключа)."""
     from .models import PlanfactKey
     key_name: Optional[str] = None
+    source_kind = "lite"
     if user.planfact_key_id:
         pk = await session.get(PlanfactKey, user.planfact_key_id)
         if pk:
             key_name = pk.name
+            if pk.api_key:
+                source_kind = "planfact"
     return IntegrationStatus(
         planfact_key_id=user.planfact_key_id,
         planfact_key_name=key_name,
         dodois_credentials_name=user.dodois_credentials_name,
+        source_kind=source_kind,
     )
+
+
+# ---------- Источник данных P&L: self-service подключение (Lite → полный) ----------
+
+class ConnectPlanFactIn(BaseModel):
+    # PlanFact API key — длинный токен (может быть >256 символов), поэтому
+    # лимит щедрый; сама колонка planfact_keys.api_key — Text (без предела).
+    api_key: str = Field(min_length=1, max_length=8192)
+
+
+@router.post("/api/me/source/planfact")
+async def connect_planfact_source(
+    body: ConnectPlanFactIn,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Сетевой админ подключает СВОЙ PlanFact-ключ к своему тенанту (Lite →
+    полный P&L). Ключ валидируется тестовым запросом к PlanFact, шифруется и
+    пишется в tenant_key (planfact_keys.api_key). Скоуп неявный: ручка всегда
+    работает с user.planfact_key_id — чужой тенант затронуть нельзя.
+    """
+    from .models import PlanfactKey
+    from ..crypto import encrypt_secret
+    from ..planfact import PlanFactClient, PlanFactError
+
+    key = (body.api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "Пустой ключ")
+    if not user.planfact_key_id:
+        raise HTTPException(400, "У аккаунта нет тенанта — обратитесь к администратору.")
+    pk = await session.get(PlanfactKey, user.planfact_key_id)
+    if pk is None:
+        raise HTTPException(404, "Тенант не найден")
+
+    # Валидация ключа: тестовый запрос к PlanFact (список проектов). Не сохраняем
+    # непроверенный ключ — иначе тенант «сломается» в полном режиме молча.
+    pf = PlanFactClient(api_key=key)
+    try:
+        projects = await pf.list_projects()
+    except PlanFactError as e:
+        # PlanFact часто отдаёт JSON-конверт — вытащим человекочитаемое.
+        msg = e.body or "ключ отклонён"
+        try:
+            import json as _json
+            msg = _json.loads(msg).get("errorMessage") or msg
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(400, f"PlanFact не принял ключ: {msg[:160]}")
+    except Exception as e:  # noqa: BLE001 — сеть/таймаут
+        raise HTTPException(502, f"Не удалось проверить ключ у PlanFact: {e}")
+
+    pk.api_key = encrypt_secret(key)
+    pk.updated_at = datetime.now(timezone.utc)
+    # Lite→Full cleanup: в Lite projects_config ключится по Dodo-uuid
+    # (project_id == dodo_unit_uuid, само-ссылка из провижна). В Full проекты
+    # ключатся по PlanFact project_id, а эти Lite-строки «занимают» юниты и
+    # ломают авто-привязку по имени. Затираем их при апгрейде — маппинг
+    # соберётся заново (шаг 2 мастера / авто-привязка).
+    from ..models import ProjectConfig
+    from sqlalchemy import delete as _delete
+    await session.execute(
+        _delete(ProjectConfig).where(
+            ProjectConfig.planfact_key_id == user.planfact_key_id,
+            ProjectConfig.project_id == ProjectConfig.dodo_unit_uuid,
+        )
+    )
+    await session.commit()
+    # Кэш PlanFact-клиента (ключится по user_id) мог держать старое состояние.
+    try:
+        invalidate_planfact_for(user.id)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "projects": len(projects or [])}

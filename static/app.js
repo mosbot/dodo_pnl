@@ -820,6 +820,12 @@ async function initGoalsUi() {
     document.getElementById('goalsBanner')?.classList.add('hidden');
   });
   renderGoalsBanner();
+  // Предложение настроить P&L — показываем сразу (Lite + админ), не дожидаясь
+  // загрузки отчёта. renderSetupBanner идемпотентен (позже ещё раз из applyLiteMode).
+  try {
+    const integ = await (await fetch('/api/me/integrations', { credentials: 'same-origin' })).json();
+    renderSetupBanner(integ && integ.source_kind === 'lite');
+  } catch (_) {}
 }
 
 // S3.6: бейдж + кнопка «⟳ Метрики» рядом с пикером периода.
@@ -1242,6 +1248,44 @@ function applyLiteMode(on) {
     bar.appendChild(badge);
   }
   if (badge) badge.classList.toggle('hidden', !on);
+
+  // Баннер-предложение настроить полный P&L — только Lite + админ + не отклонён.
+  renderSetupBanner(on);
+}
+
+// Мягкое предложение подключить P&L (не авто-модал). «Не сейчас» запоминается
+// в localStorage — больше не предлагаем; «Настроить» ведёт в мастер (/settings?wizard=1).
+function renderSetupBanner(lite) {
+  let banner = document.getElementById('pnlSetupBanner');
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('pnlSetupDismissed') === '1'; } catch (_) {}
+  const show = lite && state.meAdmin && !dismissed;
+  if (!show) { if (banner) banner.remove(); return; }
+  if (banner) return;
+  banner = document.createElement('div');
+  banner.id = 'pnlSetupBanner';
+  banner.style.cssText = 'margin:0 0 14px;padding:12px 16px;border:1px solid var(--border);'
+    + 'background:#eff6ff;border-radius:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;';
+  banner.innerHTML =
+    '<span style="flex:1 1 320px;font-size:13px;">Сейчас <strong>Lite</strong> — выручка и метрики из Dodo IS. '
+    + 'Подключите P&L для полного анализа: себестоимость, ФОТ, расходы и прибыльность.</span>'
+    + '<button type="button" id="bannerSetup" class="btn-primary" style="padding:7px 16px;">Настроить P&L</button>'
+    + '<button type="button" id="bannerLater" class="btn-secondary" style="padding:7px 12px;">Не сейчас</button>';
+  // Выше всего контента — сразу под шапкой, над тулбаром (по значимости).
+  const sb = document.querySelector('.service-bar');
+  if (sb && sb.parentNode) sb.parentNode.insertBefore(banner, sb);
+  else {
+    const anchor = document.getElementById('kpiCards');
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(banner, anchor);
+    else document.body.prepend(banner);
+  }
+  document.getElementById('bannerSetup').addEventListener('click', () => {
+    location.href = '/settings?wizard=1';
+  });
+  document.getElementById('bannerLater').addEventListener('click', () => {
+    try { localStorage.setItem('pnlSetupDismissed', '1'); } catch (_) {}
+    banner.remove();
+  });
 }
 
 function renderCards() {
