@@ -110,8 +110,8 @@ class BoardWindows:
     now: datetime  # «сейчас» MSK (с минутами)
     today: Window  # с 00:00 текущего дня до floor(now, hour)
     last_week: Window  # ровно за -7 дней, одинаковая длина
-    mtd: Window  # с 1-го числа текущего месяца до now_floor
-    mtd_lfl: Window  # тот же диапазон год назад
+    mtd: Window  # с 1-го по ВЧЕРА (завершённые дни; сегодня — в плитке `today`)
+    mtd_lfl: Window  # тот же завершённый диапазон год назад
     last_year_full_month: Window  # полный прошлый год тот же месяц
 
     @property
@@ -159,20 +159,26 @@ def compute_board_windows(now: Optional[datetime] = None) -> BoardWindows:
     to_lw = _round_to_nearest_hour(lw_now)
     from_lw = to_lw.replace(hour=0, minute=0)
 
-    # MTD: с 1 числа до now. Финансовый endpoint принимает дату — час
-    # игнорируется, но в момент компенсируется тем, что MTD_LFL тоже
-    # использует ту же логику.
+    # MTD/MTD_LFL — по ЗАВЕРШЁННЫМ дням (с 1-го по ВЧЕРА). Сегодняшний неполный
+    # день из месячного окна исключаем: иначе LFL-прогноз качается в течение
+    # дня — наш сегодня неполный, а прошлогодний тот же день уже ПОЛНЫЙ, значит
+    # отношение MTD/MTD_LFL занижено утром и «догоняет» к вечеру. Сегодня видно
+    # отдельной плиткой `today`. Месячный endpoint работает по дате.
     from_mtd = from_today.replace(day=1)
-    to_mtd = to_today
+    end_completed = to_today - timedelta(days=1)  # вчера (та же минута)
+    if end_completed < from_mtd:
+        # 1-е число: завершённых дней месяца ещё нет → прогноз ненадёжен,
+        # оставляем окно на 1-е (вырожденный случай).
+        end_completed = from_mtd
+    to_mtd = end_completed
 
-    # MTD_LFL: тот же диапазон −1 год. «to» округляется к ближайшему часу.
+    # MTD_LFL: тот же ЗАВЕРШЁННЫЙ диапазон −1 год (симметрично, до вчера LY).
     from_mtd_lfl = datetime.combine(
         _shift_year(from_mtd.date(), -1), from_mtd.time(), tzinfo=MSK,
     )
-    lfl_now = datetime.combine(
-        _shift_year(now.date(), -1), now.time(), tzinfo=MSK,
+    to_mtd_lfl = datetime.combine(
+        _shift_year(end_completed.date(), -1), end_completed.time(), tzinfo=MSK,
     )
-    to_mtd_lfl = _round_to_nearest_hour(lfl_now)
 
     # Полный прошлый месяц LY (для прогноза):
     # с 1-го числа до 23:00 последнего дня (LFL-проjection делит на это число)

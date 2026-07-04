@@ -858,7 +858,9 @@ async def build_board_payload(
             fallback_days_in_month=(
                 windows.last_year_full_month.to.date().day  # дней в этом месяце
             ),
-            fallback_days_passed=windows.today.from_.day,
+            # MTD теперь по завершённым дням (до вчера) → делим на число
+            # завершённых дней (день окончания окна), а не на сегодняшний.
+            fallback_days_passed=windows.mtd.to.date().day,
         )
 
         stops = _build_stops_for_unit(
