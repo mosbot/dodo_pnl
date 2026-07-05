@@ -540,6 +540,62 @@ async def fetch_finance_sales_monthly(
     )
 
 
+async def fetch_stock_consumptions_sale_cost(
+    token: str, unit_uuids: list[str], from_date: str, to_date: str,
+    *, take: int = 1000,
+) -> dict[str, float]:
+    """«Сырьё»: Σ costWithVat расхода типа Sale (реализация) по юнитам за период.
+    Даты 'YYYY-MM-DD' (эндпоинт принимает ISO 8601).
+
+    Пагинация: /accounting/stock-consumptions-by-period отдаёт записи страницами
+    (skip/take) до isEndOfListReached; юниты батчим по ≤30. Учитываем ТОЛЬКО
+    consumptionType=='Sale' — это себестоимость проданного (StaffMeal / Defect /
+    Cancel — прочие списания, в UC не входят). costWithVat — чтобы сходилось с
+    выручкой с НДС. Возвращает {норм.unitId (lower, без дефисов): рубли}."""
+    out: dict[str, float] = {}
+    if not unit_uuids or from_date > to_date:
+        return out
+    url = f"{settings.dodo_is_base_url}/accounting/stock-consumptions-by-period"
+    batches = [
+        unit_uuids[i:i + _BATCH_SIZE]
+        for i in range(0, len(unit_uuids), _BATCH_SIZE)
+    ]
+    for idx, batch in enumerate(batches):
+        skip = 0
+        # Кап числа страниц — страховка от бесконечного цикла, если API вдруг
+        # не выставит isEndOfListReached (месяц сети редко > неск. тыс. записей).
+        for _page in range(0, 10000):
+            params: dict[str, Any] = {
+                "units": ",".join(batch),
+                "from": from_date, "to": to_date,
+                "skip": skip, "take": take,
+            }
+
+            async def _do() -> dict[str, Any]:
+                r = await _get(url, token, params)
+                _raise(r)
+                return r.json()
+
+            label = f"stock-consumptions[batch={len(batch)}"
+            if len(batches) > 1:
+                label += f",{idx + 1}/{len(batches)}"
+            label += f",skip={skip}]"
+            data = await _with_retries(label, _do)
+            rows = data.get("consumptions") or []
+            for c in rows:
+                if (c.get("consumptionType") or "") != "Sale":
+                    continue
+                uid = (c.get("unitId") or "").lower().replace("-", "")
+                if not uid:
+                    continue
+                out[uid] = out.get(uid, 0.0) + float(c.get("costWithVat") or 0)
+            # Конец: явный флаг ИЛИ неполная страница (защита от зацикливания).
+            if data.get("isEndOfListReached") or len(rows) < take:
+                break
+            skip += len(rows)
+    return out
+
+
 async def fetch_incentives_by_members(
     token: str, unit_uuids: list[str], from_date: datetime, to_date: datetime,
 ) -> list[dict[str, Any]]:

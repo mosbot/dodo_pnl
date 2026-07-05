@@ -74,6 +74,34 @@ OPS_METRICS: list[dict] = [
         "direction": "higher",
         "digits": 0,
     },
+    # 0036: средний чек за месяц. Общий = sales/ordersCount юнита; под ним —
+    # разбивка по каналам (agg salesBreakdown). Данные из того же месячного
+    # запроса, что выручка — бесплатно. Каналы с 0 заказов фронт скрывает.
+    {
+        "code": "AVG_CHECK",
+        "label": "Средний чек",
+        "title": "Средний чек за месяц",
+        "unit": "₽",
+        "field": "avg_check",
+        "direction": "higher",
+        "digits": 0,
+        "subs": [
+            {"label": "доставка", "field": "avg_check_delivery"},
+            {"label": "ресторан", "field": "avg_check_restaurant"},
+            {"label": "самовывоз", "field": "avg_check_takeaway"},
+        ],
+    },
+    # 0036: «Сырьё» — расход сырья от продаж (costWithVat, тип Sale из
+    # stock-consumptions-by-period) / выручка юнита (с НДС) × 100. Меньше лучше.
+    {
+        "code": "RAW_COST",
+        "label": "Сырьё",
+        "title": "Расход сырья от продаж (с НДС) к выручке",
+        "unit": "%",
+        "field": "raw_cost_pct",
+        "direction": "lower",
+        "digits": 1,
+    },
     # S16: метрики из /delivery/statistics. Все 4 поля приходят за один
     # запрос — добавление дешёвое.
     {
@@ -638,6 +666,12 @@ async def list_ops_metrics(
             "customer_rating": r.customer_rating,
             "customer_rating_dinein": r.customer_rating_dinein,
             "customer_rating_delivery": r.customer_rating_delivery,
+            # 0036: средний чек + Сырьё
+            "avg_check": r.avg_check,
+            "avg_check_delivery": r.avg_check_delivery,
+            "avg_check_restaurant": r.avg_check_restaurant,
+            "avg_check_takeaway": r.avg_check_takeaway,
+            "raw_cost_pct": r.raw_cost_pct,
         }
         if period_month is None:
             out.setdefault(r.project_id, {})[r.period_month] = payload
@@ -671,6 +705,12 @@ async def upsert_ops_metric(
     customer_rating: Optional[float] = None,
     customer_rating_dinein: Optional[float] = None,
     customer_rating_delivery: Optional[float] = None,
+    # 0036: средний чек + Сырьё
+    avg_check: Optional[float] = None,
+    avg_check_delivery: Optional[float] = None,
+    avg_check_restaurant: Optional[float] = None,
+    avg_check_takeaway: Optional[float] = None,
+    raw_cost_pct: Optional[float] = None,
 ) -> None:
     if (
         late_delivery_certs_pct is None
@@ -713,6 +753,11 @@ async def upsert_ops_metric(
             customer_rating=float(customer_rating) if customer_rating is not None else None,
             customer_rating_dinein=float(customer_rating_dinein) if customer_rating_dinein is not None else None,
             customer_rating_delivery=float(customer_rating_delivery) if customer_rating_delivery is not None else None,
+            avg_check=float(avg_check) if avg_check is not None else None,
+            avg_check_delivery=float(avg_check_delivery) if avg_check_delivery is not None else None,
+            avg_check_restaurant=float(avg_check_restaurant) if avg_check_restaurant is not None else None,
+            avg_check_takeaway=float(avg_check_takeaway) if avg_check_takeaway is not None else None,
+            raw_cost_pct=float(raw_cost_pct) if raw_cost_pct is not None else None,
         ))
     else:
         if orders_per_courier_h is not None:
@@ -757,6 +802,16 @@ async def upsert_ops_metric(
             existing.customer_rating_dinein = float(customer_rating_dinein)
         if customer_rating_delivery is not None:
             existing.customer_rating_delivery = float(customer_rating_delivery)
+        if avg_check is not None:
+            existing.avg_check = float(avg_check)
+        if avg_check_delivery is not None:
+            existing.avg_check_delivery = float(avg_check_delivery)
+        if avg_check_restaurant is not None:
+            existing.avg_check_restaurant = float(avg_check_restaurant)
+        if avg_check_takeaway is not None:
+            existing.avg_check_takeaway = float(avg_check_takeaway)
+        if raw_cost_pct is not None:
+            existing.raw_cost_pct = float(raw_cost_pct)
         existing.updated_at = datetime.now(timezone.utc)
 
 

@@ -3527,8 +3527,17 @@ async def _run_ops_sync(
 
             # DC: знаменатель — выручка ДОСТАВКИ (курьеры обслуживают только
             # доставку). Берём канал 'Delivery' из salesBreakdown monthly.
-            # Non-critical: сбой → DC будет null, остальные плитки идут.
+            # Из того же ответа считаем средний чек (общий + по каналам) —
+            # данные бесплатные. Non-critical: сбой → DC/чек null, плитки идут.
             delivery_rev_by_unit: dict[str, float] = {}
+            monthly_sales_by_unit: dict[str, float] = {}
+            # uid -> {overall, delivery, restaurant, takeaway} средний чек (₽),
+            # None по каналу если заказов нет.
+            avg_check_by_unit: dict[str, dict] = {}
+            _CH_TO_KEY = {
+                "Delivery": "delivery", "Dine-in": "restaurant",
+                "Takeaway": "takeaway",
+            }
             try:
                 from calendar import monthrange
                 d_start = f"{period}-01"
@@ -3540,15 +3549,47 @@ async def _run_ops_sync(
                 ))
                 for r in monthly_rows:
                     uid_raw = (r.get("unitId") or "").lower().replace("-", "")
+                    u_sales = float(r.get("sales") or 0)
+                    u_orders = int(r.get("ordersCount") or 0)
+                    monthly_sales_by_unit[uid_raw] = u_sales
+                    # salesBreakdown — срезы orderSource×salesChannel×paymentMethod;
+                    # агрегируем по каналу (Σsales, Σorders).
+                    ch_agg: dict[str, list] = {}
                     for b in (r.get("salesBreakdown") or []):
-                        if b.get("salesChannel") == "Delivery":
-                            delivery_rev_by_unit[uid_raw] = (
-                                delivery_rev_by_unit.get(uid_raw, 0.0)
-                                + float(b.get("sales") or 0)
-                            )
+                        acc = ch_agg.setdefault(b.get("salesChannel"), [0.0, 0])
+                        acc[0] += float(b.get("sales") or 0)
+                        acc[1] += int(b.get("ordersCount") or 0)
+                    delivery_rev_by_unit[uid_raw] = ch_agg.get("Delivery", [0.0, 0])[0]
+                    ac: dict = {
+                        "overall": (u_sales / u_orders) if u_orders > 0 else None,
+                    }
+                    for ch, key_name in _CH_TO_KEY.items():
+                        sa, oc = ch_agg.get(ch, [0.0, 0])
+                        ac[key_name] = (sa / oc) if oc > 0 else None
+                    avg_check_by_unit[uid_raw] = ac
             except (DodoISError, NoTokenError) as e:
                 log.warning(
-                    "ops sync %s: finance-monthly FAILED (DC_LIVE will be null): %s",
+                    "ops sync %s: finance-monthly FAILED (DC/avg_check null): %s",
+                    period, e,
+                )
+
+            # «Сырьё»: расход сырья от продаж (тип Sale, costWithVat) за месяц /
+            # выручка юнита (с НДС) × 100. Отдельный эндпоинт с пагинацией —
+            # тяжелее прочих; non-critical: сбой → raw_cost null, плитки идут.
+            raw_cost_by_unit: dict[str, float] = {}
+            try:
+                from calendar import monthrange as _mr_rc
+                _rc_start = f"{period}-01"
+                _rc_end = f"{period}-{_mr_rc(y, m)[1]:02d}"
+                raw_cost_by_unit = await _timed(
+                    "stock-consumptions", with_dodois_retry(
+                        session, user,
+                        dodois_client.fetch_stock_consumptions_sale_cost,
+                        unit_uuids, _rc_start, _rc_end,
+                    ))
+            except (DodoISError, NoTokenError) as e:
+                log.warning(
+                    "ops sync %s: stock-consumptions FAILED (RAW_COST null): %s",
                     period, e,
                 )
 
@@ -3772,6 +3813,15 @@ async def _run_ops_sync(
                 rs_avg6 = rs_avg6_by_uuid.get(key)
                 _cr = cust_by_uuid.get(key) or (None, None, None)
 
+                # Средний чек (общий + каналы) и «Сырьё» (0036).
+                _ac = avg_check_by_unit.get(key) or {}
+                _monthly_sales = monthly_sales_by_unit.get(key, 0.0)
+                _raw_cost = raw_cost_by_unit.get(key, 0.0)
+                raw_cost_pct = (
+                    _raw_cost / _monthly_sales * 100.0
+                    if _monthly_sales > 0 and _raw_cost > 0 else None
+                )
+
                 if not s:
                     continue
                 await store.upsert_ops_metric(
@@ -3797,6 +3847,11 @@ async def _run_ops_sync(
                     avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
                     kc_live_pct=kc_live_pct,
                     dc_live_pct=dc_live_pct,
+                    avg_check=_ac.get("overall"),
+                    avg_check_delivery=_ac.get("delivery"),
+                    avg_check_restaurant=_ac.get("restaurant"),
+                    avg_check_takeaway=_ac.get("takeaway"),
+                    raw_cost_pct=raw_cost_pct,
                 )
             await session.commit()
             log.info("ops sync %s: committed", period)

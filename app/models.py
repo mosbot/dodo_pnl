@@ -271,6 +271,16 @@ class OpsMetric(Base):
     # РС за последние 6 проверок. Пишется только при синке текущего месяца.
     rko_avg12w: Mapped[Optional[int]] = mapped_column(Integer)
     rs_avg6: Mapped[Optional[int]] = mapped_column(Integer)
+    # Средний чек за месяц (0036), ₽: общий (sales/ordersCount) + по каналам
+    # (агрегат salesBreakdown из /finances/sales/units/monthly). None по каналу,
+    # если заказов канала нет.
+    avg_check: Mapped[Optional[float]] = mapped_column(Float)
+    avg_check_delivery: Mapped[Optional[float]] = mapped_column(Float)
+    avg_check_restaurant: Mapped[Optional[float]] = mapped_column(Float)
+    avg_check_takeaway: Mapped[Optional[float]] = mapped_column(Float)
+    # «Сырьё» (0036): расход сырья от продаж (costWithVat, тип Sale из
+    # stock-consumptions-by-period) / выручка юнита (с НДС) × 100. Lower лучше.
+    raw_cost_pct: Mapped[Optional[float]] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False, server_default=text("NOW()")
