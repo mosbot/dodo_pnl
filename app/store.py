@@ -86,8 +86,8 @@ OPS_METRICS: list[dict] = [
         "direction": "higher",
         "digits": 0,
         "subs": [
-            {"label": "доставка", "field": "avg_check_delivery"},
-            {"label": "ресторан", "field": "avg_check_restaurant"},
+            {"label": "зал", "field": "avg_check_restaurant"},
+            {"label": "дост.", "field": "avg_check_delivery"},
             {"label": "самовывоз", "field": "avg_check_takeaway"},
         ],
     },
@@ -241,7 +241,7 @@ OPS_METRICS: list[dict] = [
         # с тем же цветом зоны.
         "subs": [
             {"label": "зал", "field": "customer_rating_dinein"},
-            {"label": "доставка", "field": "customer_rating_delivery"},
+            {"label": "дост.", "field": "customer_rating_delivery"},
         ],
     },
 ]

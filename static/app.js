@@ -1144,7 +1144,7 @@ function finTile(label, proj, opts = {}) {
     <div class="tile tile-fin tile-channels ${cls}" title="${esc(label)}">
       <div class="tile-label">${esc(label)}</div>
       <div class="tile-value">${fmt(amt)}<span class="tile-unit">₽</span>${valDelta}</div>
-      <div class="ord-channels${lfl ? ' lfl' : ''}">${cell('Доставка', rch.delivery_takeaway)}${cell('Ресторан', rch.restaurant)}</div>
+      <div class="ord-channels${lfl ? ' lfl' : ''}">${cell('Зал', rch.restaurant)}${cell('Дост.', rch.delivery_takeaway)}</div>
     </div>`;
   }
 
@@ -1214,8 +1214,8 @@ function ordersTile(o, lfl) {
       <div class="tile-label">Заказы</div>
       <div class="tile-value">${intf(o.value)}<span class="tile-unit">шт</span>${valDelta}</div>
       <div class="ord-channels${lfl ? ' lfl' : ''}">
-        ${cells('Доставка', ch.delivery_takeaway || {})}
-        ${cells('Ресторан', ch.restaurant || {})}
+        ${cells('Зал', ch.restaurant || {})}
+        ${cells('Дост.', ch.delivery_takeaway || {})}
       </div>
     </div>`;
 }
