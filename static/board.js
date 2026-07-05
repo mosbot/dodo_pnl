@@ -1066,7 +1066,12 @@ function startCounters() {
   const btn = el("refreshNowBtn");
   if (btn) btn.classList.remove("hidden");
   const nx = el("nextRefresh");
-  if (nx) nx.textContent = "данные обновляются кнопкой ⟳ наверху";
+  if (nx) {
+    const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+    nx.textContent = isTouch
+      ? "потяните экран вниз, чтобы обновить"
+      : "данные обновляются кнопкой ⟳ наверху";
+  }
 }
 
 // Явное обновление данных кнопкой (auto-refresh отключён осознанно —
@@ -1084,10 +1089,74 @@ async function refreshNow() {
   }
 }
 
+// Pull-to-refresh (мобильные): тянем вниз в самом верху → reloadBoardData().
+// Явное действие юзера — вписывается в «только ручное обновление» (auto off).
+function initPullToRefresh() {
+  const isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+  if (!isTouch) return;
+  const ind = el("pullRefresh");
+  const txt = el("pullRefreshText");
+  if (!ind || !txt) return;
+  document.body.classList.add("pull-refresh-on");  // → CSS прячет кнопку ⟳
+  // Подсказка в пустом центре топбара (где была кнопка ⟳).
+  const tt = document.querySelector(".topbar-title");
+  if (tt) { tt.textContent = "↓ потяните для обновления"; tt.classList.add("pull-hint"); tt.removeAttribute("aria-hidden"); }
+  const THRESHOLD = 66;  // px визуальной тяги до срабатывания
+  const MAX = 96;
+  const FACTOR = 0.5;    // резинка
+  let startY = 0, pulling = false, vis = 0, refreshing = false;
+
+  const atTop = () => (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+  function render(v, spin) {
+    ind.style.height = Math.min(v, MAX) + "px";
+    ind.style.opacity = String(Math.min(1, v / THRESHOLD));
+    if (spin) { ind.classList.add("spin"); txt.textContent = ""; }
+    else {
+      ind.classList.remove("spin");
+      txt.textContent = v >= THRESHOLD ? "↑" : "↓";
+    }
+  }
+  function reset() {
+    ind.style.transition = "height .2s ease, opacity .2s ease";
+    ind.style.height = "0px"; ind.style.opacity = "0";
+    ind.classList.remove("spin");
+    setTimeout(() => { ind.style.transition = ""; }, 220);
+  }
+
+  document.addEventListener("touchstart", (e) => {
+    if (refreshing || e.touches.length !== 1 || !atTop()) { pulling = false; return; }
+    startY = e.touches[0].clientY; pulling = true; vis = 0;
+    ind.style.transition = "";
+  }, { passive: true });
+
+  document.addEventListener("touchmove", (e) => {
+    if (!pulling || refreshing) return;
+    if (!atTop()) { pulling = false; reset(); return; }
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 0) {
+      vis = dy * FACTOR;
+      if (dy > 8 && e.cancelable) e.preventDefault();  // гасим нативный overscroll
+      render(vis, false);
+    } else { vis = 0; }
+  }, { passive: false });
+
+  document.addEventListener("touchend", async () => {
+    if (!pulling || refreshing) { pulling = false; return; }
+    pulling = false;
+    if (vis < THRESHOLD) { reset(); return; }
+    // Дебаунс: не дёргаем чаще раза в 3с.
+    if (typeof lastFetchAt === "number" && Date.now() - lastFetchAt < 3000) { reset(); return; }
+    refreshing = true; render(THRESHOLD, true);
+    try { await reloadBoardData(); } catch (_) {}
+    finally { refreshing = false; reset(); }
+  }, { passive: true });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // Кнопка явного обновления данных в topbar.
   const rBtn = el("refreshNowBtn");
   if (rBtn) rBtn.addEventListener("click", refreshNow);
+  initPullToRefresh();
 
   // Sort toggle: cycle через режимы, перерисовываем карточки.
   const btn = el("sortToggleBtn");

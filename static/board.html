@@ -66,6 +66,14 @@ a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"] {
 .back-btn:hover { background: rgba(0,0,0,0.04); }
 .topbar-title { flex: 1; font-size: 14px; font-weight: 600; }
 .topbar-title .muted { color: var(--muted); font-weight: 400; }
+/* Подсказка pull-to-refresh в пустом центре топбара (только тач). */
+.topbar-title.pull-hint {
+  font-size: 12px; font-weight: 400; color: var(--muted, #6b7280);
+  text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  animation: pull-hint-pulse 2.6s ease-in-out infinite;
+}
+@keyframes pull-hint-pulse { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
 
 /* Платформенный ярус (бренд Dodotool + переключатель сервисов) над topbar */
 .app-header { position: sticky; top: 0; z-index: 100; background: white; }
@@ -122,13 +130,32 @@ body.license-blocked #boardCards { display: none !important; }
 .refresh-btn {
   border: 1px solid var(--border); background: white;
   border-radius: 8px; cursor: pointer;
-  font-size: 16px; line-height: 1;
-  min-width: 36px; min-height: 36px;
+  font-size: 13px; font-weight: 500; line-height: 1;
+  min-height: 36px; padding: 0 12px;
+  display: inline-flex; align-items: center; gap: 6px;
   color: var(--text);
 }
+.refresh-btn .ic-refresh { flex-shrink: 0; }
 .refresh-btn:hover { background: rgba(0,0,0,0.04); }
 .refresh-btn:disabled { opacity: .45; cursor: default; }
-.refresh-btn.spinning { animation: refresh-spin 0.9s linear infinite; }
+.refresh-btn.spinning .ic-refresh { animation: refresh-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+/* Pull-to-refresh индикатор (мобильные) */
+.pull-refresh {
+  position: fixed; top: 0; left: 0; right: 0; height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg, #f7f8fa); color: var(--muted, #6b7280);
+  font-size: 13px; z-index: 60; opacity: 0; pointer-events: none;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04);
+}
+.pull-refresh.spin::before {
+  content: ""; width: 14px; height: 14px; margin-right: 8px;
+  border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; display: inline-block;
+  animation: refresh-spin 0.8s linear infinite;
+}
+/* Тач-устройства: кнопку ⟳ прячем — обновление жестом pull-to-refresh
+   (класс ставит initPullToRefresh при наличии тача). */
+body.pull-refresh-on #refreshNowBtn { display: none !important; }
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
 
 /* Page header */
@@ -716,6 +743,7 @@ section.cards-wrap { padding: 14px 14px 4px; }
   .mode-toggle { gap: 1px; }
   .mode-toggle-btn { padding: 6px 9px; font-size: 13px; }
   .refresh-btn { min-width: 32px; min-height: 32px; }
+  html, body { overscroll-behavior-y: contain; }
   .topbar-right { gap: 4px; }
   .topbar-right .btn-secondary { padding: 6px 8px; }
 }
@@ -940,9 +968,11 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
     </button>
     <div class="topbar-title" aria-hidden="true"></div>
     <button type="button" id="refreshNowBtn" class="refresh-btn hidden"
-            aria-label="Обновить данные" title="Обновить данные">⟳</button>
+            aria-label="Обновить данные" title="Обновить данные"><svg class="ic-refresh" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13.6 8a5.6 5.6 0 1 1-1.65-3.95M13.6 2.2v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="refresh-label">Обновить</span></button>
   </header>
 </div>
+
+<div id="pullRefresh" class="pull-refresh"><span id="pullRefreshText">↓ Потяните для обновления</span></div>
 
 <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
 <aside id="projectsPanel" class="drawer-panel">
@@ -1055,6 +1085,6 @@ body.drawer-open .drawer-panel { transform: translateX(0); }
 </footer>
 
 <script src="/static/topbar.js?v=31"></script>
-<script src="/static/board.js?v=49"></script>
+<script src="/static/board.js?v=52"></script>
 </body>
 </html>
