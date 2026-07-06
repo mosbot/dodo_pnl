@@ -139,20 +139,46 @@
           Работает и в Lite-режиме.
         </span>
       </div>
-      <div class="block-body" id="calcSettingsBox">
-        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
-          <label>Коэф. налогов KC
-            <input type="number" id="csKcTax" step="0.01" min="0" max="10" style="width:110px;">
+      <div class="block-body body-pad" id="calcSettingsBox">
+        <div style="display:flex;gap:20px 28px;flex-wrap:wrap;align-items:flex-end;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);">Коэф. налогов KC
+            <input type="number" id="csKcTax" step="0.01" min="0" max="10" style="width:120px;">
           </label>
-          <label style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
             <input type="checkbox" id="csDcEnabled" style="width:auto;">
             Показывать расчётный DC (курьеры)
           </label>
-          <label>Коэф. налогов DC
-            <input type="number" id="csDcTax" step="0.01" min="0" max="10" style="width:110px;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);">Коэф. налогов DC
+            <input type="number" id="csDcTax" step="0.01" min="0" max="10" style="width:120px;">
           </label>
           <button type="button" id="csSave" class="btn-secondary">Сохранить</button>
           <span id="csMsg" class="muted" style="font-size:12px;"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Live-окно данных (per-tenant): глубина live-месяцев + выручка из Dodo IS -->
+    <section class="dense-block" style="margin-top:16px;">
+      <div class="block-head">
+        <h2>Live-окно данных</h2>
+        <span class="muted block-sub">
+          Сколько последних месяцев тянуть «вживую» из источника (текущий +
+          предыдущие) — остальное берётся из кэша закрытых месяцев. Плюс —
+          брать выручку ТЕКУЩЕГО месяца прямо из Dodo IS (точнее и раньше,
+          чем PlanFact подтянет продажи дня).
+        </span>
+      </div>
+      <div class="block-body body-pad" id="liveWindowBox">
+        <div style="display:flex;gap:20px 28px;flex-wrap:wrap;align-items:flex-end;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);">Глубина live-окна, мес.
+            <input type="number" id="csLiveMonths" step="1" min="1" max="12" style="width:120px;">
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input type="checkbox" id="csLiveRevenue" style="width:auto;">
+            Выручка текущего месяца из Dodo IS
+          </label>
+          <button type="button" id="csLiveSave" class="btn-secondary">Сохранить</button>
+          <span id="csLiveMsg" class="muted" style="font-size:12px;"></span>
         </div>
       </div>
     </section>
@@ -697,6 +723,6 @@
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <script src="/static/topbar.js?v=31"></script>
-<script src="/static/settings.js?v=45"></script>
+<script src="/static/settings.js?v=46"></script>
 </body>
 </html>

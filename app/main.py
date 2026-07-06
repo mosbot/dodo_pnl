@@ -4155,6 +4155,7 @@ async def get_calc_settings(
             "no_planfact_key": True,
             "kc_tax_coefficient": 1.0, "dc_tax_coefficient": 1.0,
             "dc_live_enabled": False,
+            "live_months_window": 2, "live_revenue_from_dodois": False,
         }
     from .auth.models import PlanfactKey
     pk = await session.get(PlanfactKey, user.planfact_key_id)
@@ -4162,6 +4163,8 @@ async def get_calc_settings(
         "kc_tax_coefficient": float(getattr(pk, "kc_tax_coefficient", 1.0) or 1.0),
         "dc_tax_coefficient": float(getattr(pk, "dc_tax_coefficient", 1.0) or 1.0),
         "dc_live_enabled": bool(getattr(pk, "dc_live_enabled", False)),
+        "live_months_window": int(getattr(pk, "live_months_window", 2) or 2),
+        "live_revenue_from_dodois": bool(getattr(pk, "live_revenue_from_dodois", False)),
     }
 
 
@@ -4197,6 +4200,18 @@ async def update_calc_settings(
         pk.dc_tax_coefficient = dc
     if "dc_live_enabled" in payload:
         pk.dc_live_enabled = bool(payload["dc_live_enabled"])
+    # Live-окно (per-tenant): глубина live-месяцев + брать выручку текущего
+    # месяца из Dodo IS.
+    if "live_months_window" in payload and payload["live_months_window"] is not None:
+        try:
+            lmw = int(payload["live_months_window"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "live_months_window: не целое")
+        if not (1 <= lmw <= 12):
+            raise HTTPException(400, "live_months_window: вне диапазона 1..12")
+        pk.live_months_window = lmw
+    if "live_revenue_from_dodois" in payload:
+        pk.live_revenue_from_dodois = bool(payload["live_revenue_from_dodois"])
     from datetime import datetime, timezone
     pk.updated_at = datetime.now(timezone.utc)
     await session.commit()

@@ -2882,11 +2882,17 @@ async function initCalcSettings() {
   const dc = document.getElementById('csDcTax');
   const dcEn = document.getElementById('csDcEnabled');
   const msg = document.getElementById('csMsg');
+  // Live-окно (тот же эндпоинт /api/calc-settings, per-tenant)
+  const liveM = document.getElementById('csLiveMonths');
+  const liveRev = document.getElementById('csLiveRevenue');
+  const liveMsg = document.getElementById('csLiveMsg');
   try {
     const s = await api('/api/calc-settings');
     kc.value = s.kc_tax_coefficient ?? 1;
     dc.value = s.dc_tax_coefficient ?? 1;
     dcEn.checked = !!s.dc_live_enabled;
+    if (liveM) liveM.value = s.live_months_window ?? 2;
+    if (liveRev) liveRev.checked = !!s.live_revenue_from_dodois;
     if (s.no_planfact_key) msg.textContent = 'Нет привязанного PF-ключа';
   } catch (e) {
     msg.textContent = 'Ошибка загрузки: ' + e.message;
@@ -2907,6 +2913,24 @@ async function initCalcSettings() {
       toast('Настройки KC/DC сохранены');
     } catch (e) {
       msg.textContent = 'Ошибка: ' + e.message;
+    }
+  });
+  document.getElementById('csLiveSave')?.addEventListener('click', async () => {
+    if (!liveMsg) return;
+    liveMsg.textContent = 'Сохранение…';
+    try {
+      await api('/api/calc-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          live_months_window: parseInt(liveM.value, 10) || 2,
+          live_revenue_from_dodois: liveRev.checked,
+        }),
+      });
+      liveMsg.textContent = 'Сохранено ✓';
+      toast('Настройки live-окна сохранены');
+    } catch (e) {
+      liveMsg.textContent = 'Ошибка: ' + e.message;
     }
   });
 }
