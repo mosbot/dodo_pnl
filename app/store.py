@@ -74,22 +74,27 @@ OPS_METRICS: list[dict] = [
         "direction": "higher",
         "digits": 0,
     },
-    # 0036: средний чек за месяц. Общий = sales/ordersCount юнита; под ним —
-    # разбивка по каналам (agg salesBreakdown). Данные из того же месячного
-    # запроса, что выручка — бесплатно. Каналы с 0 заказов фронт скрывает.
+    # 0036: средний чек за месяц по каналам = agg salesBreakdown (Σsales/Σorders
+    # на канал) из того же месячного запроса, что выручка — бесплатно. Две
+    # отдельные плитки: ресторан (зал) и доставка. Общий avg_check и самовывоз
+    # в БД остаются (avg_check / avg_check_takeaway), но как плитки не выводятся.
     {
-        "code": "AVG_CHECK",
-        "label": "Средний чек",
-        "title": "Средний чек за месяц",
+        "code": "AVG_CHECK_REST",
+        "label": "Ср. чек ресторан",
+        "title": "Средний чек — ресторан (зал), за месяц",
         "unit": "₽",
-        "field": "avg_check",
+        "field": "avg_check_restaurant",
         "direction": "higher",
         "digits": 0,
-        "subs": [
-            {"label": "зал", "field": "avg_check_restaurant"},
-            {"label": "дост.", "field": "avg_check_delivery"},
-            {"label": "самовывоз", "field": "avg_check_takeaway"},
-        ],
+    },
+    {
+        "code": "AVG_CHECK_DELIVERY",
+        "label": "Ср. чек доставка",
+        "title": "Средний чек — доставка, за месяц",
+        "unit": "₽",
+        "field": "avg_check_delivery",
+        "direction": "higher",
+        "digits": 0,
     },
     # 0036: «Сырьё» — расход сырья от продаж (costWithVat, тип Sale из
     # stock-consumptions-by-period) / выручка юнита (с НДС) × 100. Меньше лучше.
