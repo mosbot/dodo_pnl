@@ -1964,8 +1964,9 @@ function renderMetricsConfigList() {
       // показывается как горизонтальная линия с кнопкой удалить.
       if (m.isSep) {
         return `
-          <div class="charts-config-row charts-config-sep" data-group="${g}" data-sep="${m.code}"
+          <div class="charts-config-row charts-config-sep" data-code="${m.code}" data-group="${g}" data-sep="${m.code}"
                style="display:flex;align-items:center;gap:8px;padding:6px 8px">
+            <span class="cfg-drag" title="Перетащите для сортировки" aria-hidden="true">⠿</span>
             <span style="flex:1;border-top:1px dashed var(--border, #d0d7de);height:0"></span>
             <span class="muted" style="font-size:11px;letter-spacing:0.04em">↵ перенос</span>
             <span style="flex:1;border-top:1px dashed var(--border, #d0d7de);height:0"></span>
@@ -1976,7 +1977,8 @@ function renderMetricsConfigList() {
         `;
       }
       return `
-        <label class="charts-config-row" data-group="${g}">
+        <label class="charts-config-row" data-code="${m.code}" data-group="${g}">
+          <span class="cfg-drag" title="Перетащите для сортировки" aria-hidden="true">⠿</span>
           <input type="checkbox" data-metric-cb="${m.code}" ${hidden.has(m.code) ? '' : 'checked'}>
           <span class="cfg-row-label">${esc(m.label)}</span>
           <span class="cfg-row-arrows">
@@ -2047,6 +2049,77 @@ function renderMetricsConfigList() {
       renderCards();
     });
   });
+  // Drag-and-drop сортировка через Pointer Events — работает и мышью, и на
+  // тач-устройствах (native HTML5 drag на мобильных не срабатывает). Тащим за
+  // ручку ⠿, только в пределах своей группы (fin/pct/ops).
+  let dragCode = null, dragGroup = null, dragRow = null;
+  const clearOver = () =>
+    box.querySelectorAll('.drag-over').forEach(r => r.classList.remove('drag-over'));
+  const rowUnder = (x, y) => {
+    const elx = document.elementFromPoint(x, y);
+    const row = elx && elx.closest('.charts-config-row');
+    if (!row || !box.contains(row)) return null;
+    if (row.dataset.group !== dragGroup || row.dataset.code === dragCode) return null;
+    return row;
+  };
+  const onMove = (e) => {
+    if (!dragCode) return;
+    e.preventDefault();  // не скроллим попап во время перетаскивания
+    const row = rowUnder(e.clientX, e.clientY);
+    clearOver();
+    if (row) row.classList.add('drag-over');
+  };
+  const onUp = (e) => {
+    if (!dragCode) return;
+    const row = rowUnder(e.clientX, e.clientY);
+    const tgt = row && row.dataset.code;
+    if (dragRow) dragRow.classList.remove('dragging');
+    clearOver();
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    const dc = dragCode;
+    dragCode = dragGroup = dragRow = null;
+    if (dc && tgt && tgt !== dc) reorderMetricByDrop(dc, tgt);
+  };
+  box.querySelectorAll('.cfg-drag').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      const row = handle.closest('.charts-config-row');
+      if (!row) return;
+      e.preventDefault();
+      dragCode = row.dataset.code; dragGroup = row.dataset.group; dragRow = row;
+      row.classList.add('dragging');
+      document.addEventListener('pointermove', onMove, { passive: false });
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    });
+  });
+}
+
+// Перетащить метрику draggedCode на позицию targetCode (в пределах группы).
+function reorderMetricByDrop(draggedCode, targetCode) {
+  if (draggedCode === targetCode) return;
+  const catalog = buildMetricsCatalog();
+  const dm = catalog.find(x => x.code === draggedCode);
+  const tm = catalog.find(x => x.code === targetCode);
+  if (!dm || !tm || dm.group !== tm.group) return;  // только внутри группы
+  const items = applyUserOrder(
+    catalog.filter(x => x.group === dm.group),
+    loadMetricsOrder(),
+  );
+  const from = items.findIndex(x => x.code === draggedCode);
+  const to = items.findIndex(x => x.code === targetCode);
+  if (from < 0 || to < 0) return;
+  const [moved] = items.splice(from, 1);
+  items.splice(to, 0, moved);  // вставляем на место цели
+  const groupCodes = new Set(items.map(x => x.code));
+  const otherGroups = applyUserOrder(
+    catalog.filter(x => !groupCodes.has(x.code)),
+    loadMetricsOrder(),
+  ).map(x => x.code);
+  saveMetricsOrder([...items.map(x => x.code), ...otherGroups]);
+  renderMetricsConfigList();
+  renderCards();
 }
 
 // Сдвинуть метрику на ±1 позицию в её группе.

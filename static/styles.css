@@ -1008,6 +1008,17 @@ body.license-blocked .table-wrap { display: none !important; }
 }
 .cfg-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
 
+/* Drag-and-drop сортировки метрик (Pointer Events, мышь + тач). Ручка ⠿. */
+.cfg-drag {
+  flex-shrink: 0; cursor: grab; user-select: none;
+  color: var(--muted); font-size: 13px; line-height: 1;
+  letter-spacing: -1px; padding: 2px 2px;
+  touch-action: none;  /* тач-drag с ручки не скроллит попап */
+}
+.cfg-drag:active { cursor: grabbing; }
+.charts-config-row.dragging { opacity: 0.45; }
+.charts-config-row.drag-over { box-shadow: inset 0 2px 0 0 var(--primary, #3b82f6); }
+
 /* «⚙ Графики» — собственный popover на <details>. Раскрывается панелью с
    чекбоксами; новые пункты добавляются в JS-каталоге CHARTS. */
 .charts-config { position: relative; }
