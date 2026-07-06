@@ -547,6 +547,11 @@ async def fetch_stock_consumptions_sale_cost(
     """«Сырьё»: Σ costWithVat расхода типа Sale (реализация) по юнитам за период.
     Даты 'YYYY-MM-DD' (эндпоинт принимает ISO 8601).
 
+    ВНИМАНИЕ: граница `to_date` ИСКЛЮЧАЮЩАЯ — период это полуинтервал
+    [from, to). Для целого месяца передавай to = ПЕРВОЕ число следующего
+    месяца (напр. июнь → from='2026-06-01', to='2026-07-01'), иначе последний
+    день месяца не попадёт. `from == to` эндпоинт отвергает (400 DateOutOfRange).
+
     Пагинация: /accounting/stock-consumptions-by-period отдаёт записи страницами
     (skip/take) до isEndOfListReached; юниты батчим по ≤30. Учитываем ТОЛЬКО
     consumptionType=='Sale' — это себестоимость проданного (StaffMeal / Defect /

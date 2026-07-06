@@ -3576,11 +3576,15 @@ async def _run_ops_sync(
             # «Сырьё»: расход сырья от продаж (тип Sale, costWithVat) за месяц /
             # выручка юнита (с НДС) × 100. Отдельный эндпоинт с пагинацией —
             # тяжелее прочих; non-critical: сбой → raw_cost null, плитки идут.
+            # ВАЖНО: у stock-consumptions граница `to` ИСКЛЮЧАЮЩАЯ (полуинтервал
+            # [from, to)). Поэтому to = ПЕРВОЕ число следующего месяца, иначе
+            # последний день месяца теряется (был баг: недосчёт ~день Сырья).
             raw_cost_by_unit: dict[str, float] = {}
             try:
-                from calendar import monthrange as _mr_rc
                 _rc_start = f"{period}-01"
-                _rc_end = f"{period}-{_mr_rc(y, m)[1]:02d}"
+                _rc_end = (
+                    f"{y + 1}-01-01" if m == 12 else f"{y}-{m + 1:02d}-01"
+                )
                 raw_cost_by_unit = await _timed(
                     "stock-consumptions", with_dodois_retry(
                         session, user,
