@@ -1934,9 +1934,14 @@ body.settings-body {
 .dense-table tbody tr:hover td { background: #fafbfc; }
 .dense-table tbody tr:last-child td { border-bottom: none; }
 /* Не наследуем числовые правила P&L-таблицы (text-align:right + sticky
-   первая колонка min-width:240px) — в админ-таблицах текст влево, без пролётов. */
+   первая колонка min-width:240px) — в админ-таблицах текст влево, без пролётов.
+   ВАЖНО: матрицы целей (.matrix-table) ИСКЛЮЧАЕМ — у них первая колонка
+   (Пиццерия) должна ОСТАВАТЬСЯ sticky при горизонтальном скролле. Раньше этот
+   position:static перебивал .matrix-table .sticky-col по специфичности
+   (td:first-child = 0,2,1 > .matrix-table .sticky-col = 0,2,0) → столбец «уезжал». */
 .dense-table th, .dense-table td { text-align: left; }
-.dense-table th:first-child, .dense-table td:first-child { min-width: 0; position: static; }
+.dense-table:not(.matrix-table) th:first-child,
+.dense-table:not(.matrix-table) td:first-child { min-width: 0; position: static; }
 
 /* ---- flush-inputs (без рамки, рамка только на фокусе) ---- */
 .inp-flush {
