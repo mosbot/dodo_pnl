@@ -68,6 +68,35 @@ const fmtNum = (n, digits = 2) => {
 
 const fmtPct = (v) => (v == null || isNaN(v)) ? '' : (v * 100).toFixed(1).replace(/\.0$/, '').replace('.', ',');
 
+// mm:ss — для метрик времени (AVG_DELIVERY, AOT, COOK_TIME_*), где значение
+// хранится в СЕКУНДАХ. Показываем и вводим как «мм:сс» (напр. 33:03), а в БД
+// всё так же уходит число секунд. Ввод допускает и «мм:сс», и просто секунды.
+const fmtMmss = (sec) => {
+  if (sec == null || isNaN(sec)) return '';
+  const t = Math.round(Math.abs(sec));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+};
+const parseMmss = (raw) => {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (s === '') return null;
+  if (s.includes(':')) {
+    const parts = s.split(':');
+    if (parts.length !== 2) return null;
+    const mm = parseInt(parts[0], 10);
+    const ss = parseInt(parts[1], 10);
+    if (isNaN(mm) || isNaN(ss) || ss < 0 || ss >= 60) return null;
+    return mm * 60 + ss;
+  }
+  const n = parseNum(s);
+  return n == null ? null : Math.round(n);
+};
+const isMmss = (m) => !!(m && m.format === 'mm_ss');
+// Формат/парс ops-значения с учётом mm_ss.
+const fmtOps = (m, v) =>
+  isMmss(m) ? fmtMmss(v) : fmtNum(v, (m && typeof m.digits === 'number') ? m.digits : 2);
+const parseOps = (m, raw) => isMmss(m) ? parseMmss(raw) : parseNum(raw);
+
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
   if (r.status === 401) {
@@ -836,9 +865,9 @@ function renderOpsMatrix() {
     const ph = (state.opsTargetsGlobal || {})[m.code];
     html += `<td class="col-proj">
       <input type="text" class="js-ops-def-target inp-flush inp-right target-input"
-        data-code="${esc(m.code)}"${roTitle}
-        value="${v != null ? fmtNum(v, dig(m)) : ''}"
-        placeholder="${ph != null ? fmtNum(ph, dig(m)) : '—'}" ${roAttr}>
+        data-code="${esc(m.code)}"${isMmss(m) && editable ? ' title="формат мм:сс, напр. 33:03"' : roTitle}
+        value="${v != null ? fmtOps(m, v) : ''}"
+        placeholder="${ph != null ? fmtOps(m, ph) : '—'}" ${roAttr}>
     </td>`;
   });
   html += `</tr>
@@ -864,7 +893,7 @@ function renderOpsMatrix() {
         // факт + опционально количество в скобках (для процентных метрик)
         let factTxt = '';
         if (fact != null) {
-          let s = 'факт: ' + esc(fmtNum(fact, dig(m)));
+          let s = 'факт: ' + esc(fmtOps(m, fact));
           if (m.count_field && values[m.count_field] != null) {
             s += ` (${esc(fmtNum(values[m.count_field], 0))})`;
           }
@@ -877,9 +906,9 @@ function renderOpsMatrix() {
         const placeholder = phProj != null ? phProj : phDef;
         html += `<td class="col-proj ${cls} ${override != null ? 'has-override' : ''}">
           <input type="text" class="js-ops-proj-target inp-flush inp-right"
-            data-pid="${esc(p.id)}" data-code="${esc(m.code)}"${roTitle}
-            value="${override != null ? fmtNum(override, dig(m)) : ''}"
-            placeholder="${placeholder != null ? fmtNum(placeholder, dig(m)) : '—'}" ${roAttr}>
+            data-pid="${esc(p.id)}" data-code="${esc(m.code)}"${isMmss(m) && editable ? ' title="формат мм:сс, напр. 33:03"' : roTitle}
+            value="${override != null ? fmtOps(m, override) : ''}"
+            placeholder="${placeholder != null ? fmtOps(m, placeholder) : '—'}" ${roAttr}>
           <div class="cell-sub muted js-ops-fact" data-field="${esc(m.field)}">
             ${factTxt}
           </div>
@@ -903,16 +932,18 @@ function renderOpsMatrix() {
           await del(`/api/ops-targets?metric_code=${code}&period_month=${encodeURIComponent(pm)}`);
           delete state.opsTargets[code];
         } else {
-          const v = parseNum(raw);
+          const v = parseOps(m, raw);
           if (v == null) { flashErr(inp); toast('Некорректное значение', 'error'); return; }
           await post('/api/ops-targets',
             { metric_code: code, target_value: v, period_month: pm });
           state.opsTargets[code] = v;
+          // Нормализуем отображение введённого значения (напр. «120» → «2:00»).
+          inp.value = fmtOps(m, v);
         }
         // Обновить placeholder в project-ячейках этой метрики
         box.querySelectorAll(`.js-ops-proj-target[data-code="${code}"]`).forEach(p => {
           const d = state.opsTargets[code];
-          p.placeholder = d != null ? fmtNum(d, dig(m)) : '—';
+          p.placeholder = d != null ? fmtOps(m, d) : '—';
         });
         recolorOpsCells();
         flashOk(inp);
@@ -927,6 +958,7 @@ function renderOpsMatrix() {
       const code = inp.dataset.code;
       const raw = inp.value.trim();
       const key = `${pid}|${code}`;
+      const m = state.opsMeta.find(x => x.code === code) || {};
       const td = inp.closest('td');
       const pm = state.targetsPeriod;
       try {
@@ -935,12 +967,13 @@ function renderOpsMatrix() {
           delete state.opsProjectTargets[key];
           td.classList.remove('has-override');
         } else {
-          const v = parseNum(raw);
+          const v = parseOps(m, raw);
           if (v == null) { flashErr(inp); toast('Некорректное значение', 'error'); return; }
           await post('/api/ops-targets/project',
             { project_id: pid, metric_code: code, target_value: v, period_month: pm });
           state.opsProjectTargets[key] = v;
           td.classList.add('has-override');
+          inp.value = fmtOps(m, v);
         }
         recolorOpsCells();
         flashOk(inp);
