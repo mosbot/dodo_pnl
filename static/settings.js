@@ -2880,7 +2880,6 @@ async function initCalcSettings() {
   if (!box) return;
   const kc = document.getElementById('csKcTax');
   const dc = document.getElementById('csDcTax');
-  const dcEn = document.getElementById('csDcEnabled');
   const msg = document.getElementById('csMsg');
   // Live-окно (тот же эндпоинт /api/calc-settings, per-tenant)
   const liveM = document.getElementById('csLiveMonths');
@@ -2890,7 +2889,6 @@ async function initCalcSettings() {
     const s = await api('/api/calc-settings');
     kc.value = s.kc_tax_coefficient ?? 1;
     dc.value = s.dc_tax_coefficient ?? 1;
-    dcEn.checked = !!s.dc_live_enabled;
     if (liveM) liveM.value = s.live_months_window ?? 2;
     if (liveRev) liveRev.checked = !!s.live_revenue_from_dodois;
     if (s.no_planfact_key) msg.textContent = 'Нет привязанного PF-ключа';
@@ -2906,7 +2904,6 @@ async function initCalcSettings() {
         body: JSON.stringify({
           kc_tax_coefficient: parseFloat(kc.value) || 1,
           dc_tax_coefficient: parseFloat(dc.value) || 1,
-          dc_live_enabled: dcEn.checked,
         }),
       });
       msg.textContent = 'Сохранено ✓';

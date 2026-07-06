@@ -256,13 +256,13 @@ OPS_METRIC_CODES: list[str] = [m["code"] for m in OPS_METRICS]
 def ops_metrics_meta(
     dc_enabled: bool, *, kc_coeff: float = 1.0, dc_coeff: float = 1.0,
 ) -> list[dict]:
-    """Мета ops-метрик для конкретного тенанта. DC_LIVE показываем только если
-    dc_live_enabled. На KC_LIVE/DC_LIVE проставляем `coeff_applied` (коэф.≠1.0)
-    — фронт рисует красную «K» в углу плитки, когда применён налог. коэффициент."""
+    """Мета ops-метрик для конкретного тенанта. DC_LIVE — обычная метрика,
+    видимость (как и у остальных) регулируется шестерёнкой на странице плиток,
+    а не отдельным флагом. `dc_enabled` больше не скрывает её (параметр оставлен
+    для обратной совместимости вызова). На KC_LIVE/DC_LIVE проставляем
+    `coeff_applied` (коэф.≠1.0) — фронт рисует красную «K» при налог. коэффициенте."""
     out: list[dict] = []
     for m in OPS_METRICS:
-        if m["code"] == "DC_LIVE" and not dc_enabled:
-            continue
         item = dict(m)
         if m["code"] == "KC_LIVE":
             item["coeff_applied"] = abs(float(kc_coeff) - 1.0) > 1e-9
@@ -660,10 +660,9 @@ async def list_ops_metrics(
             "avg_cooking_time_delivery_sec": r.avg_cooking_time_delivery_sec,
             "avg_cooking_time_restaurant_sec": r.avg_cooking_time_restaurant_sec,
             "kc_live_pct": (r.kc_live_pct * kc_coeff) if r.kc_live_pct is not None else None,
-            "dc_live_pct": (
-                r.dc_live_pct * dc_coeff
-                if (dc_on and r.dc_live_pct is not None) else None
-            ),
+            # DC_LIVE — обычная метрика (видимость через шестерёнку). Больше не
+            # гейтим по dc_live_enabled: возвращаем всегда, применяя коэффициент.
+            "dc_live_pct": (r.dc_live_pct * dc_coeff) if r.dc_live_pct is not None else None,
             "rko_rate": r.rko_rate,
             "rs_rate": r.rs_rate,
             "rko_avg12w": r.rko_avg12w,
