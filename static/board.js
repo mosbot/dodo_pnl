@@ -976,7 +976,7 @@ function renderRichCard(b) {
           <span class="label">Месяц ${esc(ruMonth(lastPayload?.month, "nom"))}</span>
           <span class="vd">
             <span class="v">${fmt(month.value)} ₽</span>
-            <span class="d ${monthShort.cls}">${monthShort.text || ""}</span>
+            <span class="fbase">vs ${fmt(month.baseline)}</span>
           </span>
         </div>
         <div class="r-foot-row">
