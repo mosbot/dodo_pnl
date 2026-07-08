@@ -960,7 +960,6 @@ function renderRichCard(b) {
       <div class="r-head">
         <span class="r-name">${esc(b.name)}</span>
         <span class="r-head-meta">
-          <span class="r-month-mini ${monthShort.cls}">мес <span class="v">${monthShort.text || "—"}</span></span>
           <span class="r-day-delta ${dayPill.cls}">${dayPill.text}</span>
         </span>
       </div>
@@ -973,11 +972,20 @@ function renderRichCard(b) {
       <div class="r-channels">${channelsLine}</div>
       ${renderOpsGrid(b.ops)}
       <div class="r-foot">
-        <span class="label">Прогноз ${esc(ruMonth(lastPayload?.month, "gen"))}</span>
-        <span class="vd">
-          <span class="v">${fmt(f.value)} ₽</span>
-          <span class="d ${fShort.cls}">${fShort.text || ""}</span>
-        </span>
+        <div class="r-foot-row">
+          <span class="label">Месяц ${esc(ruMonth(lastPayload?.month, "nom"))}</span>
+          <span class="vd">
+            <span class="v">${fmt(month.value)} ₽</span>
+            <span class="d ${monthShort.cls}">${monthShort.text || ""}</span>
+          </span>
+        </div>
+        <div class="r-foot-row">
+          <span class="label">Прогноз ${esc(ruMonth(lastPayload?.month, "gen"))}</span>
+          <span class="vd">
+            <span class="v">${fmt(f.value)} ₽</span>
+            <span class="d ${fShort.cls}">${fShort.text || ""}</span>
+          </span>
+        </div>
       </div>
     </article>
   `;
