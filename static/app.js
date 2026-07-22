@@ -2652,7 +2652,7 @@ function renderAggregateTable() {
       const delta = proj.delta_pct;
       const valCls = line.kind === 'final' ? (amt < 0 ? 'neg' : 'pos') : (amt < 0 ? 'neg' : '');
       let cell = `<span class="${valCls}">${fmt(amt)}</span>`;
-      if (pct !== null && pct !== undefined && line.code !== 'REVENUE' && line.kind === 'detail') {
+      if (pct !== null && pct !== undefined && line.code !== 'REVENUE' && line.kind !== 'header') {
         cell += `<span class="pct">${fmtPctAbs(pct)}</span>`;
       }
       if (delta !== undefined && delta !== null) {
@@ -2665,7 +2665,7 @@ function renderAggregateTable() {
     });
     const total = line.total || {};
     let totalCell = `<strong>${fmt(total.amount ?? totalAmt)}</strong>`;
-    if (total.pct_of_revenue !== null && total.pct_of_revenue !== undefined && line.code !== 'REVENUE' && line.kind === 'detail') {
+    if (total.pct_of_revenue !== null && total.pct_of_revenue !== undefined && line.code !== 'REVENUE' && line.kind !== 'header') {
       totalCell += `<span class="pct">${fmtPctAbs(total.pct_of_revenue)}</span>`;
     }
     const totalCellCls = drillable ? 'cell-clickable' : '';
@@ -2814,9 +2814,12 @@ function renderTemplateTable(nodes) {
   for (const n of nodes) {
     if (autoHidden.has(n.id)) continue;
     if (!isVisible(n)) continue;
-    // «Скрыть нули» не трогает is_calc-строки: уровни прибыльности и их
-    // %-строки («Маржинальность», «Рентабельность по EBITDA», …) имеют
-    // amount=None → иначе тоггл прятал бы саму прибыльность в процентах.
+    // Прибыльность в % показываем мелким инлайн на самой строке уровня
+    // (Маржинальная прибыль / EBITDA / …), поэтому отдельные %-строки
+    // («Маржинальность», «Рентабельность по EBITDA», …) не рисуем вовсе.
+    if (n.display_kind === 'pct') continue;
+    // «Скрыть нули» не трогает is_calc-строки — уровни прибыльности показываем
+    // всегда (как и прочие итоги).
     if (hideZeros && !n.is_calc && isAmtZero(n.total?.amount)) continue;
 
     const depth = n.depth ?? 0;
@@ -2884,7 +2887,7 @@ function renderTemplateTable(nodes) {
           // как на странице месяца. Не показываем у выручки и calc-итогов.
           const pctM = (monthlyData[m] && monthlyData[m].by_node_pct)
             ? monthlyData[m].by_node_pct[String(n.id)] : null;
-          if (pctM != null && n.pnl_code !== 'REVENUE' && !n.is_calc) {
+          if (pctM != null && n.pnl_code !== 'REVENUE') {
             cell += `<span class="pct">${fmtPctAbs(pctM)}</span>`;
           }
         }
@@ -2908,10 +2911,10 @@ function renderTemplateTable(nodes) {
         } else {
           const valCls = (amt != null && amt < 0) ? 'neg' : '';
           cell = `<span class="${valCls}">${fmt(amt)}</span>`;
-          // % показываем для расходных строк (не выручки), и НЕ для
-          // расчётных итогов (Маржин/Op.Profit/EBITDA/Чистая прибыль) —
-          // у них % дублируется в следующей строке «Рентабельность».
-          if (pct != null && n.pnl_code !== 'REVENUE' && !n.is_calc) {
+          // % от выручки — мелким рядом с суммой. Показываем и на строках
+          // уровней прибыльности (is_calc: Маржа/EBITDA/Op.Profit/Чистая),
+          // т.к. отдельные %-строки мы больше не рисуем. Не у выручки.
+          if (pct != null && n.pnl_code !== 'REVENUE') {
             cell += `<span class="pct">${fmtPctAbs(pct)}</span>`;
           }
         }
@@ -2930,9 +2933,8 @@ function renderTemplateTable(nodes) {
       totalCell = `<strong class="${valCls}">${fmtPctAbs(tot.pct_of_revenue)}</strong>`;
     } else {
       totalCell = `<strong>${fmt(tot.amount)}</strong>`;
-      // Без % для calc-итогов (Маржин/EBITDA/Op.Profit/Чистая прибыль):
-      // % уже есть в следующей строке «Рентабельность».
-      if (tot.pct_of_revenue != null && n.pnl_code !== 'REVENUE' && !n.is_calc) {
+      // % от выручки — мелким рядом с итогом, включая уровни прибыльности.
+      if (tot.pct_of_revenue != null && n.pnl_code !== 'REVENUE') {
         totalCell += `<span class="pct">${fmtPctAbs(tot.pct_of_revenue)}</span>`;
       }
     }
