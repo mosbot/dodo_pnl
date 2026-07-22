@@ -1288,6 +1288,23 @@ function renderSetupBanner(lite) {
   });
 }
 
+// Сортировка карточек пиццерий (как в Пульсе): cycling-кнопка + localStorage.
+// Значения берём из P&L-строк выбранного периода.
+const FIN_SORT_MODES = [
+  { key: 'revenue',     sub: 'выручка ↓',  label: 'по выручке' },
+  { key: 'profit_desc', sub: 'прибыль ↓',  label: 'по прибыли, лучшие сверху' },
+  { key: 'profit_asc',  sub: 'прибыль ↑',  label: 'по прибыли, худшие сверху' },
+  { key: 'name',        sub: 'А → Я',      label: 'по алфавиту' },
+];
+function getFinSort() {
+  const k = localStorage.getItem('finSort') || 'revenue';
+  return FIN_SORT_MODES.find(m => m.key === k) || FIN_SORT_MODES[0];
+}
+function nextFinSort(k) {
+  const i = FIN_SORT_MODES.findIndex(m => m.key === k);
+  return FIN_SORT_MODES[(i + 1) % FIN_SORT_MODES.length];
+}
+
 function renderCards() {
   const box = el('kpiCards');
   box.innerHTML = '';
@@ -1296,6 +1313,28 @@ function renderCards() {
   // независимо от того, видит ли его юзер.
   const ebitda = findLine('EBITDA');
   if (!revenue) return;
+
+  // Порядок карточек по выбранному режиму сортировки. Прибыль — NET_PROFIT
+  // (fallback EBITDA); выручка/имя — из строк/проекта.
+  const netProfit = findLine('NET_PROFIT');
+  const revOf = (pid) => (revenue.projects[pid]?.amount || 0);
+  const profitOf = (pid) =>
+    (netProfit?.projects[pid]?.amount ?? ebitda?.projects[pid]?.amount ?? 0);
+  const finSort = getFinSort();
+  const sortedProjects = state.pnl.projects.slice().sort((a, b) => {
+    switch (finSort.key) {
+      case 'revenue':     return revOf(b.id) - revOf(a.id);
+      case 'profit_desc': return profitOf(b.id) - profitOf(a.id);
+      case 'profit_asc':  return profitOf(a.id) - profitOf(b.id);
+      case 'name':        return (a.name || '').localeCompare(b.name || '', 'ru');
+      default:            return 0;
+    }
+  });
+  const sBtn = el('finSortBtn');
+  if (sBtn) {
+    sBtn.textContent = `сортировка · ${finSort.sub}`;
+    sBtn.setAttribute('aria-label', `Сортировка: ${finSort.label}. Нажмите для смены`);
+  }
 
   // Lite-режим (нет PlanFact): компактный бейдж в тулбаре + скрытие
   // PlanFact-блоков (графики, «Детализация по статьям»).
@@ -1354,7 +1393,7 @@ function renderCards() {
     userOrder,
   ).filter(m => !metricsHidden.has(m.code));
 
-  state.pnl.projects.forEach(p => {
+  sortedProjects.forEach(p => {
     const rev = revenue.projects[p.id]?.amount || 0;
     const ebP = ebitda?.projects[p.id] || {};
     const ops = p.ops || {};
@@ -3151,6 +3190,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderMetricsConfigList();
   el('metricsConfigShowAll')?.addEventListener('click', () => setAllMetricsVisible(true));
   el('metricsConfigHideAll')?.addEventListener('click', () => setAllMetricsVisible(false));
+
+  // Сортировка карточек (как в Пульсе): циклический переключатель режимов.
+  el('finSortBtn')?.addEventListener('click', () => {
+    localStorage.setItem('finSort', nextFinSort(getFinSort().key).key);
+    renderCards();
+  });
 
   // UX-5: обновляем подпись «вкл/выкл» внутри pill — JS-handler рядом
   // с триггером загрузки данных, чтобы было одно место истины.
