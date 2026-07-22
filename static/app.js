@@ -2814,7 +2814,10 @@ function renderTemplateTable(nodes) {
   for (const n of nodes) {
     if (autoHidden.has(n.id)) continue;
     if (!isVisible(n)) continue;
-    if (hideZeros && isAmtZero(n.total?.amount)) continue;
+    // «Скрыть нули» не трогает is_calc-строки: уровни прибыльности и их
+    // %-строки («Маржинальность», «Рентабельность по EBITDA», …) имеют
+    // amount=None → иначе тоггл прятал бы саму прибыльность в процентах.
+    if (hideZeros && !n.is_calc && isAmtZero(n.total?.amount)) continue;
 
     const depth = n.depth ?? 0;
     const isOpen = expanded.has(n.id);
