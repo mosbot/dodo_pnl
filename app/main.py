@@ -459,13 +459,25 @@ async def get_projects(
         cfg = await store.list_projects_config(session, user.planfact_key_id)
         hidden = await store.get_user_hidden_projects(session, user.id)
         show_admin_unmanaged = user.is_super_admin
+        # Lite-фолбэк имён: у Lite нет PlanFact-title, поэтому пустой display_name
+        # раньше показывал числовой project_id в сайдбаре. Подставляем имя юнита
+        # из dodois_units_cache по dodo_unit_uuid (только чтение кэша, без запроса
+        # в Dodo IS). Карточки /api/pnl обогащаются так же — теперь и сайдбар.
+        unit_uuids = [
+            c["dodo_unit_uuid"] for c in cfg.values() if c.get("dodo_unit_uuid")
+        ]
+        unit_names = (
+            await store.get_units_cache(session, unit_uuids) if unit_uuids else {}
+        )
         norm = []
         for pid, c in cfg.items():
             if not bool(c.get("is_admin_managed", True)) and not show_admin_unmanaged:
                 continue
             key_active = bool(c.get("is_active", True))
             user_visible = pid not in hidden
-            name = c.get("display_name") or pid
+            uuid = c.get("dodo_unit_uuid")
+            cached_name = (unit_names.get(uuid) or {}).get("name") if uuid else None
+            name = c.get("display_name") or cached_name or pid
             norm.append({
                 "id": pid,
                 "planfact_name": name,
