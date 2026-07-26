@@ -442,11 +442,11 @@ async def internal_tenant_activity(
                 WITH act AS (
                   SELECT u.planfact_key_id AS kid,
                          max(s.last_seen_at) AS last_active
-                  FROM users u JOIN sessions s ON s.user_id = u.id
+                  FROM pnl_service.users u JOIN pnl_service.sessions s ON s.user_id = u.id
                   GROUP BY u.planfact_key_id
                 )
                 SELECT pc.dodo_unit_uuid AS uuid, act.last_active
-                FROM projects_config pc
+                FROM pnl_service.projects_config pc
                 JOIN act ON act.kid = pc.planfact_key_id
                 WHERE pc.dodo_unit_uuid IS NOT NULL
                   AND act.last_active IS NOT NULL
