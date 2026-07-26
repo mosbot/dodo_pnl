@@ -9,7 +9,16 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -409,6 +418,51 @@ async def board_page(user: User | None = Depends(optional_user)):
 
 
 # --- API routes ---
+
+@app.get("/internal/tenant-activity")
+async def internal_tenant_activity(
+    x_admin_token: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Внутренний эндпоинт для SA-админки (карточка сети): активность тенантов
+    по dodo_unit_uuid. Возвращает {uuid: last_active_iso}. last_active —
+    max(sessions.last_seen_at) по planfact_key. Защита — общий платформенный
+    SA_INTERNAL_TOKEN (тот же, которым pnl ходит в брокер sa)."""
+    import hmac as _hmac
+    from sqlalchemy import text as _text
+
+    if not settings.sa_internal_token or not _hmac.compare_digest(
+        x_admin_token or "", settings.sa_internal_token
+    ):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    rows = (
+        await session.execute(
+            _text(
+                """
+                WITH act AS (
+                  SELECT u.planfact_key_id AS kid,
+                         max(s.last_seen_at) AS last_active
+                  FROM users u JOIN sessions s ON s.user_id = u.id
+                  GROUP BY u.planfact_key_id
+                )
+                SELECT pc.dodo_unit_uuid AS uuid, act.last_active
+                FROM projects_config pc
+                JOIN act ON act.kid = pc.planfact_key_id
+                WHERE pc.dodo_unit_uuid IS NOT NULL
+                  AND act.last_active IS NOT NULL
+                """
+            )
+        )
+    ).all()
+    out: dict[str, str] = {}
+    for uuid, last_active in rows:
+        if not uuid or last_active is None:
+            continue
+        iso = last_active.isoformat()
+        if uuid not in out or iso > out[uuid]:
+            out[uuid] = iso
+    return out
+
 
 @app.get("/api/health")
 async def health(
