@@ -7,8 +7,10 @@ DODO_IS_ACCESS_TOKEN). В проде заменится на чтение из P
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import random
+import time
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional
 
@@ -31,6 +33,77 @@ _REQ_TIMEOUT = httpx.Timeout(180.0, connect=15.0)
 _MAX_PARALLEL = 6
 
 _semaphore = asyncio.Semaphore(_MAX_PARALLEL)
+
+# --- Rate limiter: сквозной лимит Dodo IS 200 rpm НА ТОКЕН (общий на ВСЕ ручки).
+# Проактивный token-bucket на токен (кап settings.dodois_rpm_limit; 0 = выкл) —
+# превращает 429-штормы в плавную очередь. Приоритет через contextvar:
+# foreground (клик юзера: live-месяц, /board) обгоняет background (warmup/ops-sync),
+# поэтому фоновый прогрев большого тенанта не тормозит живой экран.
+_priority: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "dodois_priority", default="fg"
+)
+
+
+def set_background_priority() -> None:
+    """Пометить текущий таск как фоновый — его запросы к Dodo IS уступают
+    live-трафику у лимитера. Вызывается в начале warmup / ops-sync."""
+    _priority.set("bg")
+
+
+class _RateLimiter:
+    """Token-bucket с приоритетом. Учёт токенов под Lock, сон — вне Lock.
+    bg уступает, пока есть ожидающие fg (но идёт, когда fg-очередь пуста —
+    без голодания)."""
+
+    def __init__(self, rpm: int) -> None:
+        self.rate = rpm / 60.0                    # токенов/сек
+        self.capacity = float(max(1, rpm // 18))  # burst: worst-case минута = rpm+burst < 200
+        self.tokens = self.capacity
+        self.updated = time.monotonic()
+        self.lock = asyncio.Lock()
+        self.fg_waiting = 0
+
+    async def acquire(self, priority: str) -> None:
+        if priority == "fg":
+            self.fg_waiting += 1
+        try:
+            while True:
+                async with self.lock:
+                    now = time.monotonic()
+                    self.tokens = min(
+                        self.capacity,
+                        self.tokens + (now - self.updated) * self.rate,
+                    )
+                    self.updated = now
+                    if self.tokens >= 1.0 and (
+                        priority == "fg" or self.fg_waiting == 0
+                    ):
+                        self.tokens -= 1.0
+                        return
+                    deficit = 1.0 - self.tokens
+                delay = deficit / self.rate if self.rate else 0.1
+                if priority == "bg" and self.fg_waiting > 0:
+                    delay = max(delay, 0.2)          # уступаем живым запросам
+                await asyncio.sleep(min(delay, 5.0))
+        finally:
+            if priority == "fg":
+                self.fg_waiting -= 1
+
+
+_limiters: dict[str, _RateLimiter] = {}
+
+
+async def _acquire_rate(token: str, priority: str) -> None:
+    rpm = settings.dodois_rpm_limit
+    if rpm <= 0 or not token:
+        return
+    lim = _limiters.get(token)
+    if lim is None:
+        if len(_limiters) > 64:                       # токены ротируются -> не растём вечно
+            _limiters.pop(next(iter(_limiters)), None)
+        lim = _RateLimiter(rpm)
+        _limiters[token] = lim
+    await lim.acquire(priority)
 
 # Один переиспользуемый httpx-клиент на процесс (keep-alive вместо
 # нового TLS-хендшейка на каждый вызов — раньше /api/board открывал
@@ -65,6 +138,7 @@ async def _get(
     """Единая точка GET к Dodo IS: общий клиент + глобальный семафор.
     Семафор держится только на время HTTP-вызова (не на время backoff-sleep
     в _with_retries), чтобы ожидающие ретраи не занимали слоты."""
+    await _acquire_rate(token, _priority.get())
     async with _semaphore:
         return await _client().get(url, headers=_headers(token), params=params)
 

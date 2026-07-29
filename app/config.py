@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     warm_include_ly: bool = True      # + LY-двойники окна (для LFL-графика)
     warm_with_ops: bool = True        # прогревать и ops_metrics (тяжелее)
     warm_min_interval_sec: int = 21600  # дебаунс на тенант (6ч)
+    # Сквозной лимит Dodo IS 200 rpm НА ТОКЕН -> кап с запасом. 0 = выкл.
+    dodois_rpm_limit: int = 180
 
 
 settings = Settings()

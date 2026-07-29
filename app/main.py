@@ -2008,6 +2008,7 @@ async def warm_financials(
     with_ops: bool | None = None,
 ) -> None:
     """Фоновый прогрев закрытых месяцев тенанта (свои сессии; fire-and-forget)."""
+    dodois_client.set_background_priority()
     import logging
     import time as _t
     from .db import get_session_factory
@@ -3496,6 +3497,7 @@ async def _run_ops_sync(
     from .db import get_session_factory
 
     log = logging.getLogger("uvicorn.error")
+    dodois_client.set_background_priority()
     Sm = get_session_factory()
 
     async with Sm() as session:
