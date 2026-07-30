@@ -2473,3 +2473,9 @@ table.tpl-tree tr.tpl-section td.tpl-title {
   border-radius: 4px;
   cursor: pointer;
 }
+
+/* Revenue-first: шиммер значения в плитке, пока метрика грузится. */
+.tile-skel-v { display: inline-block; width: 64%; height: 16px; border-radius: 4px; vertical-align: middle; }
+
+/* Подстрока-заглушка в скелет-плитке (высота как у реальной плитки с sub). */
+.card-skel .skel-sub { display: block; width: 50%; height: 7px; margin-top: 5px; }

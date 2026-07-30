@@ -23,7 +23,14 @@ log = logging.getLogger(__name__)
 
 # Большие окна (полный месяц × несколько юнитов) Dodo IS отдаёт небыстро —
 # по 30–60 сек на запрос. Делаем таймаут с запасом.
-_REQ_TIMEOUT = httpx.Timeout(180.0, connect=15.0)
+_REQ_TIMEOUT = httpx.Timeout(250.0, connect=15.0)
+# S16: productivity у Dodo IS на тяжёлых месяцах отдаёт 504 через ~130с
+# (их nginx). Режем ожидание своим таймаутом, чтобы ops-синк не гнался
+# за ним; attempts=1 — не ретраить возникший ReadTimeout (иначе ×4).
+_PRODUCTIVITY_TIMEOUT = httpx.Timeout(250.0, connect=15.0)
+# S23b: тяжёлые ручки (productivity/delivery-stats/vouchers) не успевают
+# на батче в 30 юнитов при деградации Dodo IS. Мелкие батчи параллельно.
+_HEAVY_BATCH = 12
 
 # Максимум ОДНОВРЕМЕННЫХ HTTP-запросов к Dodo IS со всего процесса.
 # До 2026-06-10 константа была мёртвой (нигде не применялась, см.
@@ -134,12 +141,17 @@ async def aclose_shared_client() -> None:
 
 async def _get(
     url: str, token: str, params: Optional[dict[str, Any]] = None,
+    *, timeout: Optional[httpx.Timeout] = None,
 ) -> httpx.Response:
     """Единая точка GET к Dodo IS: общий клиент + глобальный семафор.
     Семафор держится только на время HTTP-вызова (не на время backoff-sleep
     в _with_retries), чтобы ожидающие ретраи не занимали слоты."""
     await _acquire_rate(token, _priority.get())
     async with _semaphore:
+        if timeout is not None:
+            return await _client().get(
+                url, headers=_headers(token), params=params, timeout=timeout,
+            )
         return await _client().get(url, headers=_headers(token), params=params)
 
 # Сетевые ошибки, на которые имеет смысл ретраить: transport-level, без ответа
@@ -282,6 +294,10 @@ async def _batched_get(
     *,
     response_key: str,
     extra_params: Optional[dict[str, Any]] = None,
+    timeout: Optional[httpx.Timeout] = None,
+    attempts: int = 4,
+    batch_size: Optional[int] = None,
+    parallel: bool = False,
 ) -> list[dict[str, Any]]:
     """Generic GET с batching по units (до 30 за раз).
 
@@ -290,18 +306,19 @@ async def _batched_get(
     """
     if not unit_uuids:
         return []
+    bs = batch_size or _BATCH_SIZE
     batches = [
-        unit_uuids[i:i + _BATCH_SIZE]
-        for i in range(0, len(unit_uuids), _BATCH_SIZE)
+        unit_uuids[i:i + bs]
+        for i in range(0, len(unit_uuids), bs)
     ]
-    out: list[dict[str, Any]] = []
-    for idx, batch in enumerate(batches):
+
+    async def _one(idx: int, batch: list[str]) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"units": ",".join(batch)}
         if extra_params:
             params.update(extra_params)
 
         async def _do() -> list[dict[str, Any]]:
-            r = await _get(url, token, params)
+            r = await _get(url, token, params, timeout=timeout)
             _raise(r)
             return r.json().get(response_key) or []
 
@@ -309,7 +326,20 @@ async def _batched_get(
         if len(batches) > 1:
             batch_label += f",{idx + 1}/{len(batches)}"
         batch_label += "]"
-        out.extend(await _with_retries(batch_label, _do))
+        return await _with_retries(batch_label, _do, attempts=attempts)
+
+    out: list[dict[str, Any]] = []
+    if parallel and len(batches) > 1:
+        # S23b: мелкие батчи параллельно — глобальный семафор в _get
+        # ограничивает реальную конкуренцию; порядок сохраняем по индексу.
+        results = await asyncio.gather(
+            *(_one(i, b) for i, b in enumerate(batches))
+        )
+        for r_ in results:
+            out.extend(r_)
+    else:
+        for i, b in enumerate(batches):
+            out.extend(await _one(i, b))
     return out
 
 
@@ -334,6 +364,10 @@ async def fetch_productivity_many(
         unit_uuids=unit_uuids,
         response_key="productivityStatistics",
         extra_params={"from": _fmt(from_date), "to": _fmt(to_date)},
+        timeout=_PRODUCTIVITY_TIMEOUT,
+        attempts=1,
+        batch_size=_HEAVY_BATCH,
+        parallel=True,
     )
 
 
@@ -348,6 +382,8 @@ async def fetch_delivery_statistics(
         unit_uuids=unit_uuids,
         response_key="unitsStatistics",
         extra_params={"from": _fmt(from_date), "to": _fmt(to_date)},
+        batch_size=_HEAVY_BATCH,
+        parallel=True,
     )
 
 
@@ -412,12 +448,15 @@ async def fetch_late_delivery_vouchers(
         return []
     take = 1000
     url = f"{settings.dodo_is_base_url}/delivery/vouchers"
+    # S23b: мелкие батчи параллельно (тяжёлая ручка; батч 30 не успевает
+    # на больших сетях при деградации Dodo IS). Пагинация — внутри батча.
     batches = [
-        unit_uuids[i:i + _BATCH_SIZE]
-        for i in range(0, len(unit_uuids), _BATCH_SIZE)
+        unit_uuids[i:i + _HEAVY_BATCH]
+        for i in range(0, len(unit_uuids), _HEAVY_BATCH)
     ]
-    out: list[dict[str, Any]] = []
-    for batch in batches:
+
+    async def _one_batch(batch: list[str]) -> list[dict[str, Any]]:
+        acc: list[dict[str, Any]] = []
         skip = 0
         while True:
             params = {
@@ -431,13 +470,18 @@ async def fetch_late_delivery_vouchers(
                 return r.json()
 
             data = await _with_retries(
-                f"vouchers[batch={len(batch)}@{skip}]", _do,
+                f"vouchers[batch={len(batch)}@{skip}]", _do, attempts=1,
             )
             page = data.get("vouchers") or []
-            out.extend(page)
+            acc.extend(page)
             if data.get("isEndOfListReached") or len(page) < take:
                 break
             skip += take
+        return acc
+
+    out: list[dict[str, Any]] = []
+    for chunk in await asyncio.gather(*(_one_batch(b) for b in batches)):
+        out.extend(chunk)
     return out
 
 

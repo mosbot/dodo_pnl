@@ -566,9 +566,22 @@ async function loadPnl() {
   showRevHistoryLoading(true);
 
   try {
-    state.pnl = await api('/api/pnl?' + params.toString());
-    if (loadId !== state.loadCounter) return;  // юзер уже переключил период
+    // Стадия 1 — быстрая выручка (revenue-first): карточки с выручкой сразу,
+    // не дожидаясь косто/ops. stage='revenue' возвращается только когда бэк
+    // реально пошёл быстрым путём (Lite); иначе это уже полный ответ.
+    const revParams = new URLSearchParams(params.toString());
+    revParams.set('stage', 'revenue');
+    const first = await api('/api/pnl?' + revParams.toString());
+    if (loadId !== state.loadCounter) return;
+    state.pnl = first;
     render();
+    // Стадия 2 — полный отчёт (косто/ops), если стадия 1 была частичной.
+    if (first && first.stage === 'revenue') {
+      const full = await api('/api/pnl?' + params.toString());
+      if (loadId !== state.loadCounter) return;
+      state.pnl = full;
+      render();
+    }
   } catch (e) {
     toast('Ошибка загрузки: ' + e.message, 'error');
     showLoading(false);
@@ -735,23 +748,30 @@ function renderSkeleton() {
   if (cards) {
     // Сколько проектов выбрано — столько и карточек-плейсхолдеров.
     const n = Math.max(1, state.selectedProjects.size);
-    cards.innerHTML = Array.from({length: n}, () => `
+    const _skelTile = `<div><span class="skel skel-l"></span><span class="skel skel-v"></span><span class="skel skel-sub"></span></div>`;
+    // Число плиток — из прошлой загрузки ЭТОГО пользователя (per-user, учитывает
+    // скрытые/показанные плитки). Дефолт до первой загрузки — 2 fin / 18 metrics.
+    let _finN = 2, _opsN = 18;
+    try {
+      const _u = window.__currentUsername || 'default';
+      const _f = localStorage.getItem('skel_fin_n.' + _u);
+      const _o = localStorage.getItem('skel_ops_n.' + _u);
+      if (_f !== null) _finN = Math.max(1, parseInt(_f, 10) || 2);
+      if (_o !== null) _opsN = Math.max(0, parseInt(_o, 10) || 0);
+    } catch (e) {}
+    const _finTiles = _skelTile.repeat(_finN);
+    const _metricTiles = _skelTile.repeat(_opsN);
+    // Названия точек уже известны (state.allProjects из /api/projects, без
+    // похода в Dodo IS) — рисуем реальный заголовок сразу, шиммерят значения.
+    const _selProj = (state.allProjects || []).filter(p => state.selectedProjects.has(p.id));
+    const _skelItems = _selProj.length ? _selProj : Array.from({length: n}, () => ({ name: '' }));
+    cards.innerHTML = _skelItems.map(p => `
       <div class="card-skel">
-        <span class="skel skel-title"></span>
+        ${p.name ? `<div class="card-title">${esc(p.name)}</div>` : '<span class="skel skel-title"></span>'}
         <span class="skel skel-section"></span>
-        <div class="skel-fin">
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-        </div>
+        <div class="skel-fin">${_finTiles}</div>
         <span class="skel skel-section"></span>
-        <div class="skel-tiles">
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-          <div><span class="skel skel-l"></span><span class="skel skel-v"></span></div>
-        </div>
+        <div class="skel-tiles">${_metricTiles}</div>
       </div>
     `).join('');
   }
@@ -920,13 +940,44 @@ function renderOpsFreshness() {
     : 'Обновить P&L из PlanFact и ops-метрики из Dodo IS';
 }
 
+// S23: тихое обновление P&L без скелета/лоадера — перерисовываем карточки
+// с новыми значениями по мере инкрементальных записей фонового ops-синка.
+async function refreshPnlQuiet() {
+  if (state.selectedProjects.size === 0) return;
+  const ds = el('dateStart').value, de = el('dateEnd').value;
+  if (!ds || !de) return;
+  const params = new URLSearchParams();
+  params.set('date_start', ds);
+  params.set('date_end', de);
+  if (state.mode === 'month') params.set('period_month', state.currentMonth);
+  else params.set('group_by', 'month');
+  state.selectedProjects.forEach(p => params.append('project_ids', p));
+  if (state.mode === 'month' && el('compareToggle').checked) {
+    const [ps, pe] = monthToRange(previousYearKey(state.currentMonth));
+    params.set('compare_start', ps);
+    params.set('compare_end', pe);
+    params.set('compare_mode', 'lfl');
+  }
+  const lc = state.loadCounter;
+  const month = state.currentMonth, mode = state.mode;
+  try {
+    const fresh = await api('/api/pnl?' + params.toString());
+    // Юзер мог сменить месяц/режим за время запроса — не перетираем.
+    if (lc !== state.loadCounter || state.currentMonth !== month
+        || state.mode !== mode) return;
+    state.pnl = fresh;
+    render();
+  } catch { /* не критично — следующий поллинг повторит */ }
+}
+
 // Авто-обновление /api/pnl пока идёт фоновый ops-синк. Останавливаемся
 // либо по таймауту (~3 мин), либо когда is_syncing=false на бэкенде.
 let _opsPollTimer = null;
+let _opsLastWriteSeen = null;
 function _pollOpsSync(period) {
   if (_opsPollTimer) clearTimeout(_opsPollTimer);
   const startedAt = Date.now();
-  const MAX_MS = 3 * 60 * 1000;
+  const MAX_MS = 8 * 60 * 1000;
   const STEP_MS = 8000;
 
   const tick = async () => {
@@ -943,9 +994,16 @@ function _pollOpsSync(period) {
         { credentials: 'same-origin' });
       if (r.ok) {
         const st = await r.json();
+        // S23: бэк пишет метрики инкрементально (write pass на каждую
+        // пришедшую ручку Dodo IS). Видим новую запись — тихо доливаем
+        // плитки, не дожидаясь конца синка.
+        if (st.last_write_at && st.last_write_at !== _opsLastWriteSeen) {
+          _opsLastWriteSeen = st.last_write_at;
+          if (state.currentMonth === period) await refreshPnlQuiet();
+        }
         if (!st.is_syncing) {
           if (state.currentMonth !== period) return;
-          await loadPnl();           // единственная финальная перерисовка
+          await refreshPnlQuiet();   // финальная доливка — тоже без скелета
           toast('Метрики обновлены');
           return;
         }
@@ -1030,6 +1088,15 @@ function zoneCls(meta, v) {
 // + абс. число шт).
 function opsTile(meta, val, target, opsRow) {
   const hasVal = val != null && !isNaN(val);
+  if (!hasVal && state.pnl && state.pnl.stage === 'revenue') {
+    // Revenue-first: значения ops ещё грузятся — плитка та же, значение шиммер.
+    return `
+    <div class="tile tile-metric" title="${esc(meta.title || meta.label)}">
+      ${meta.coeff_applied ? '<span class="tile-coeff-badge">K</span>' : ''}
+      <div class="tile-label">${esc(meta.label)}</div>
+      <div class="tile-value"><span class="skel tile-skel-v"></span></div>
+    </div>`;
+  }
   const dir = meta.direction || 'higher';
   const digits = (typeof meta.digits === 'number') ? meta.digits : 2;
   let stateCls = '';
@@ -1484,6 +1551,20 @@ function renderCards() {
     `;
     box.appendChild(div);
   });
+  // Запоминаем ФАКТИЧЕСКУЮ раскладку плиток первой карточки (с учётом
+  // per-user скрытия/порядка — metricsHidden), чтобы скелет следующей
+  // загрузки был той же высоты: без «дорастания» и без «усыхания», если
+  // часть плиток скрыта. Ключ per-username — как metricsHidden.
+  try {
+    const _c0 = box.querySelector('.card');
+    if (_c0) {
+      const _u = window.__currentUsername || 'default';
+      const _finN = _c0.querySelectorAll('.tile-grid-fin .tile').length;
+      const _metN = _c0.querySelectorAll('.tile-grid-metrics .tile').length;
+      if (_finN) localStorage.setItem('skel_fin_n.' + _u, String(_finN));
+      localStorage.setItem('skel_ops_n.' + _u, String(_metN));
+    }
+  } catch (e) {}
 
   // Auto-fit плиток после рендера. Стратегии:
   // - .tile-value: если в нём есть .tile-sub (например «11,2 % (309)»),

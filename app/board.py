@@ -140,6 +140,7 @@ _UNITS_CACHE_TTL_SEC = 24 * 60 * 60  # 24 часа
 
 async def _get_or_refresh_unit_names(
     session: AsyncSession, token: str,
+    required: list[str] | None = None,
 ) -> dict[str, str]:
     """Вернуть {uuid_norm: name} из dodois_units_cache. Если кэш пуст
     или старше TTL — обновить из /auth/roles/units (один запрос).
@@ -150,9 +151,18 @@ async def _get_or_refresh_unit_names(
     cached = await store.get_units_cache(session)
     age_sec = await store.get_units_cache_max_age_seconds(session)
 
+    # Кэш имён ГЛОБАЛЬНЫЙ (все сети в одной таблице), поэтому TTL-проверка по
+    # всей таблице НЕ ловит нового тенанта, чьих юнитов ещё нет в кэше (он
+    # «свежий» от других сетей). Дорефрешиваем, если явно требуемые uuid
+    # отсутствуют — иначе новичок видит project_id вместо названий точек.
+    missing = False
+    if required:
+        req = {_normalize_uuid(u) for u in required if u}
+        missing = any(u not in cached for u in req)
     needs_refresh = (
         age_sec is None  # таблица пустая
         or age_sec > _UNITS_CACHE_TTL_SEC
+        or missing
     )
 
     if needs_refresh:

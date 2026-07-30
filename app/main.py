@@ -1793,7 +1793,9 @@ async def _build_pnl_lite(
             # Имена пиццерий — из кэша Dodo IS (как в /board), иначе на
             # карточках будет project_id вместо названия.
             try:
-                names = await board_module._get_or_refresh_unit_names(session, token)
+                names = await board_module._get_or_refresh_unit_names(
+                    session, token, required=list(uuid_to_pid.keys()),
+                )
                 for uu_norm, pid in uuid_to_pid.items():
                     nm = names.get(uu_norm)
                     if nm:
@@ -2104,6 +2106,152 @@ def _maybe_trigger_warmup(user: User) -> None:
     _a.create_task(warm_financials(user.id))
 
 
+async def _build_pnl_revenue_stage(
+    session: AsyncSession, user: User,
+    date_start: str, date_end: str,
+    period_month: str | None, project_filter: list[str] | None,
+    *, compare_start: str | None = None, compare_end: str | None = None,
+) -> dict:
+    """Быстрая revenue-стадия (Lite): только выручка+каналы (+заказы) из ТЕХ ЖЕ
+    источников, что полный _build_pnl_lite (_lite_revenue) — число выручки
+    совпадает с полным отчётом (нет «прыжка»). Ops НЕ трогаем. Фронт рисует
+    карточки с выручкой + скелеты на прочих плитках, затем догружает полный
+    /api/pnl. Маркер stage='revenue' → фронт понимает, что это частичный ответ."""
+    import logging
+
+    log = logging.getLogger("uvicorn.error")
+    cmp_end = (
+        _mtd_aligned_compare_end(date_end, compare_end)
+        if (compare_start and compare_end) else None
+    )
+    pf_key_id = user.planfact_key_id
+    cfg = await store.list_projects_config(session, pf_key_id) if pf_key_id else {}
+    allowed = set(project_filter) if project_filter is not None else None
+
+    uuid_to_pid: dict[str, str] = {}
+    pid_to_uuid: dict[str, str] = {}
+    proj_meta: dict[str, str] = {}
+    for pid, c in cfg.items():
+        if allowed is not None and pid not in allowed:
+            continue
+        if not c.get("is_active", True):
+            continue
+        proj_meta[pid] = c.get("display_name") or pid
+        uu = c.get("dodo_unit_uuid")
+        if uu:
+            uuid_to_pid[board_module._normalize_uuid(uu)] = pid
+            pid_to_uuid[pid] = uu
+    pids = list(proj_meta.keys())
+
+    rev_by_pid: dict[str, float] = {pid: 0.0 for pid in pids}
+    chan_by_pid: dict[str, dict] = {
+        pid: {ch: 0.0 for ch in pnl_module.REVENUE_CHANNELS} for pid in pids
+    }
+    prev_rev_by_pid: dict[str, float] = {}
+    prev_chan_by_pid: dict[str, dict] = {}
+    lfl_ok = False
+
+    if pid_to_uuid:
+        token = None
+        try:
+            token = await get_dodois_token(session, user)
+        except Exception:
+            log.exception("revenue-stage: токен Dodo IS недоступен")
+        if token:
+            try:
+                names = await board_module._get_or_refresh_unit_names(
+                    session, token, required=list(uuid_to_pid.keys()),
+                )
+                for uu_norm, pid in uuid_to_pid.items():
+                    nm = names.get(uu_norm)
+                    if nm:
+                        proj_meta[pid] = nm
+            except Exception:
+                log.exception("revenue-stage: имена юнитов недоступны")
+            from .auth.models import PlanfactKey
+            pk = await session.get(PlanfactKey, pf_key_id) if pf_key_id else None
+            lmw = int(getattr(pk, "live_months_window", None) or 2)
+
+            def _cacheable(ds: str, de: str, pmm: str | None) -> bool:
+                return (
+                    pf_key_id is not None and pmm is not None
+                    and _is_full_month(ds, de, pmm)
+                    and not store.is_period_in_live_window(
+                        pmm, _current_month_str(), lmw)
+                )
+
+            rev_by_pid, chan_by_pid = await _lite_revenue(
+                session, token, pf_key_id, period_month, date_start, date_end,
+                pids, uuid_to_pid, pid_to_uuid,
+                cacheable=_cacheable(date_start, date_end, period_month),
+                lmw=lmw, log=log,
+            )
+            if cmp_end:
+                prev_pm = _derive_period_month(compare_start, cmp_end)
+                prev_rev_by_pid, prev_chan_by_pid = await _lite_revenue(
+                    session, token, pf_key_id, prev_pm, compare_start, cmp_end,
+                    pids, uuid_to_pid, pid_to_uuid,
+                    cacheable=_cacheable(compare_start, cmp_end, prev_pm),
+                    lmw=lmw, log=log,
+                )
+                lfl_ok = True
+
+    def _rev_entry(cur: float, prev: float | None) -> dict:
+        e = {"amount": cur, "pct_of_revenue": 1.0 if cur else None}
+        if prev is not None:
+            e["previous_amount"] = prev
+            e["delta_pct"] = (cur / prev - 1.0) if prev > 0 else None
+        return e
+
+    total_rev = sum(rev_by_pid.values())
+    projects = [{"id": pid, "name": proj_meta[pid]} for pid in pids]
+    revenue_line = {
+        "code": "REVENUE", "label": "Выручка", "level": 1, "kind": "header",
+        "denominator": "total",
+        "projects": {
+            pid: _rev_entry(
+                rev_by_pid.get(pid, 0.0),
+                prev_rev_by_pid.get(pid, 0.0) if lfl_ok else None,
+            )
+            for pid in pids
+        },
+        "total": _rev_entry(
+            total_rev, sum(prev_rev_by_pid.values()) if lfl_ok else None,
+        ),
+    }
+    from .auth.models import PlanfactKey as _PK
+    _pkm = await session.get(_PK, pf_key_id) if pf_key_id else None
+    _dc_en = bool(getattr(_pkm, "dc_live_enabled", False))
+    _kc_c = getattr(_pkm, "kc_tax_coefficient", None)
+    _dc_c = getattr(_pkm, "dc_tax_coefficient", None)
+    result = {
+        "stage": "revenue",
+        "lite": True,
+        "projects": projects,
+        "lines": [revenue_line],
+        "template_lines": [],
+        "revenue_by_channel": chan_by_pid,
+        "pnl_codes": pnl_module.PNL_CODES,
+        "denominators": pnl_module.DENOMINATOR,
+        "method": "accrual",
+        "period_month": period_month,
+        "stats": {"source": "dodo_lite_revenue_stage"},
+        "ops_metrics_meta": store.ops_metrics_meta(_dc_en, kc_coeff=_kc_c, dc_coeff=_dc_c),
+        "period": {"current": {"start": date_start, "end": date_end}},
+    }
+    await _attach_orders(
+        session=session, user=user, result=result,
+        date_start=date_start, date_end=date_end,
+        effective_projects=project_filter,
+        compare_start=compare_start, compare_end=compare_end,
+    )
+    _attach_revenue_channels(
+        result, cur_by_ch=chan_by_pid,
+        prev_by_ch=prev_chan_by_pid if lfl_ok else None,
+    )
+    return result
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -2114,6 +2262,8 @@ async def get_pnl(
     compare_mode: str = Query("lfl", regex="^(lfl|mom)$"),
     method: str = Query("accrual", regex="^(accrual|cash)$"),
     period_month: str | None = Query(None, description="'YYYY-MM'. Если не задан — выводится из дат."),
+    stage: str = Query("full", regex="^(full|revenue)$",
+        description="revenue = быстрая стадия: только выручка+каналы (Lite)."),
     group_by: str | None = Query(None, regex="^(month)$",
         description="Если 'month' — добавляет помесячный breakdown в response.monthly."),
     user: User = Depends(require_user),
@@ -2171,6 +2321,11 @@ async def get_pnl(
     if user.planfact_key_id and not await _tenant_has_planfact(
         session, user.planfact_key_id
     ):
+        if stage == "revenue":
+            return await _build_pnl_revenue_stage(
+                session, user, date_start, date_end, pm, effective_projects,
+                compare_start=compare_start, compare_end=compare_end,
+            )
         return await _build_pnl_lite(
             session, user, date_start, date_end, pm, effective_projects,
             compare_start=compare_start, compare_end=compare_end,
@@ -3397,6 +3552,12 @@ async def get_board(
     return payload
 
 
+# S23: метка последней инкрементальной записи ops-синка:
+# (pf_key_id, period) -> unix-ts. Фронт в поллинге сравнивает и тихо
+# доливает плитки по мере прихода ручек.
+_OPS_SYNC_LAST_WRITE: dict = {}
+
+
 @app.get("/api/ops-metrics/sync-status")
 async def ops_sync_status(
     period: str = Query(..., description="'YYYY-MM'"),
@@ -3410,7 +3571,10 @@ async def ops_sync_status(
     """
     if not user.planfact_key_id:
         return {"is_syncing": False}
-    return {"is_syncing": is_ops_sync_running(user.planfact_key_id, period)}
+    return {
+        "is_syncing": is_ops_sync_running(user.planfact_key_id, period),
+        "last_write_at": _OPS_SYNC_LAST_WRITE.get((user.planfact_key_id, period)),
+    }
 
 
 @app.post("/api/ops-metrics/sync")
@@ -3533,10 +3697,24 @@ async def _run_ops_sync(
 
             unit_uuids = [uuid for _, uuid in targets]
 
-            async def _timed(name, coro):
+            # Cap на ЛЮБОЙ ops-fetch. При 504-шторме Dodo IS их nginx держит
+            # соединение ~131с прежде чем отдать 504 (на разных ручках —
+            # productivity/vouchers/delivery). Не ждём их таймаута: срубаем за
+            # 60с → метрика DEGRADED/null, синк идёт дальше. Нормальные вызовы
+            # (даже 2 батча по 30 юнитов) укладываются много быстрее.
+            # S23d: старые месяцы Dodo IS отдаёт из холодного хранилища
+            # (замер: текущий ~30с, полгода ~80с, 1.5-2 года ~120с на 6
+            # юнитах). Старше года — 240с, свежим хватает 150с.
+            _now = datetime.now()
+            _month_age = (_now.year - y) * 12 + (_now.month - m)
+            _OPS_CALL_TIMEOUT = 240.0 if _month_age >= 12 else 150.0
+
+            async def _timed(name, coro, *, timeout=_OPS_CALL_TIMEOUT):
                 t = time.monotonic()
                 try:
-                    res = await coro
+                    res = await (
+                        _asyncio.wait_for(coro, timeout) if timeout else coro
+                    )
                     log.info("ops sync %s: %s done in %.1fs",
                              period, name, time.monotonic() - t)
                     return res
@@ -3546,35 +3724,267 @@ async def _run_ops_sync(
                     raise
 
             t0 = time.monotonic()
-            try:
-                stats, cert_counts, delivery_stats, handover_rest = await _asyncio.gather(
-                    _timed("productivity", with_dodois_retry(
-                        session, user,
-                        dodois_client.fetch_productivity_many,
-                        unit_uuids, from_dt, to_dt,
-                    )),
-                    _timed("vouchers", with_dodois_retry(
-                        session, user,
-                        dodois_client.fetch_late_delivery_vouchers_count,
-                        unit_uuids, from_dt, to_dt,
-                    )),
-                    _timed("delivery-stats", with_dodois_retry(
-                        session, user,
-                        dodois_client.fetch_delivery_statistics,
-                        unit_uuids, from_dt, to_dt,
-                    )),
-                    # S16.1: restaurant cooking time — отдельной ручкой,
-                    # фильтр salesChannels=DineIn (без дефиса! проверено
-                    # эмпирически: 'Dine-in'/'Restaurant' возвращают 400,
-                    # 'DineIn' и 'Delivery' — рабочие значения).
-                    _timed("handover-restaurant", with_dodois_retry(
-                        session, user,
-                        dodois_client.fetch_orders_handover_statistics,
-                        unit_uuids, from_dt, to_dt, sales_channels="DineIn",
-                    )),
-                )
-            except (DodoISError, NoTokenError) as e:
-                log.warning("ops sync %s: ABORT: %s", period, e)
+            # S23: контейнеры ВСЕХ данных синка — до первого батча, чтобы
+            # _write_pass (инкрементальная запись) мог выполняться в любой
+            # момент с тем, что уже получено. Дальнейшие блоки их перезаполняют.
+            stats: list = []
+            cert_counts: dict = {}
+            delivery_stats: list = []
+            handover_rest: list = []
+            incentives: list = []
+            delivery_rev_by_unit: dict = {}
+            monthly_sales_by_unit: dict = {}
+            avg_check_by_unit: dict = {}
+            raw_cost_by_unit: dict = {}
+            rko_by_uuid: dict = {}
+            rs_by_uuid: dict = {}
+            rko_avg12w_by_uuid: dict = {}
+            rs_avg6_by_uuid: dict = {}
+            cust_by_uuid: dict = {}
+
+            _wp_lock = _asyncio.Lock()
+
+            async def _write_pass():
+                """S23: инкрементальная запись — пишем всё, что уже получено.
+                upsert коалесцирует (None не перетирает существующее), поэтому
+                повторные проходы безопасны и просто доливают новые поля.
+                Отдельная короткоживущая сессия: основную session конкурентно
+                используют fetch-таски (token-refresh)."""
+                async with _wp_lock, Sm() as _wsession:
+                    by_uuid = {s.get("unitId", "").lower(): s for s in stats}
+                    by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
+                    by_uuid_hov = {h.get("unitId", "").lower(): h for h in handover_rest}
+
+                    # S16.3: KC_LIVE = sum(totalWage где staffType != 'Courier') / sales.
+                    # Пользователь решил: KC по факту = все смены кроме курьерских.
+                    # Управляющий в Dodo IS не платится (это отдельный оклад через PF),
+                    # так что KC_LIVE будет ≈ kitchen + cashiers без управляющего и
+                    # без налогов. Это «факт по сменам».
+                    # KC = смены staffType != 'Courier'; DC = смены staffType == 'Courier'.
+                    # Один проход, два «ведра» (зеркально). Premiums относим в то ведро,
+                    # где у сотрудника были смены в этом юните.
+                    kc_wage_by_unit: dict[str, float] = {}
+                    kc_staff_by_unit: dict[str, set[str]] = {}
+                    dc_wage_by_unit: dict[str, float] = {}
+                    dc_staff_by_unit: dict[str, set[str]] = {}
+                    COURIER_TYPE = "Courier"
+                    for sm in incentives:
+                        staff_id = sm.get("staffId") or ""
+                        for sh in sm.get("shiftsDetailing") or []:
+                            uid_raw = (sh.get("unitId") or "").lower().replace("-", "")
+                            if not uid_raw:
+                                continue
+                            wage = float(sh.get("totalWage") or 0)
+                            if (sh.get("staffType") or "") == COURIER_TYPE:
+                                dc_wage_by_unit[uid_raw] = dc_wage_by_unit.get(uid_raw, 0.0) + wage
+                                dc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
+                            else:
+                                kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + wage
+                                kc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
+                        # Premiums (вне-сменные) — в то ведро (KC/DC), где у сотрудника
+                        # были смены в том же юните (редко может попасть в оба).
+                        for pr in sm.get("premiums") or []:
+                            uid_raw = (pr.get("unitId") or "").lower().replace("-", "")
+                            if not uid_raw:
+                                continue
+                            amount = float(pr.get("amount") or 0)
+                            if staff_id in kc_staff_by_unit.get(uid_raw, set()):
+                                kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + amount
+                            if staff_id in dc_staff_by_unit.get(uid_raw, set()):
+                                dc_wage_by_unit[uid_raw] = dc_wage_by_unit.get(uid_raw, 0.0) + amount
+                    for pid, uuid in targets:
+                        key = (uuid or "").lower().replace("-", "")
+                        s = by_uuid.get(key) or by_uuid.get(uuid.lower())
+                        d = by_uuid_dlv.get(key) or by_uuid_dlv.get(uuid.lower()) or {}
+                        h = by_uuid_hov.get(key) or by_uuid_hov.get(uuid.lower()) or {}
+                        cert_n = cert_counts.get(key, 0)
+                        delivery_orders = int(d.get("deliveryOrdersCount") or 0)
+                        cert_pct = (
+                            (cert_n / delivery_orders * 100.0)
+                            if delivery_orders > 0 else None
+                        )
+                        # S16: метрики из /delivery/statistics — все приходят в одном
+                        # ответе. Защищаемся от деления на ноль (новая точка без
+                        # запусков курьеров).
+                        trips_count = int(d.get("tripsCount") or 0)
+                        trips_duration = int(d.get("tripsDuration") or 0)
+                        couriers_shifts = int(d.get("couriersShiftsDuration") or 0)
+                        # S16.2: время хранится в секундах (INT), на UI mm:ss
+                        avg_trip_sec = d.get("avgOrderTripTime")
+                        avg_cook_delivery_sec = d.get("avgCookingTime")
+                        # S18: полное среднее время доставки (то же поле, что live в Пульсе)
+                        avg_delivery_sec = d.get("avgDeliveryOrderFulfillmentTime")
+                        # S16.1: ресторанное время готовки — из отдельного запроса
+                        # /production/orders-handover-statistics?salesChannels=DineIn
+                        avg_cook_restaurant_sec = h.get("avgCookingTime")
+
+                        orders_per_trip = (
+                            delivery_orders / trips_count if trips_count > 0 else None
+                        )
+                        courier_util_pct = (
+                            trips_duration / couriers_shifts * 100.0
+                            if couriers_shifts > 0 else None
+                        )
+
+                        # S16.3: KC_LIVE = (kitchen_wage / sales) × 100
+                        # sales берём из productivity.sales за тот же период.
+                        # Если нет ни одной кухонной смены ИЛИ нет выручки — None.
+                        kitchen_wage = kc_wage_by_unit.get(key, 0.0)
+                        courier_wage = dc_wage_by_unit.get(key, 0.0)
+                        sales_total = float(s.get("sales") or 0) if s else 0.0
+                        delivery_rev = delivery_rev_by_unit.get(key, 0.0)
+                        # KC% = ФОТ кухни / ОБЩАЯ выручка (кухня готовит на все каналы).
+                        kc_live_pct = (
+                            kitchen_wage / sales_total * 100.0
+                            if sales_total > 0 and kitchen_wage > 0 else None
+                        )
+                        # DC% = ФОТ курьеров / выручка ДОСТАВКИ (курьеры обслуживают
+                        # только доставку). Налог. коэффициент — на чтении (store).
+                        dc_live_pct = (
+                            courier_wage / delivery_rev * 100.0
+                            if delivery_rev > 0 and courier_wage > 0 else None
+                        )
+
+                        # Controlling-рейтинги (только текущий месяц; иначе maps пустые
+                        # → None → не перетираем закрытые месяцы).
+                        rko_rate = rko_by_uuid.get(key)
+                        rs_rate = rs_by_uuid.get(key)
+                        rko_avg12w = rko_avg12w_by_uuid.get(key)
+                        rs_avg6 = rs_avg6_by_uuid.get(key)
+                        _cr = cust_by_uuid.get(key) or (None, None, None)
+
+                        # Средний чек (общий + каналы) и «Сырьё» (0036).
+                        _ac = avg_check_by_unit.get(key) or {}
+                        _monthly_sales = monthly_sales_by_unit.get(key, 0.0)
+                        _raw_cost = raw_cost_by_unit.get(key, 0.0)
+                        raw_cost_pct = (
+                            _raw_cost / _monthly_sales * 100.0
+                            if _monthly_sales > 0 and _raw_cost > 0 else None
+                        )
+
+                        s = s or {}
+                        # Раньше тут стоял `if not s: continue` — productivity работал
+                        # «шлюзом»: при его отказе (Dodo IS 504) НЕ писалось НИ ОДНОЙ
+                        # ops-метрики месяца, хотя delivery/handover/рейтинги/incentives
+                        # успевали. Теперь пишем всё, что получили: productivity-
+                        # производные (₽·шт/чел·ч, KC/DC live) будут null, остальные
+                        # плитки заполнятся. upsert_ops_metric коалесцирует (null не
+                        # перетирает существующее) → повторный синк доливает недостающее
+                        # без потери данных, когда Dodo IS оживёт.
+                        _has_data = bool(
+                            s or d or h or cert_n
+                            or rko_rate is not None or rs_rate is not None
+                            or _cr[0] is not None or _ac or raw_cost_pct is not None
+                        )
+                        if not _has_data:
+                            continue
+                        await store.upsert_ops_metric(
+                            _wsession, pf_key_id, pid, period,
+                            rko_rate=rko_rate,
+                            rs_rate=rs_rate,
+                            rko_avg12w=rko_avg12w,
+                            rs_avg6=rs_avg6,
+                            customer_rating=_cr[0],
+                            customer_rating_dinein=_cr[1],
+                            customer_rating_delivery=_cr[2],
+                            orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
+                            products_per_h=s.get("productsPerLaborHour"),
+                            revenue_per_person_h=s.get("salesPerLaborHour"),
+                            late_delivery_certs=cert_n,
+                            delivery_orders_count=delivery_orders,
+                            late_delivery_certs_pct=cert_pct,
+                            orders_per_trip=orders_per_trip,
+                            courier_utilization_pct=courier_util_pct,
+                            avg_delivery_fulfillment_sec=avg_delivery_sec,
+                            avg_order_trip_time_sec=avg_trip_sec,
+                            avg_cooking_time_delivery_sec=avg_cook_delivery_sec,
+                            avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
+                            kc_live_pct=kc_live_pct,
+                            dc_live_pct=dc_live_pct,
+                            avg_check=_ac.get("overall"),
+                            avg_check_delivery=_ac.get("delivery"),
+                            avg_check_restaurant=_ac.get("restaurant"),
+                            avg_check_takeaway=_ac.get("takeaway"),
+                            raw_cost_pct=raw_cost_pct,
+                        )
+                    await _wsession.commit()
+                    log.info("ops sync %s: committed", period)
+                    _OPS_SYNC_LAST_WRITE[(pf_key_id, period)] = time.time()
+
+            async def _write_safe():
+                try:
+                    await _write_pass()
+                except Exception:
+                    log.exception(
+                        "ops sync %s: write pass failed (non-fatal)", period)
+
+            def _assign_first(name, res):
+                nonlocal stats, cert_counts, delivery_stats, handover_rest
+                if name == "productivity":
+                    stats = res
+                elif name == "vouchers":
+                    cert_counts = res
+                elif name == "delivery-stats":
+                    delivery_stats = res
+                elif name == "handover-restaurant":
+                    handover_rest = res
+
+            # S23: первый батч — 4 независимые ручки Dodo IS. Раньше ждали
+            # общий gather; теперь as_completed: каждая завершившаяся ручка
+            # сразу пишется в БД → плитки на фронте наливаются по мере
+            # прихода. Упавшие — в _failed_first → фоновый повтор через
+            # минуту (после основного прохода). NoTokenError рвёт синк.
+            _first_specs = {
+                "productivity": ("stats", lambda: with_dodois_retry(
+                    session, user,
+                    dodois_client.fetch_productivity_many,
+                    unit_uuids, from_dt, to_dt,
+                )),
+                "vouchers": ("cert_counts", lambda: with_dodois_retry(
+                    session, user,
+                    dodois_client.fetch_late_delivery_vouchers_count,
+                    unit_uuids, from_dt, to_dt,
+                )),
+                "delivery-stats": ("delivery_stats", lambda: with_dodois_retry(
+                    session, user,
+                    dodois_client.fetch_delivery_statistics,
+                    unit_uuids, from_dt, to_dt,
+                )),
+                # handover: salesChannels=DineIn (без дефиса! 'Dine-in' даёт 400)
+                "handover-restaurant": ("handover_rest", lambda: with_dodois_retry(
+                    session, user,
+                    dodois_client.fetch_orders_handover_statistics,
+                    unit_uuids, from_dt, to_dt, sales_channels="DineIn",
+                )),
+            }
+            _failed_first: set = set()
+
+            async def _named_fetch(name):
+                try:
+                    return name, await _timed(name, _first_specs[name][1]()), None
+                except BaseException as e:
+                    return name, None, e
+
+            _tasks = [
+                _asyncio.create_task(_named_fetch(n)) for n in _first_specs
+            ]
+            _abort = False
+            for _fut in _asyncio.as_completed(_tasks):
+                _name, _res1, _err = await _fut
+                if _err is not None:
+                    if isinstance(_err, NoTokenError):
+                        log.warning(
+                            "ops sync %s: ABORT (no token): %s", period, _err)
+                        _abort = True
+                        continue
+                    log.warning(
+                        "ops sync %s: %s DEGRADED — фоновый повтор через "
+                        "минуту: %s", period, _name, _err)
+                    _failed_first.add(_name)
+                    continue
+                _assign_first(_name, _res1)
+                await _write_safe()
+            if _abort:
                 return
 
             # S16.3: incentives для KC_LIVE — ОТДЕЛЬНЫМ блоком, чтобы 403
@@ -3640,6 +4050,8 @@ async def _run_ops_sync(
                     "ops sync %s: finance-monthly FAILED (DC/avg_check null): %s",
                     period, e,
                 )
+
+            await _write_safe()
 
             # «Сырьё»: расход сырья от продаж (тип Sale, costWithVat) за месяц /
             # выручка юнита (с НДС) × 100. Отдельный эндпоинт с пагинацией —
@@ -3783,150 +4195,32 @@ async def _run_ops_sync(
                 len(handover_rest), len(incentives),
             )
 
-            by_uuid = {s.get("unitId", "").lower(): s for s in stats}
-            by_uuid_dlv = {d.get("unitId", "").lower(): d for d in delivery_stats}
-            by_uuid_hov = {h.get("unitId", "").lower(): h for h in handover_rest}
+            await _write_safe()
 
-            # S16.3: KC_LIVE = sum(totalWage где staffType != 'Courier') / sales.
-            # Пользователь решил: KC по факту = все смены кроме курьерских.
-            # Управляющий в Dodo IS не платится (это отдельный оклад через PF),
-            # так что KC_LIVE будет ≈ kitchen + cashiers без управляющего и
-            # без налогов. Это «факт по сменам».
-            # KC = смены staffType != 'Courier'; DC = смены staffType == 'Courier'.
-            # Один проход, два «ведра» (зеркально). Premiums относим в то ведро,
-            # где у сотрудника были смены в этом юните.
-            kc_wage_by_unit: dict[str, float] = {}
-            kc_staff_by_unit: dict[str, set[str]] = {}
-            dc_wage_by_unit: dict[str, float] = {}
-            dc_staff_by_unit: dict[str, set[str]] = {}
-            COURIER_TYPE = "Courier"
-            for sm in incentives:
-                staff_id = sm.get("staffId") or ""
-                for sh in sm.get("shiftsDetailing") or []:
-                    uid_raw = (sh.get("unitId") or "").lower().replace("-", "")
-                    if not uid_raw:
+            # S23: фоновая доливка — ручки первого батча, упавшие из-за
+            # таймаута/504 Dodo IS, повторяем через минуту (до 2 раундов).
+            # Синк держит inflight → фронт продолжает поллинг sync-status,
+            # видит рост last_write_at и тихо доливает плитки.
+            for _retry_round in (1, 2):
+                if not _failed_first:
+                    break
+                await _asyncio.sleep(60)
+                for _rname in sorted(_failed_first):
+                    try:
+                        _res2 = await _timed(
+                            f"{_rname}[retry{_retry_round}]",
+                            _first_specs[_rname][1](),
+                        )
+                    except NoTokenError:
+                        log.warning("ops sync %s: retry: нет токена — стоп", period)
+                        return
+                    except Exception as e:
+                        log.warning("ops sync %s: %s retry%d не удался: %s",
+                                    period, _rname, _retry_round, e)
                         continue
-                    wage = float(sh.get("totalWage") or 0)
-                    if (sh.get("staffType") or "") == COURIER_TYPE:
-                        dc_wage_by_unit[uid_raw] = dc_wage_by_unit.get(uid_raw, 0.0) + wage
-                        dc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
-                    else:
-                        kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + wage
-                        kc_staff_by_unit.setdefault(uid_raw, set()).add(staff_id)
-                # Premiums (вне-сменные) — в то ведро (KC/DC), где у сотрудника
-                # были смены в том же юните (редко может попасть в оба).
-                for pr in sm.get("premiums") or []:
-                    uid_raw = (pr.get("unitId") or "").lower().replace("-", "")
-                    if not uid_raw:
-                        continue
-                    amount = float(pr.get("amount") or 0)
-                    if staff_id in kc_staff_by_unit.get(uid_raw, set()):
-                        kc_wage_by_unit[uid_raw] = kc_wage_by_unit.get(uid_raw, 0.0) + amount
-                    if staff_id in dc_staff_by_unit.get(uid_raw, set()):
-                        dc_wage_by_unit[uid_raw] = dc_wage_by_unit.get(uid_raw, 0.0) + amount
-            for pid, uuid in targets:
-                key = (uuid or "").lower().replace("-", "")
-                s = by_uuid.get(key) or by_uuid.get(uuid.lower())
-                d = by_uuid_dlv.get(key) or by_uuid_dlv.get(uuid.lower()) or {}
-                h = by_uuid_hov.get(key) or by_uuid_hov.get(uuid.lower()) or {}
-                cert_n = cert_counts.get(key, 0)
-                delivery_orders = int(d.get("deliveryOrdersCount") or 0)
-                cert_pct = (
-                    (cert_n / delivery_orders * 100.0)
-                    if delivery_orders > 0 else None
-                )
-                # S16: метрики из /delivery/statistics — все приходят в одном
-                # ответе. Защищаемся от деления на ноль (новая точка без
-                # запусков курьеров).
-                trips_count = int(d.get("tripsCount") or 0)
-                trips_duration = int(d.get("tripsDuration") or 0)
-                couriers_shifts = int(d.get("couriersShiftsDuration") or 0)
-                # S16.2: время хранится в секундах (INT), на UI mm:ss
-                avg_trip_sec = d.get("avgOrderTripTime")
-                avg_cook_delivery_sec = d.get("avgCookingTime")
-                # S18: полное среднее время доставки (то же поле, что live в Пульсе)
-                avg_delivery_sec = d.get("avgDeliveryOrderFulfillmentTime")
-                # S16.1: ресторанное время готовки — из отдельного запроса
-                # /production/orders-handover-statistics?salesChannels=DineIn
-                avg_cook_restaurant_sec = h.get("avgCookingTime")
-
-                orders_per_trip = (
-                    delivery_orders / trips_count if trips_count > 0 else None
-                )
-                courier_util_pct = (
-                    trips_duration / couriers_shifts * 100.0
-                    if couriers_shifts > 0 else None
-                )
-
-                # S16.3: KC_LIVE = (kitchen_wage / sales) × 100
-                # sales берём из productivity.sales за тот же период.
-                # Если нет ни одной кухонной смены ИЛИ нет выручки — None.
-                kitchen_wage = kc_wage_by_unit.get(key, 0.0)
-                courier_wage = dc_wage_by_unit.get(key, 0.0)
-                sales_total = float(s.get("sales") or 0) if s else 0.0
-                delivery_rev = delivery_rev_by_unit.get(key, 0.0)
-                # KC% = ФОТ кухни / ОБЩАЯ выручка (кухня готовит на все каналы).
-                kc_live_pct = (
-                    kitchen_wage / sales_total * 100.0
-                    if sales_total > 0 and kitchen_wage > 0 else None
-                )
-                # DC% = ФОТ курьеров / выручка ДОСТАВКИ (курьеры обслуживают
-                # только доставку). Налог. коэффициент — на чтении (store).
-                dc_live_pct = (
-                    courier_wage / delivery_rev * 100.0
-                    if delivery_rev > 0 and courier_wage > 0 else None
-                )
-
-                # Controlling-рейтинги (только текущий месяц; иначе maps пустые
-                # → None → не перетираем закрытые месяцы).
-                rko_rate = rko_by_uuid.get(key)
-                rs_rate = rs_by_uuid.get(key)
-                rko_avg12w = rko_avg12w_by_uuid.get(key)
-                rs_avg6 = rs_avg6_by_uuid.get(key)
-                _cr = cust_by_uuid.get(key) or (None, None, None)
-
-                # Средний чек (общий + каналы) и «Сырьё» (0036).
-                _ac = avg_check_by_unit.get(key) or {}
-                _monthly_sales = monthly_sales_by_unit.get(key, 0.0)
-                _raw_cost = raw_cost_by_unit.get(key, 0.0)
-                raw_cost_pct = (
-                    _raw_cost / _monthly_sales * 100.0
-                    if _monthly_sales > 0 and _raw_cost > 0 else None
-                )
-
-                if not s:
-                    continue
-                await store.upsert_ops_metric(
-                    session, pf_key_id, pid, period,
-                    rko_rate=rko_rate,
-                    rs_rate=rs_rate,
-                    rko_avg12w=rko_avg12w,
-                    rs_avg6=rs_avg6,
-                    customer_rating=_cr[0],
-                    customer_rating_dinein=_cr[1],
-                    customer_rating_delivery=_cr[2],
-                    orders_per_courier_h=s.get("ordersPerCourierLabourHour"),
-                    products_per_h=s.get("productsPerLaborHour"),
-                    revenue_per_person_h=s.get("salesPerLaborHour"),
-                    late_delivery_certs=cert_n,
-                    delivery_orders_count=delivery_orders,
-                    late_delivery_certs_pct=cert_pct,
-                    orders_per_trip=orders_per_trip,
-                    courier_utilization_pct=courier_util_pct,
-                    avg_delivery_fulfillment_sec=avg_delivery_sec,
-                    avg_order_trip_time_sec=avg_trip_sec,
-                    avg_cooking_time_delivery_sec=avg_cook_delivery_sec,
-                    avg_cooking_time_restaurant_sec=avg_cook_restaurant_sec,
-                    kc_live_pct=kc_live_pct,
-                    dc_live_pct=dc_live_pct,
-                    avg_check=_ac.get("overall"),
-                    avg_check_delivery=_ac.get("delivery"),
-                    avg_check_restaurant=_ac.get("restaurant"),
-                    avg_check_takeaway=_ac.get("takeaway"),
-                    raw_cost_pct=raw_cost_pct,
-                )
-            await session.commit()
-            log.info("ops sync %s: committed", period)
+                    _assign_first(_rname, _res2)
+                    _failed_first.discard(_rname)
+                    await _write_safe()
         except Exception:
             log.exception("ops sync %s: unhandled error", period)
         finally:
