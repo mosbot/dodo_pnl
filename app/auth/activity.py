@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,7 +44,8 @@ async def note_activity(db: AsyncSession, user_id: int) -> None:
     с дебаунсом. Вызывается из auth-зависимости на каждый запрос."""
     try:
         now_mono = time.monotonic()
-        day = datetime.now(_MSK).date().isoformat()
+        day_date = datetime.now(_MSK).date()
+        day = day_date.isoformat()
         key = (user_id, day)
         st = _acc.get(key)
         if st is None:
@@ -59,7 +60,9 @@ async def note_activity(db: AsyncSession, user_id: int) -> None:
         st[0] = 0.0
         st[1] = now_mono
         async with db.begin_nested():
-            await db.execute(_UPSERT, {"uid": user_id, "day": day, "n": n})
+            await db.execute(
+                _UPSERT, {"uid": user_id, "day": day_date, "n": n}
+            )
         # заодно доливаем и чистим ключи прошлых дней (rollover полуночи)
         stale = [k for k in _acc if k[1] != day]
         for k in stale:
@@ -67,7 +70,9 @@ async def note_activity(db: AsyncSession, user_id: int) -> None:
             if pend > 0:
                 async with db.begin_nested():
                     await db.execute(
-                        _UPSERT, {"uid": k[0], "day": k[1], "n": pend}
+                        _UPSERT,
+                        {"uid": k[0], "day": date.fromisoformat(k[1]),
+                         "n": pend},
                     )
             del _acc[k]
     except Exception:  # noqa: BLE001 — активность не должна ломать auth
