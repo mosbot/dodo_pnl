@@ -27,26 +27,38 @@ log = logging.getLogger(__name__)
 _MSK = timezone(timedelta(hours=3))
 _FLUSH_INTERVAL = 600.0  # сек между записями в БД на пользователя
 
-# (user_id, 'YYYY-MM-DD') -> [pending_requests, last_flush_monotonic]
-_acc: dict[tuple[int, str], list[float]] = {}
+# (user_id, 'YYYY-MM-DD', module) -> [pending_requests, last_flush_monotonic]
+_acc: dict[tuple[int, str, str], list[float]] = {}
 
 _UPSERT = text("""
-    INSERT INTO pnl_service.user_activity_days (user_id, day, requests)
-    VALUES (:uid, :day, :n)
-    ON CONFLICT (user_id, day) DO UPDATE
+    INSERT INTO pnl_service.user_activity_days (user_id, day, module, requests)
+    VALUES (:uid, :day, :module, :n)
+    ON CONFLICT (user_id, day, module) DO UPDATE
     SET requests     = pnl_service.user_activity_days.requests + EXCLUDED.requests,
         last_seen_at = now()
 """)
 
 
-async def note_activity(db: AsyncSession, user_id: int) -> None:
+def module_for_path(path: str) -> str:
+    """Модуль платформы по пути запроса. Пульс и Финансы живут в одном
+    сервисе — различаем по URL; новые модули добавлять сюда."""
+    if path.startswith("/api/board") or path == "/board":
+        return "pulse"
+    if path.startswith("/api/planerka") or path == "/planerka":
+        return "planerka"
+    return "finances"
+
+
+async def note_activity(
+    db: AsyncSession, user_id: int, module: str = "finances"
+) -> None:
     """Отметить авторизованный запрос пользователя. Дёшево; сама пишет в БД
     с дебаунсом. Вызывается из auth-зависимости на каждый запрос."""
     try:
         now_mono = time.monotonic()
         day_date = datetime.now(_MSK).date()
         day = day_date.isoformat()
-        key = (user_id, day)
+        key = (user_id, day, module)
         st = _acc.get(key)
         if st is None:
             st = [0.0, 0.0]  # pending, last_flush (0 => флашим сразу)
@@ -61,7 +73,8 @@ async def note_activity(db: AsyncSession, user_id: int) -> None:
         st[1] = now_mono
         async with db.begin_nested():
             await db.execute(
-                _UPSERT, {"uid": user_id, "day": day_date, "n": n}
+                _UPSERT,
+                {"uid": user_id, "day": day_date, "module": module, "n": n},
             )
         # заодно доливаем и чистим ключи прошлых дней (rollover полуночи)
         stale = [k for k in _acc if k[1] != day]
@@ -72,7 +85,7 @@ async def note_activity(db: AsyncSession, user_id: int) -> None:
                     await db.execute(
                         _UPSERT,
                         {"uid": k[0], "day": date.fromisoformat(k[1]),
-                         "n": pend},
+                         "module": k[2], "n": pend},
                     )
             del _acc[k]
     except Exception:  # noqa: BLE001 — активность не должна ломать auth

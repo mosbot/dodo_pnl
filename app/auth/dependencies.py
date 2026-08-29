@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from .models import User, UserSession
-from .activity import note_activity
+from .activity import module_for_path, note_activity
 from .sessions import get_session_with_user, touch_session
 
 
@@ -41,7 +41,7 @@ async def _resolve_user(
     # rolling refresh — обновляем last_seen_at
     await touch_session(db, s)
     # дневной лог активности (дебаунс внутри, ошибки глотает)
-    await note_activity(db, s.user_id)
+    await note_activity(db, s.user_id, module_for_path(request.url.path))
     return s, s.user
 
 
