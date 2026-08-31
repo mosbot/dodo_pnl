@@ -576,6 +576,8 @@ async def build_board_payload(
     all_pids = [pid for pid, _ in projects_pu]
     lw_to_key = windows.last_week.to.strftime("%Y-%m-%dT%H:00:00")
     lfl_to_key = windows.mtd_lfl.to.strftime("%Y-%m-%dT%H:00:00")
+    ly_day_to_key = windows.ly_day.to.strftime("%Y-%m-%dT%H:00:00")
+    empty_ly_day = windows.ly_day.to <= windows.ly_day.from_
 
     sales_lw_cached = await store.get_window_cache_many(
         session, planfact_key_id, all_pids, "sales_lw", lw_to_key,
@@ -583,11 +585,18 @@ async def build_board_payload(
     mtd_lfl_cached = await store.get_window_cache_many(
         session, planfact_key_id, all_pids, "monthly_lfl", lfl_to_key,
     )
+    ly_day_cached = await store.get_window_cache_many(
+        session, planfact_key_id, all_pids, "sales_ly_day", ly_day_to_key,
+    ) if not empty_ly_day else {}
     sales_lw_missing = [(pid, u) for pid, u in projects_pu if pid not in sales_lw_cached]
     mtd_lfl_missing = [(pid, u) for pid, u in projects_pu if pid not in mtd_lfl_cached]
+    ly_day_missing = (
+        [(pid, u) for pid, u in projects_pu if pid not in ly_day_cached]
+        if not empty_ly_day else []
+    )
 
     (
-        sales_today, sales_lw, mtd_data, mtd_lfl_data,
+        sales_today, sales_lw, mtd_data, mtd_lfl_data, sales_ly_day,
         stops_channels_raw, stops_sectors_raw,
         stops_products_raw, stops_ingredients_raw,
         prod_today, prod_lw,
@@ -615,6 +624,11 @@ async def build_board_payload(
             token, [u for _, u in mtd_lfl_missing],
             windows.mtd_lfl.from_, windows.mtd_lfl.to,
         ) if mtd_lfl_missing else asyncio.sleep(0, result={}),
+        # LY-кусок сегодняшнего дня (baseline для month с today): missing only
+        dodois_client.fetch_sales_by_channel(
+            token, [u for _, u in ly_day_missing],
+            windows.ly_day.from_, windows.ly_day.to,
+        ) if ly_day_missing else asyncio.sleep(0, result={}),
         _safe_fetch_stops(
             dodois_client.fetch_stop_sales_channels,
             token, unit_uuids, stops_window_from, stops_window_to,
@@ -744,6 +758,10 @@ async def build_board_payload(
         mtd_lfl_cached, mtd_lfl_data, mtd_lfl_missing, "monthly_lfl", lfl_to_key,
         lambda: {"total": 0.0, "delivery": 0.0, "restaurant": 0.0},
     )
+    sales_ly_day = _merge_window(
+        ly_day_cached, sales_ly_day, ly_day_missing, "sales_ly_day", ly_day_to_key,
+        lambda: {"total": 0.0, "channels": {}, "name": None},
+    ) if not empty_ly_day else {}
     if _pending_writes:
         for pid, metric_type, to_key, payload in _pending_writes:
             await store.upsert_window_cache(
@@ -851,20 +869,36 @@ async def build_board_payload(
         d_ch = _aggregate_channels(sd.get("channels") or {})
         lw_ch = _aggregate_channels(sl.get("channels") or {})
 
-        # MTD + MTD_LFL: total и channels из finance/sales/units/monthly
+        # MTD + MTD_LFL: total и channels из finance/sales/units/monthly.
+        # Окна mtd/mtd_lfl — по ЗАВЕРШЁННЫМ дням (стабильность LFL/прогноза),
+        # но на карточке «месяц» показываем НА ТЕКУЩИЙ МОМЕНТ: + сегодня
+        # (accounting/sales, уже есть) и симметрично + LY-кусок того же дня
+        # до того же часа в baseline — иначе дельта месяца завышена.
         mtd = mtd_data.get(uid) or {"total": 0.0, "delivery": 0.0, "restaurant": 0.0}
         mtd_lfl = mtd_lfl_data.get(uid) or {"total": 0.0, "delivery": 0.0, "restaurant": 0.0}
-        mtd_total = mtd["total"]
-        mtd_lfl_total = mtd_lfl["total"]
-        mtd_ch = {"delivery": mtd["delivery"], "restaurant": mtd["restaurant"]}
-        mtd_lfl_ch = {"delivery": mtd_lfl["delivery"], "restaurant": mtd_lfl["restaurant"]}
+        sly = sales_ly_day.get(uid) or {"total": 0.0, "channels": {}}
+        ly_day_total = float(sly.get("total") or 0)
+        ly_day_ch = _aggregate_channels(sly.get("channels") or {})
+        mtd_completed = mtd["total"]          # для прогноза — завершённые дни
+        mtd_lfl_completed = mtd_lfl["total"]  # (сегодня неполный, качал бы LFL)
+        mtd_total = mtd_completed + d_total
+        mtd_lfl_total = mtd_lfl_completed + ly_day_total
+        mtd_ch = {
+            "delivery": mtd["delivery"] + d_ch.get("delivery", 0.0),
+            "restaurant": mtd["restaurant"] + d_ch.get("restaurant", 0.0),
+        }
+        mtd_lfl_ch = {
+            "delivery": mtd_lfl["delivery"] + ly_day_ch.get("delivery", 0.0),
+            "restaurant": mtd_lfl["restaurant"] + ly_day_ch.get("restaurant", 0.0),
+        }
 
         # LY full
         ly = ly_full.get(pid, {"total": 0.0, "delivery": 0.0, "restaurant": 0.0})
 
-        # Прогноз
+        # Прогноз — на ЗАВЕРШЁННЫХ днях (mtd_completed), не на mtd_total с
+        # неполным сегодня: иначе прогноз проседает утром и догоняет к ночи.
         forecast_value, method = forecast_month(
-            mtd_total, mtd_lfl_total, ly.get("total", 0.0),
+            mtd_completed, mtd_lfl_completed, ly.get("total", 0.0),
             fallback_days_in_month=(
                 windows.last_year_full_month.to.date().day  # дней в этом месяце
             ),

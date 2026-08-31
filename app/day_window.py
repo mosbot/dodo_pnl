@@ -113,6 +113,11 @@ class BoardWindows:
     mtd: Window  # с 1-го по ВЧЕРА (завершённые дни; сегодня — в плитке `today`)
     mtd_lfl: Window  # тот же завершённый диапазон год назад
     last_year_full_month: Window  # полный прошлый год тот же месяц
+    # Сегодняшняя дата −1 год, 00:00 → ближайший час к «сейчас». Нужна, чтобы
+    # month.value карточки включал сегодняшний день (mtd + today), а baseline
+    # оставался симметричным (mtd_lfl + этот кусок LY-дня). Окно в прошлом и
+    # hour-aligned → immutable, кэшируется как sales_lw.
+    ly_day: Window
 
     @property
     def to_hour(self) -> str:
@@ -155,8 +160,13 @@ def compute_board_windows(now: Optional[datetime] = None) -> BoardWindows:
     # last_week: ближайший час к (now - 7д). ≤:30 — вниз, >:30 — вверх.
     # Так baseline максимально близко к текущему моменту и остаётся
     # hour-aligned для других endpoint'ов.
+    # Краевой случай 23:31–23:59: nearest перепрыгивает на 00:00 СЛЕДУЮЩЕГО
+    # дня → окно replace(hour=0) становится нулевым и Δ дня пропадает.
+    # В этом случае floor'им к 23:00 того же LW-дня.
     lw_now = now - timedelta(days=7)
     to_lw = _round_to_nearest_hour(lw_now)
+    if to_lw.date() != lw_now.date():
+        to_lw = lw_now.replace(minute=0, second=0, microsecond=0)
     from_lw = to_lw.replace(hour=0, minute=0)
 
     # MTD/MTD_LFL — по ЗАВЕРШЁННЫМ дням (с 1-го по ВЧЕРА). Сегодняшний неполный
@@ -189,6 +199,17 @@ def compute_board_windows(now: Optional[datetime] = None) -> BoardWindows:
         ly_last_day, datetime.min.time().replace(hour=23), tzinfo=MSK,
     )
 
+    # LY-кусок сегодняшнего дня: та же дата −1 год, 00:00 → floor(now, час).
+    # Floor, а не nearest: nearest в 23:40 перепрыгнул бы на 00:00 следующего
+    # дня. Недоучёт LY до часа (~0.2% месяца) — цена кэшируемости по часу.
+    # Вырожденный случай (00:xx — час ещё не накопился) даёт нулевое окно.
+    ly_day_date = _shift_year(from_today.date(), -1)
+    from_ly_day = datetime.combine(ly_day_date, datetime.min.time(), tzinfo=MSK)
+    to_ly_day = datetime.combine(
+        ly_day_date, now.replace(minute=0, second=0, microsecond=0).time(),
+        tzinfo=MSK,
+    )
+
     return BoardWindows(
         now=now,
         today=Window(from_today, to_today),
@@ -196,6 +217,7 @@ def compute_board_windows(now: Optional[datetime] = None) -> BoardWindows:
         mtd=Window(from_mtd, to_mtd),
         mtd_lfl=Window(from_mtd_lfl, to_mtd_lfl),
         last_year_full_month=Window(from_ly_full, to_ly_full),
+        ly_day=Window(from_ly_day, to_ly_day),
     )
 
 
