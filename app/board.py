@@ -594,6 +594,10 @@ async def build_board_payload(
         session, planfact_key_id, all_pids, "sales_ly_day", ly_day_to_key,
     ) if not empty_ly_day else {}
     sales_lw_missing = [(pid, u) for pid, u in projects_pu if pid not in sales_lw_cached]
+    if mtd_degenerate:
+        # и кэш не читаем: утренние запросы до фикса могли записать в
+        # monthly_lfl полный LY-день под вырожденным ключом
+        mtd_lfl_cached = {}
     mtd_lfl_missing = (
         [] if mtd_degenerate
         else [(pid, u) for pid, u in projects_pu if pid not in mtd_lfl_cached]
