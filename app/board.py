@@ -27,10 +27,7 @@ from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import dodois_client, store
-from .day_window import (
-    BoardWindows, MSK, compute_board_windows, forecast_month,
-    forecast_month_weekday,
-)
+from .day_window import BoardWindows, MSK, compute_board_windows, forecast_month
 
 log = logging.getLogger(__name__)
 
@@ -391,44 +388,6 @@ def _fmt_date(d: date) -> str:
     return d.strftime("%Y-%m-%d")
 
 
-def _split_decades(d0: date, d1: date) -> list[tuple[str, str]]:
-    """Диапазон → куски ≤10 дней (лимит daily-эндпоинта)."""
-    out: list[tuple[str, str]] = []
-    cur = d0
-    while cur <= d1:
-        end = min(cur + timedelta(days=9), d1)
-        out.append((cur.isoformat(), end.isoformat()))
-        cur = end + timedelta(days=1)
-    return out
-
-
-async def _fetch_ly_daily_month(
-    token: str, unit_uuids: list[str], ly_from: date, ly_to: date,
-) -> dict[str, dict]:
-    """S24: полный LY-месяц ПО ДНЯМ (weekday-профиль для прогноза).
-    Возвращает {uuid_norm: {"days": {iso-дата: sales}}}. Окно в прошлом и
-    неизменно → результат кэшируется в dodois_window_cache."""
-    if not unit_uuids:
-        return {}
-    chunks = _split_decades(ly_from, ly_to)
-    results = await asyncio.gather(*[
-        dodois_client.fetch_finance_sales_daily(token, unit_uuids, f, t)
-        for f, t in chunks
-    ])
-    out: dict[str, dict] = {}
-    for rows in results:
-        for r in rows:
-            un = _normalize_uuid(str(r.get("unitId") or ""))
-            day = str(r.get("date") or "")[:10]
-            if not un or not day:
-                continue
-            out.setdefault(un, {"days": {}})["days"][day] = (
-                out.get(un, {}).get("days", {}).get(day, 0.0)
-                + float(r.get("sales") or 0)
-            )
-    return out
-
-
 async def _fetch_for_window(
     token: str, unit_uuids: list[str], from_dt: datetime, to_dt: datetime,
 ) -> dict[str, dict]:
@@ -618,6 +577,11 @@ async def build_board_payload(
     lw_to_key = windows.last_week.to.strftime("%Y-%m-%dT%H:00:00")
     lfl_to_key = windows.mtd_lfl.to.strftime("%Y-%m-%dT%H:00:00")
     ly_day_to_key = windows.ly_day.to.strftime("%Y-%m-%dT%H:00:00")
+    # 1-е число: окно mtd вырождено (1-е → 1-е), а месячный эндпоинт
+    # ПО ДАТАМ и включает сегодняшний день live → mtd 1-го числа == сегодня.
+    # Прибавлять его к d_total нельзя (задвоение выручки месяца); месячные
+    # части считаем нулём: месяц = сегодня, baseline = LY-кусок дня.
+    mtd_degenerate = windows.mtd.to.date() >= windows.now.date()
     empty_ly_day = windows.ly_day.to <= windows.ly_day.from_
 
     sales_lw_cached = await store.get_window_cache_many(
@@ -629,16 +593,6 @@ async def build_board_payload(
     ly_day_cached = await store.get_window_cache_many(
         session, planfact_key_id, all_pids, "sales_ly_day", ly_day_to_key,
     ) if not empty_ly_day else {}
-    # 1-е число: окно mtd вырождено (1-е → 1-е), а месячный эндпоинт
-    # ПО ДАТАМ и включает сегодняшний день live → mtd 1-го числа == сегодня.
-    # Прибавлять его к d_total нельзя (задвоение выручки месяца); месячные
-    # части считаем нулём: месяц = сегодня, baseline = LY-кусок дня.
-    mtd_degenerate = windows.mtd.to.date() >= windows.now.date()
-    # S24: LY-месяц по дням (weekday-профиль прогноза), ключ = месяц LY
-    ly_daily_key = windows.last_year_month + "-daily"
-    ly_daily_cached = await store.get_window_cache_many(
-        session, planfact_key_id, all_pids, "ly_daily_month", ly_daily_key,
-    )
     sales_lw_missing = [(pid, u) for pid, u in projects_pu if pid not in sales_lw_cached]
     mtd_lfl_missing = (
         [] if mtd_degenerate
@@ -648,13 +602,9 @@ async def build_board_payload(
         [(pid, u) for pid, u in projects_pu if pid not in ly_day_cached]
         if not empty_ly_day else []
     )
-    ly_daily_missing = [
-        (pid, u) for pid, u in projects_pu if pid not in ly_daily_cached
-    ]
 
     (
         sales_today, sales_lw, mtd_data, mtd_lfl_data, sales_ly_day,
-        ly_daily_data,
         stops_channels_raw, stops_sectors_raw,
         stops_products_raw, stops_ingredients_raw,
         prod_today, prod_lw,
@@ -688,15 +638,6 @@ async def build_board_payload(
             token, [u for _, u in ly_day_missing],
             windows.ly_day.from_, windows.ly_day.to,
         ) if ly_day_missing else asyncio.sleep(0, result={}),
-        # S24: LY-месяц по дням для weekday-профиля прогноза: missing only.
-        # Не критичный — при сбое прогноз тихо падает на старую формулу.
-        _safe_fetch_ops(
-            _fetch_ly_daily_month,
-            token, [u for _, u in ly_daily_missing],
-            windows.last_year_full_month.from_.date(),
-            windows.last_year_full_month.to.date(),
-            op_name="ly-daily-month", default={}, budget_sec=30.0,
-        ) if ly_daily_missing else asyncio.sleep(0, result={}),
         _safe_fetch_stops(
             dodois_client.fetch_stop_sales_channels,
             token, unit_uuids, stops_window_from, stops_window_to,
@@ -830,24 +771,6 @@ async def build_board_payload(
         ly_day_cached, sales_ly_day, ly_day_missing, "sales_ly_day", ly_day_to_key,
         lambda: {"total": 0.0, "channels": {}, "name": None},
     ) if not empty_ly_day else {}
-    # S24: ly_daily — через _safe_fetch_ops (сбой → {}), поэтому НЕ через
-    # _merge_window: пустышку от таймаута нельзя писать в insert-only кэш.
-    # Дискриминатор успеха: хоть у одного юнита в ответе есть дни → fetch
-    # был успешен, и пустота остальных — честная (юнита не было в LY).
-    _ly_fetch_ok = any(
-        (p or {}).get("days") for p in (ly_daily_data or {}).values()
-    )
-    ly_daily_full: dict[str, dict] = {}
-    _ly_missing_pids = {pid for pid, _ in ly_daily_missing}
-    for pid, uuid in projects_pu:
-        un = _normalize_uuid(uuid)
-        if pid in ly_daily_cached:
-            ly_daily_full[un] = ly_daily_cached[pid] or {"days": {}}
-            continue
-        payload = (ly_daily_data or {}).get(un) or {"days": {}}
-        ly_daily_full[un] = payload
-        if pid in _ly_missing_pids and (payload.get("days") or _ly_fetch_ok):
-            _pending_writes.append((pid, "ly_daily_month", ly_daily_key, payload))
     if _pending_writes:
         for pid, metric_type, to_key, payload in _pending_writes:
             await store.upsert_window_cache(
@@ -931,19 +854,6 @@ async def build_board_payload(
         [(pid, u) for pid, _, u in projects], windows,
     )
 
-    # S24: сетевой weekday-профиль — сумма LY-дней всех юнитов. Фоллбэк для
-    # юнитов без LY (новые точки): форма недели сети вместо собственной.
-    network_ly_days: dict[str, float] = {}
-    for _payload in ly_daily_full.values():
-        for _d, _v in (_payload.get("days") or {}).items():
-            network_ly_days[_d] = network_ly_days.get(_d, 0.0) + float(_v or 0)
-    _month_first = windows.mtd.from_.date().replace(day=1)
-    _days_in_month = windows.last_year_full_month.to.date().day
-    _days_completed = (
-        windows.mtd.to.date().day
-        if windows.mtd.to.date() < windows.now.date() else 0
-    )
-
     # 2) Per-project payload
     project_blocks: list[dict] = []
     for pid, name, uuid in projects:
@@ -996,31 +906,15 @@ async def build_board_payload(
 
         # Прогноз — на ЗАВЕРШЁННЫХ днях (mtd_completed), не на mtd_total с
         # неполным сегодня: иначе прогноз проседает утром и догоняет к ночи.
-        # S24: приоритет — weekday-профиль (свой LY-месяц; для юнитов без LY
-        # — сетевой профиль). Календарный LFL/pace — фоллбэк.
-        own_ly_days = (ly_daily_full.get(uid) or {}).get("days") or {}
-        forecast_value: Optional[float] = None
-        method = "none"
-        if own_ly_days:
-            forecast_value = forecast_month_weekday(
-                mtd_completed, own_ly_days,
-                _month_first, _days_in_month, _days_completed,
-            )
-            method = "lfl_wd"
-        if forecast_value is None and network_ly_days:
-            forecast_value = forecast_month_weekday(
-                mtd_completed, network_ly_days,
-                _month_first, _days_in_month, _days_completed,
-            )
-            method = "pace_wd"
-        if forecast_value is None:
-            forecast_value, method = forecast_month(
-                mtd_completed, mtd_lfl_completed, ly.get("total", 0.0),
-                fallback_days_in_month=_days_in_month,
-                # MTD по завершённым дням (до вчера) → делим на число
-                # завершённых дней (день окончания окна), не на сегодняшний.
-                fallback_days_passed=windows.mtd.to.date().day,
-            )
+        forecast_value, method = forecast_month(
+            mtd_completed, mtd_lfl_completed, ly.get("total", 0.0),
+            fallback_days_in_month=(
+                windows.last_year_full_month.to.date().day  # дней в этом месяце
+            ),
+            # MTD теперь по завершённым дням (до вчера) → делим на число
+            # завершённых дней (день окончания окна), а не на сегодняшний.
+            fallback_days_passed=windows.mtd.to.date().day,
+        )
 
         stops = _build_stops_for_unit(
             uid_norm=uid,
