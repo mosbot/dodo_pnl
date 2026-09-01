@@ -1090,7 +1090,7 @@ async def build_board_payload(
     # Прогноз сети — сумма прогнозов проектов; LY full network — сумма
     net_forecast_value = sum(
         (b.get("forecast") or {}).get("value") or 0 for b in project_blocks
-    )
+    ) or None
     net_ly_full = sum(
         (b.get("forecast") or {}).get("ly_full") or 0 for b in project_blocks
     )
