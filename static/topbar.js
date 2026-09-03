@@ -72,7 +72,31 @@
     ref.parentNode.insertBefore(a, ref);
   }
 
-  // Переключатель сервисов в платформенной шапке: Финансы / Пульс / хаб.
+  // Знаки модулей (Tabler, stroke). ВРЕМЕННО стоят перед вордмарком Dodotool
+  // вместо фирменного знака (договорённость с Кассой 2026-09-02): когда
+  // появится знак бренда — он встанет сюда, а знаки модулей вернутся в чип.
+  // Те же знаки/цвета — в Кассе (packages/ui ServiceSwitch).
+  const SVC_MARKS = {
+    finance: { accent: '#2563eb', paths:
+      '<path d="M3 13a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>'
+      + '<path d="M15 9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z"/>'
+      + '<path d="M9 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z"/><path d="M4 20h14"/>' },
+    pulse: { accent: '#c7802a', paths: '<path d="M3 12h4l3 8l4-16l3 8h4"/>' },
+    kassa: { accent: '#4a6b1a', paths:
+      '<path d="M21 15h-2.5a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3H17"/><path d="M19 21v1m0-8v1"/>'
+      + '<path d="M13 21H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2m12 3.12V7a2 2 0 0 0-2-2h-2"/>'
+      + '<path d="M8 5h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>'
+      + '<path d="M12 11h4M8 11h.01M8 15h.01M8 19h.01M12 15h.01M12 19h.01"/>' },
+  };
+  function svcIcon(id, size, cls) {
+    const m = SVC_MARKS[id];
+    if (!m) return '';
+    return '<svg class="' + cls + '" viewBox="0 0 24 24" width="' + size + '" height="' + size
+      + '" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" '
+      + 'stroke-linejoin="round" aria-hidden="true">' + m.paths + '</svg>';
+  }
+
+  // Переключатель сервисов в платформенной шапке: Финансы / Пульс / Касса / хаб.
   // Пульс показываем только при visibility_level >= 30 (как гейт /board).
   function buildServiceSwitch(me) {
     const chip = document.getElementById('svcChipBtn');
@@ -87,7 +111,16 @@
     const services = [
       { id: 'finance', name: 'Финансы', url: '/', cap: 'finance' },
       { id: 'pulse', name: 'Пульс', url: '/board', minVis: 30, cap: 'pulse' },
+      // Касса — отдельный сервис; вход по общей sa-куке (*.dodotool.ru).
+      { id: 'kassa', name: 'Касса', url: 'https://kassa.dodotool.ru/', cap: 'kassa' },
     ];
+
+    // Знак текущего модуля перед вордмарком + акцент сервиса на ярусе 1.
+    const markId = current === 'settings' ? 'finance' : current;
+    const markEl = document.getElementById('dtBrandMark');
+    if (markEl) markEl.innerHTML = svcIcon(markId, 20, 'dt-brand-mark-svg');
+    const bar = document.querySelector('.platform-bar');
+    if (bar && SVC_MARKS[markId]) bar.style.setProperty('--svc-accent', SVC_MARKS[markId].accent);
     // caps тенанта из /auth/me. null = неизвестно (sa не ответил / enforcement
     // выкл) → не гейтим. Иначе показываем незалицензированные как «не подключено».
     const caps = (me && Array.isArray(me.capabilities)) ? me.capabilities : null;
@@ -104,13 +137,15 @@
     services.forEach(s => {
       if (s.minVis && vis < s.minVis) return;
       const isCur = s.id === current;
+      const label = '<span class="svc-item-label">' + svcIcon(s.id, 16, 'svc-item-icon')
+        + '<span>' + s.name + '</span></span>';
       if (!isCur && !licensed(s.cap)) {
         html += '<span class="svc-item svc-item-locked" role="menuitem">'
-          + '<span>' + s.name + '</span><span class="svc-lock">не подключено</span></span>';
+          + label + '<span class="svc-lock">не подключено</span></span>';
         return;
       }
       html += '<a class="svc-item' + (isCur ? ' is-current' : '') + '" href="' + s.url
-        + '" role="menuitem"><span>' + s.name + '</span>' + (isCur ? check : '') + '</a>';
+        + '" role="menuitem">' + label + (isCur ? check : '') + '</a>';
     });
     html += '<div class="svc-menu-sep"></div>'
       + '<a class="svc-item svc-item-hub" href="' + HUB + '" role="menuitem">Все сервисы ↗</a>';

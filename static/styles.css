@@ -665,7 +665,8 @@ body.drawer-open .panel { transform: translateX(0); }
   font-size: 17px; font-weight: 700; letter-spacing: -.3px;
   color: var(--text); text-decoration: none; flex-shrink: 0;
 }
-.dt-brand span { color: #2563eb; }
+.dt-brand-word { color: var(--text); }
+.dt-brand-word span { color: #2563eb; }
 .pb-link { white-space: nowrap; }
 
 .svc-switch { position: relative; flex-shrink: 0; }
@@ -694,6 +695,14 @@ body.drawer-open .panel { transform: translateX(0); }
 .svc-item-locked { color: var(--muted); cursor: default; }
 .svc-item-locked:hover { background: none; }
 .svc-lock { font-size: 11px; color: var(--muted); }
+/* Знак модуля перед вордмарком (временно вместо знака бренда) + иконки в меню */
+.dt-brand { display: inline-flex; align-items: center; gap: 8px; }
+.dt-brand-word { white-space: nowrap; }
+.dt-brand-mark { display: inline-flex; width: 20px; height: 20px; color: var(--svc-accent, var(--text)); }
+.dt-brand-mark:empty { display: none; }
+.svc-item-label { display: inline-flex; align-items: center; gap: 8px; }
+.svc-item-icon { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+.svc-item.is-current .svc-item-icon { color: var(--svc-accent, #1d4ed8); }
 
 /* Заглушка «модуль не подключён» (enforcement лицензий, 402) */
 .license-stub { display: flex; justify-content: center; padding: 48px 16px; }

@@ -24,6 +24,7 @@ from .sessions import (
     SESSION_TTL_DAYS,
     create_session,
     delete_session,
+    get_session_with_user,
     list_sessions_for_user,
     revoke_other_sessions,
 )
@@ -158,6 +159,13 @@ async def auth_sso(
     from . import sso as sso_mod
     from ..config import settings
 
+    dest = next if (next.startswith("/") and not next.startswith("//")) else "/"
+    # Уже есть живая pnl-сессия (переход из Кассы/хаба по /auth/sso?next=) →
+    # не плодим сессии, сразу на место назначения.
+    cur_token = request.cookies.get(SESSION_COOKIE)
+    if cur_token and await get_session_with_user(db, cur_token) is not None:
+        return RedirectResponse(dest, status_code=302)
+
     sa_cookie = request.cookies.get(sso_mod.SA_COOKIE_NAME)
     if not sa_cookie:
         # Нет сессии sa → на OAuth-вход sa с возвратом на /auth/sso.
@@ -186,7 +194,6 @@ async def auth_sso(
         db, audit.ACTION_LOGIN_SUCCESS, user_id=u.id, request=request,
     )
     await db.commit()
-    dest = next if (next.startswith("/") and not next.startswith("//")) else "/"
     resp = RedirectResponse(dest, status_code=302)
     resp.set_cookie(
         key=SESSION_COOKIE, value=s.plain_token,
