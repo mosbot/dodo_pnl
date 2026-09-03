@@ -2,11 +2,15 @@
 
 Тенант (planfact_key) → его юниты (projects_config.dodo_unit_uuid) →
 sa GET /internal/unit-capabilities (X-Admin-Token) → объединённый набор caps.
-Кэш в памяти процесса (TTL). Fail-open: если sa не настроен/недоступен или у
-тенанта нет юнитов — возвращаем None («неизвестно»), и гейт НЕ блокирует.
+Кэш в памяти процесса (TTL). Аудит 2026-09-03 (M4 ч.2): различаем «sa ответил
+пусто» (реальный ответ → гейт работает) и «sa недоступен» (сбой): при сбое
+берём last-known-good caps этого тенанта (кэш держим дольше, до
+`_STALE_TTL_SEC`), и только если их нет — fail-open (None). Сбой больше не
+кэшируется как None: раньше один таймаут открывал гейт на 5 минут.
 """
 from __future__ import annotations
 
+import logging
 import time
 
 import httpx
@@ -14,7 +18,10 @@ import httpx
 from .config import settings
 from . import store
 
-_TTL_SEC = 300
+log = logging.getLogger("pnl.licensing")
+
+_TTL_SEC = 300          # свежесть: после этого идём в sa
+_STALE_TTL_SEC = 86400  # как долго годится last-known-good при сбое sa
 _cache: dict[int, tuple[float, frozenset[str] | None]] = {}
 
 
@@ -35,15 +42,27 @@ async def get_tenant_capabilities(session, planfact_key_id: int | None) -> froze
     hit = _cache.get(planfact_key_id)
     if hit and (now - hit[0] < _TTL_SEC):
         return hit[1]
-    caps = await _fetch(session, planfact_key_id)
-    _cache[planfact_key_id] = (now, caps)
-    return caps
+    caps, ok = await _fetch(session, planfact_key_id)
+    if ok:
+        _cache[planfact_key_id] = (now, caps)
+        return caps
+    # sa недоступен: last-known-good, пока не протух; иначе fail-open (None).
+    if hit and (now - hit[0] < _STALE_TTL_SEC) and hit[1] is not None:
+        log.warning(
+            "licensing: sa недоступен, используем last-known-good caps "
+            "для planfact_key=%s (возраст %.0f c)", planfact_key_id, now - hit[0],
+        )
+        return hit[1]
+    return None
 
 
-async def _fetch(session, planfact_key_id: int) -> frozenset[str] | None:
-    # sa не настроен → не enforce'им.
+async def _fetch(
+    session, planfact_key_id: int,
+) -> tuple[frozenset[str] | None, bool]:
+    """Возвращает (caps, ok). ok=False — сбой связи с sa (кэшировать нельзя)."""
+    # sa не настроен → не enforce'им (это конфигурация, а не сбой).
     if not settings.sa_token_broker_url or not settings.sa_internal_token:
-        return None
+        return None, True
     cfg = await store.list_projects_config(session, planfact_key_id)
     uuids = [
         c["dodo_unit_uuid"]
@@ -51,7 +70,7 @@ async def _fetch(session, planfact_key_id: int) -> frozenset[str] | None:
         if c.get("is_active") and c.get("dodo_unit_uuid")
     ]
     if not uuids:
-        return None  # нет юнитов — нечего проверять, не блокируем
+        return None, True  # нет юнитов — нечего проверять, не блокируем
     base = settings.sa_token_broker_url.rsplit("/", 1)[0]  # .../internal
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -61,7 +80,7 @@ async def _fetch(session, planfact_key_id: int) -> frozenset[str] | None:
                 headers={"X-Admin-Token": settings.sa_internal_token},
             )
             resp.raise_for_status()
-            return frozenset(resp.json().get("capabilities") or [])
-    except Exception:
-        # sa недоступен — fail-open (не лочим тенанта из-за сбоя инфры).
-        return None
+            return frozenset(resp.json().get("capabilities") or []), True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("licensing: sa /unit-capabilities недоступен: %s", exc)
+        return None, False

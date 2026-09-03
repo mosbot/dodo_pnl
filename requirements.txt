@@ -1,5 +1,5 @@
-fastapi==0.115.4
-uvicorn[standard]==0.32.0
+fastapi==0.116.1  # аудит P13: starlette>=0.47.2 (CVE-2025-54121)
+uvicorn[standard]==0.35.0
 httpx==0.27.2
 pydantic==2.9.2
 pydantic-settings==2.6.1
@@ -14,4 +14,4 @@ alembic==1.14.0
 argon2-cffi==23.1.0
 # AES-128-CBC + HMAC через Fernet — для шифрования чувствительных
 # полей в БД (PlanFact api_key). Ключ выводится из settings.secret_key.
-cryptography==43.0.1
+cryptography==44.0.1  # аудит P13

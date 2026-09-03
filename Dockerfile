@@ -14,6 +14,11 @@ COPY alembic.ini ./
 COPY static ./static
 COPY scripts ./scripts
 
+# Аудит 2026-09-03 I3: процесс не от root (файлы читаются, писать в /app не нужно).
+RUN useradd --system --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
 
 # Миграции применяем отдельно (alembic upgrade head) — при первом запуске БД
