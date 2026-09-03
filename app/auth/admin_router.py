@@ -669,6 +669,8 @@ async def admin_patch_key_project_config(
     if body.sort_order is not None:
         kwargs["sort_order"] = body.sort_order
     if body.dodo_unit_uuid is not None:
+        from ..main import _assert_unit_belongs_to_tenant  # lazy: цикл импорта
+        await _assert_unit_belongs_to_tenant(session, admin, body.dodo_unit_uuid)
         kwargs["dodo_unit_uuid"] = body.dodo_unit_uuid
 
     await store.upsert_project_config(session, key_id, project_id, **kwargs)

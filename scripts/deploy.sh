@@ -30,7 +30,8 @@ else
   echo "→ закоммичено: $(git rev-parse --short HEAD) — $MSG"
 fi
 git pull --ff-only origin main
-git push origin main && echo "→ запушено в origin/main" || echo "⚠ push не прошёл — продолжаю"
+# push — ПОСЛЕ health-check (шаг 4): иначе провальный деплой успевал улететь
+# в origin, а автооткат возвращал только локальный HEAD (2026-09-03).
 
 # 2) сборка образа + перезапуск контейнера
 echo "→ docker compose build + up -d"
@@ -57,4 +58,5 @@ if [ "$ok" != "1" ]; then
   exit 1
 fi
 
+git push origin main && echo "→ запушено в origin/main" || echo "⚠ push не прошёл — код на проде уже обновлён, запушьте вручную"
 echo "✓ ДЕПЛОЙ OK — $(git rev-parse --short HEAD)"

@@ -2261,6 +2261,24 @@ async def _build_pnl_revenue_stage(
     return result
 
 
+def _validate_date_range(date_start: str, date_end: str, *, max_days: int = 750) -> None:
+    """Аудит 2026-09-03 P5: ISO-даты, порядок, не будущее, длина ≤ max_days
+    (~24 мес). Без границы диапазон '2000..2099' даёт ~1200 запросов к Dodo IS."""
+    from datetime import date as _date, timedelta as _td
+    try:
+        d1 = _date.fromisoformat(date_start)
+        d2 = _date.fromisoformat(date_end)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Даты должны быть в формате YYYY-MM-DD")
+    if d2 < d1:
+        raise HTTPException(400, "date_end раньше date_start")
+    if (d2 - d1).days > max_days:
+        raise HTTPException(400, f"Диапазон не больше {max_days} дней")
+    from .day_window import now_msk as _now_msk
+    if d1 > _now_msk().date() + _td(days=31):
+        raise HTTPException(400, "Диапазон в будущем")
+
+
 @app.get("/api/pnl")
 async def get_pnl(
     date_start: str = Query(..., description="YYYY-MM-DD"),
@@ -2279,6 +2297,9 @@ async def get_pnl(
     session: AsyncSession = Depends(get_session),
 ):
     await _require_capability(session, user, "finance")
+    _validate_date_range(date_start, date_end)
+    if compare_start and compare_end:
+        _validate_date_range(compare_start, compare_end)
     effective_projects = await _resolve_project_filter(
         session, user.id, user.planfact_key_id, project_ids,
     )
@@ -2812,6 +2833,9 @@ async def get_operations(
     user: User = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
+    _validate_date_range(date_start, date_end)
+    limit = max(1, min(int(limit), 1000))  # аудит P5
+    offset = max(0, int(offset))
     await _require_capability(session, user, "finance")
     # Lite-тенант: операционной детализации из PlanFact нет — пусто, не 502.
     if user.planfact_key_id and not await _tenant_has_planfact(
@@ -3256,6 +3280,33 @@ async def get_projects_config(
     return {"config": await store.list_projects_config(session, user.planfact_key_id)}
 
 
+async def _assert_unit_belongs_to_tenant(
+    session: AsyncSession, user: User, unit_uuid: str | None,
+) -> None:
+    """Аудит 2026-09-03 P6: dodo_unit_uuid можно привязать только к юниту,
+    который виден токену владельца тенанта (/auth/roles/units). Иначе чужой
+    лицензированный UUID = обход оплаты модуля (caps считаются по UUID) и
+    перехват онбординга чужой сети через access-request. super_admin
+    (оператор платформы) — без ограничения."""
+    if not unit_uuid or user.is_super_admin:
+        return
+    from .auth.tokens import NoTokenError, get_dodois_token
+    from .board import _get_or_refresh_unit_names, _normalize_uuid
+    try:
+        token = await get_dodois_token(session, user)
+        names = await _get_or_refresh_unit_names(
+            session, token, required=[unit_uuid],
+        )
+    except NoTokenError:
+        raise HTTPException(
+            400, "Нет Dodo IS-токена сети — привязать юнит нельзя",
+        )
+    except Exception:
+        raise HTTPException(502, "Не удалось проверить юнит в Dodo IS")
+    if _normalize_uuid(unit_uuid) not in names:
+        raise HTTPException(403, "Этот юнит не принадлежит вашей сети в Dodo IS")
+
+
 @app.post("/api/projects/config")
 async def upsert_projects_config(
     payload: ProjectConfigIn,
@@ -3272,6 +3323,7 @@ async def upsert_projects_config(
         "sort_order": payload.sort_order,
     }
     if "dodo_unit_uuid" in payload.model_fields_set:
+        await _assert_unit_belongs_to_tenant(session, user, payload.dodo_unit_uuid)
         kwargs["dodo_unit_uuid"] = payload.dodo_unit_uuid
     await store.upsert_project_config(session, pf_key_id, payload.project_id, **kwargs)
     invalidate_planfact_for(user.id)
@@ -3308,7 +3360,8 @@ async def get_ops_metrics(
 @app.post("/api/ops-metrics")
 async def upsert_ops_metric(
     payload: OpsMetricIn,
-    user: User = Depends(require_user),
+    # Аудит 2026-09-03 P4: ручной ввод ops-метрик — управленческая операция
+    user: User = Depends(require_territorial),
     session: AsyncSession = Depends(get_session),
 ):
     await _require_capability(session, user, "finance")
@@ -3325,7 +3378,7 @@ async def upsert_ops_metric(
 @app.delete("/api/ops-metrics")
 async def delete_ops_metric(
     project_id: str, period_month: str,
-    user: User = Depends(require_user),
+    user: User = Depends(require_territorial),  # аудит P4
     session: AsyncSession = Depends(get_session),
 ):
     await _require_capability(session, user, "finance")
@@ -3615,6 +3668,22 @@ async def sync_ops_metrics_from_dodois(
 
     if not user.planfact_key_id:
         raise HTTPException(400, "У пользователя не задан ключ PlanFact.")
+
+    # Аудит 2026-09-03 P4: синк — дорогая операция (десятки запросов к Dodo IS)
+    # и для закрытых месяцев удаляет frozen-снапшот. Окно: не будущее и не
+    # старше 24 месяцев; закрытые месяцы — только territorial+/admin, обычному
+    # пользователю доступен только текущий месяц.
+    from .day_window import now_msk as _now_msk
+    _now = _now_msk()
+    _cur = (_now.year, _now.month)
+    if (y, m) > _cur:
+        raise HTTPException(400, "Нельзя синхронизировать будущий месяц")
+    if (_cur[0] - y) * 12 + (_cur[1] - m) > 24:
+        raise HTTPException(400, "Синхронизация доступна за последние 24 месяца")
+    if (y, m) != _cur and not (user.is_admin or (user.visibility_level or 0) >= 30):
+        raise HTTPException(
+            403, "Обновить закрытый месяц может территориальный управляющий или выше",
+        )
 
     # ── 1. Инвалидация PlanFact-кэша для этого пользователя ──
     # In-memory LRU в PlanFactClient держит ответы /operations до cache_ttl

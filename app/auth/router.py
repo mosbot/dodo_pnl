@@ -17,6 +17,8 @@ from ..db import get_session
 from ..planfact import invalidate_planfact_for
 from . import audit
 from .dependencies import SESSION_COOKIE, require_admin, require_user
+
+LINK_STATE_COOKIE = "pnl_link_state"  # nonce привязки Dodo IS (аудит P3)
 from .models import User
 from .passwords import verify_password
 from .ratelimit import login_limiter, username_limiter
@@ -231,11 +233,21 @@ async def auth_link_start(user: User = Depends(require_user)):
     if not (settings.sa_login_url and settings.public_base_url):
         return RedirectResponse("/settings?link=unavailable", status_code=302)
     base = settings.public_base_url.rstrip("/") + "/auth/link"
-    lt = crypto.make_link_token(str(user.id))
+    # Аудит 2026-09-03 P3: link-token привязываем к браузеру nonce-cookie —
+    # иначе чужой `lt` можно подсунуть жертве (GET + Lax sa-кука) и привязать
+    # её Dodo-аккаунт к аккаунту атакующего.
+    import secrets
+    nonce = secrets.token_urlsafe(16)
+    lt = crypto.make_link_token(f"{user.id}:{nonce}")
     rt = f"{base}?lt={quote(lt, safe='')}" if lt else base
-    return RedirectResponse(
+    resp = RedirectResponse(
         f"{settings.sa_login_url}?return_to={quote(rt, safe='')}", status_code=302,
     )
+    resp.set_cookie(
+        key=LINK_STATE_COOKIE, value=nonce, max_age=600,
+        httponly=True, secure=True, samesite="lax", path="/auth/link",
+    )
+    return resp
 
 
 @router.get("/auth/link")
@@ -256,14 +268,24 @@ async def auth_link(
     from .. import crypto
     from .dependencies import _resolve_user
 
-    # 1) identity: link-token → fallback cookie.
-    uid_str = crypto.read_link_token(lt) if lt else None
+    # 1) identity: link-token (uid:nonce, nonce сверяется с cookie браузера,
+    #    который начал привязку — P3) → fallback cookie-сессия.
+    import hmac as _hmac
+    payload = crypto.read_link_token(lt) if lt else None
     db_user = None
-    if uid_str:
-        try:
-            db_user = await db.get(User, int(uid_str))
-        except (TypeError, ValueError):
-            db_user = None
+    if payload:
+        uid_str, _, nonce = payload.partition(":")
+        state = request.cookies.get(LINK_STATE_COOKIE) or ""
+        if nonce and state and _hmac.compare_digest(nonce, state):
+            try:
+                db_user = await db.get(User, int(uid_str))
+            except (TypeError, ValueError):
+                db_user = None
+        else:
+            # Токен не из этого браузера — привязку не делаем.
+            resp = RedirectResponse("/settings?link=invalid", status_code=302)
+            resp.delete_cookie(LINK_STATE_COOKIE, path="/auth/link")
+            return resp
     if db_user is None:
         pair = await _resolve_user(request, db)
         if pair is not None:
@@ -287,7 +309,9 @@ async def auth_link(
     fresh = await db.get(User, db_user.id)
     fresh.dodois_sub = sub
     await db.commit()
-    return RedirectResponse("/settings?link=ok", status_code=302)
+    resp = RedirectResponse("/settings?link=ok", status_code=302)
+    resp.delete_cookie(LINK_STATE_COOKIE, path="/auth/link")
+    return resp
 
 
 class SsoLinkRequest(BaseModel):
