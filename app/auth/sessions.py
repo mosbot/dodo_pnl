@@ -31,6 +31,8 @@ from .models import User, UserSession
 
 # Токен живёт 30 дней. После expires_at — невалиден, требуется новый login.
 SESSION_TTL_DAYS = 30
+# Аудит 2026-09-03 P12: rolling-продление не должно делать сессию вечной.
+SESSION_ABSOLUTE_TTL_DAYS = 90
 
 
 def _new_token() -> str:
@@ -105,7 +107,9 @@ async def get_session_with_user(
 async def touch_session(session: AsyncSession, s: UserSession) -> None:
     """Обновить last_seen_at + продлить expires_at (rolling refresh)."""
     s.last_seen_at = _now()
-    s.expires_at = _now() + timedelta(days=SESSION_TTL_DAYS)
+    # Абсолютный потолок: продлеваем не дальше created_at + 90 дней (P12).
+    hard_limit = s.created_at + timedelta(days=SESSION_ABSOLUTE_TTL_DAYS)
+    s.expires_at = min(_now() + timedelta(days=SESSION_TTL_DAYS), hard_limit)
     await session.flush()
 
 

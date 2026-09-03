@@ -21,6 +21,7 @@ env-fallback на общие токены (settings.planfact_api_key / dodo_is_a
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from sqlalchemy import text
@@ -28,6 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.models import User
 from ..config import settings
+
+log = logging.getLogger("pnl.tokens")
 
 
 class NoTokenError(Exception):
@@ -78,8 +81,12 @@ async def _fetch_token_from_broker(sub: str, name: str) -> str:
         resp.raise_for_status()
         token = (resp.json().get("access_token") or "").strip()
     except Exception as exc:  # noqa: BLE001 — любой сбой брокера = нет токена
+        # Аудит 2026-09-03 P10: подробности (внутренний URL брокера, sub) —
+        # только в лог; наружу общий текст.
+        log.warning("token broker failed for %r (sub %s): %s", name, sub, exc)
         raise NoTokenError(
-            f"Токен-брокер sa не отдал токен для {name!r} (sub {sub}): {exc}"
+            "Не удалось получить токен Dodo IS для сети. "
+            "Проверьте привязку аккаунта или повторите вход."
         ) from exc
     if not token:
         raise NoTokenError(f"Брокер sa вернул пустой токен для {name!r}.")

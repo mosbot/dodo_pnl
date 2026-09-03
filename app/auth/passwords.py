@@ -29,6 +29,9 @@ def verify_password(password: str, password_hash: str | None) -> bool:
     password_hash может быть None/пустым у SSO-юзеров (вход через Dodo IS, без
     локального пароля) — такой локальный логин всегда отклоняем."""
     if not password_hash:
+        # Аудит 2026-09-03 P9: тратим то же время, что и на реальную проверку —
+        # иначе по задержке отличается «нет такого логина» от «неверный пароль».
+        _dummy_verify()
         return False
     try:
         _ph.verify(password_hash, password)
@@ -44,3 +47,14 @@ def needs_rehash(password_hash: str) -> bool:
         return _ph.check_needs_rehash(password_hash)
     except InvalidHashError:
         return True
+
+
+# Хеш-заглушка для постоянного времени ответа (P9). Считается один раз.
+_DUMMY_HASH = _ph.hash("dummy-password-for-constant-time")
+
+
+def _dummy_verify() -> None:
+    try:
+        _ph.verify(_DUMMY_HASH, "wrong")
+    except Exception:  # noqa: BLE001 — ожидаемо не совпадает
+        pass

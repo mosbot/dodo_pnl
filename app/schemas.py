@@ -61,8 +61,12 @@ class FormulaPreviewIn(BaseModel):
 
 
 class SettingIn(BaseModel):
-    key: str = Field(..., description="Имя настройки")
-    value: str = Field(..., description="Строковое значение; для bool — 'true'/'false'")
+    # Аудит 2026-09-03 P12: лимиты длины (иначе per-user storage без границ).
+    key: str = Field(..., max_length=64, description="Имя настройки")
+    value: str = Field(
+        ..., max_length=8192,
+        description="Строковое значение; для bool — 'true'/'false'",
+    )
 
 
 class PnLQuery(BaseModel):

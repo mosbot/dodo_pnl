@@ -242,7 +242,7 @@ async def auto_link_dodois(
         token = await get_dodois_token(session, user)
         units = await dodois_client.fetch_units(token)
     except DodoISError as e:
-        raise HTTPException(502, f"Dodo IS: {e}")
+        raise HTTPException(502, "Dodo IS временно недоступен, попробуйте позже")  # P10
 
     pizzerias = [u for u in units if u.get("unitType") == 1]
     pf_key_id = _require_user_pf_key(user)
@@ -3588,7 +3588,7 @@ async def get_board(
                 projects=projects, now=now,
             )
         except (DodoISError, NoTokenError) as e:
-            raise HTTPException(502, f"Dodo IS: {e}")
+            raise HTTPException(502, "Dodo IS временно недоступен, попробуйте позже")  # P10
 
         _BOARD_CACHE[cache_key] = (time.time(), payload)
 
