@@ -148,6 +148,13 @@ def require_admin_for_user(user_param: str = "user_id"):
             raise HTTPException(
                 403, "Этот пользователь вне области вашей сети",
             )
+        # Аудит 2026-09-03 P1: network_admin не управляет super_admin'ом,
+        # даже если тот привязан к тому же planfact_key (иначе reset-password
+        # / PATCH role / DELETE = вертикальная эскалация до super_admin).
+        if target_user.is_super_admin:
+            raise HTTPException(
+                403, "Управлять супер-администратором может только супер-администратор",
+            )
         return actor
     return _dep
 

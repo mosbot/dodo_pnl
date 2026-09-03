@@ -18,4 +18,7 @@ EXPOSE 8000
 
 # Миграции применяем отдельно (alembic upgrade head) — при первом запуске БД
 # уже восстановлена из дампа на текущей версии. Сервер:
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers: за Caddy в docker-сети; иначе request.client = IP Caddy
+# для всех (login rate-limit блокирует всех разом, IP в audit бесполезны).
+# Контейнер не экспонирован наружу, X-Forwarded-For ставит только Caddy.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -7,6 +7,7 @@ Multi-tenant: каждый запрос несёт user (из require_user depen
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 from fastapi import (
@@ -55,7 +56,15 @@ from .schemas import (
 )
 
 
-app = FastAPI(title="PnL Dashboard")
+# Аудит 2026-09-03: /docs, /redoc, /openapi.json в проде не нужны — раскрывают
+# внутренние ручки и схемы. Локально включить через PNL_OPENAPI=1.
+_openapi_on = os.getenv("PNL_OPENAPI") == "1"
+app = FastAPI(
+    title="PnL Dashboard",
+    docs_url="/docs" if _openapi_on else None,
+    redoc_url="/redoc" if _openapi_on else None,
+    openapi_url="/openapi.json" if _openapi_on else None,
+)
 
 
 @app.on_event("startup")

@@ -148,6 +148,21 @@ async def login(
     return UserPublic.from_user(u)
 
 
+def _safe_next_path(next: str) -> str:
+    """Только относительный путь этого origin'а. Аудит 2026-09-03 P8:
+    `/\\evil.com` браузер нормализует в `//evil.com` → open redirect;
+    режем backslash, управляющие символы и любой netloc/схему."""
+    from urllib.parse import urlsplit
+    if not next or not next.startswith("/") or next.startswith("//"):
+        return "/"
+    if "\\" in next or any(ord(c) < 32 for c in next):
+        return "/"
+    parts = urlsplit(next)
+    if parts.scheme or parts.netloc:
+        return "/"
+    return next
+
+
 @router.get("/auth/sso")
 async def auth_sso(
     request: Request,
@@ -159,7 +174,7 @@ async def auth_sso(
     from . import sso as sso_mod
     from ..config import settings
 
-    dest = next if (next.startswith("/") and not next.startswith("//")) else "/"
+    dest = _safe_next_path(next)
     # Уже есть живая pnl-сессия (переход из Кассы/хаба по /auth/sso?next=) →
     # не плодим сессии, сразу на место назначения.
     cur_token = request.cookies.get(SESSION_COOKIE)
