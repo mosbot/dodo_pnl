@@ -38,9 +38,10 @@ def page(body, out):
         pg.set_content(html); pg.wait_for_timeout(300); pg.screenshot(path=out); b.close()
     print(out)
 LOGO=b64('icon.svg')
-def brand(tag): return f"<div class='brand'><img src='{LOGO}'><span style='display:inline'>Dodo<b style='margin:0'>tool</b></span></div><div class='tag'>{tag}</div>"
-def desk(tag,h,sub,img,out,top=0):
-    page(brand(tag)+f"<h1>{h}</h1><p class='sub'>{sub}</p><div class='shot'><div class='bar'><i></i><i></i><i></i></div><img src='{b64(img)}' style='margin-top:{top}px'></div>",out)
+KLOGO=b64('kassa-glyph.png')
+def brand(tag, logo=None): return f"<div class='brand'><img src='{logo or LOGO}' style='border-radius:0'><span style='display:inline'>Dodo<b style='margin:0'>tool</b></span></div><div class='tag'>{tag}</div>"
+def desk(tag,h,sub,img,out,top=0,logo=None):
+    page(brand(tag,logo)+f"<h1>{h}</h1><p class='sub'>{sub}</p><div class='shot'><div class='bar'><i></i><i></i><i></i></div><img src='{b64(img)}' style='margin-top:{top}px'></div>",out)
 
 which=sys.argv[1]
 if which=='0':
@@ -73,8 +74,8 @@ if which=='k2':
     desk('Касса','Закрытие смены со сверкой — <span>«сошлось» или расхождение</span>','Факт по каждой кассе сверяется с расчётным остатком; Касса предупредит, если у курьера не сданы деньги. Передача смены под подпись.','k2.png','slide-6-kassa-close.png',top=-230)
 
 if which=='kassa':
-    desk('Касса','Учёт наличных вместо Google-таблицы — <span>выручка из Dodo IS</span>','Выручка по каналам подтягивается из Dodo IS и попадает в журнал отдельными операциями. Остатки по кассам и сейфу, операции за день — в одном окне.','k1.png','kassa-1-journal.png',top=0)
-    desk('Касса','Закрытие смены со сверкой — <span>«сошлось» или расхождение</span>','Факт по каждой кассе сверяется с расчётным остатком; Касса предупредит, если у курьера не сданы деньги. Передача смены под подпись.','k2.png','kassa-2-shift-close.png',top=-230)
-    desk('Касса','Деньги у курьеров на руках — <span>из Dodo IS</span>','Выдали сдачу, приняли выручку — по каждому курьеру видно, сколько у него на руках. Несданная сумма остаётся на курьере до следующей смены.','k4.png','kassa-3-couriers.png',top=0)
-    desk('Касса','Чек к каждой операции — <span>файлом или фото с телефона</span>','К любому приходу или расходу прикрепляется чек или накладная (jpg, png, pdf). Статьи расходов единые для сети, задаёт владелец.','k5.png','kassa-4-expense.png',top=-200)
-    desk('Касса','История правок — <span>кто создал, кто и что изменил</span>','У каждой операции видно автора, изменения и время. Удаление тоже остаётся в истории с причиной — спорить о пересменке не о чем.','k7.png','kassa-5-history.png',top=-200)
+    desk('Касса','Учёт наличных вместо Google-таблицы — <span>выручка из Dodo IS</span>','Выручка по каналам подтягивается из Dodo IS и попадает в журнал отдельными операциями. Остатки по кассам и сейфу, операции за день — в одном окне.','k1.png','kassa-1-journal.png',top=0,logo=KLOGO)
+    desk('Касса','Закрытие смены со сверкой — <span>«сошлось» или расхождение</span>','Факт по каждой кассе сверяется с расчётным остатком; Касса предупредит, если у курьера не сданы деньги. Передача смены под подпись.','k2.png','kassa-2-shift-close.png',top=-230,logo=KLOGO)
+    desk('Касса','Деньги у курьеров на руках — <span>из Dodo IS</span>','Выдали сдачу, приняли выручку — по каждому курьеру видно, сколько у него на руках. Несданная сумма остаётся на курьере до следующей смены.','k4.png','kassa-3-couriers.png',top=0,logo=KLOGO)
+    desk('Касса','Чек к каждой операции — <span>файлом или фото с телефона</span>','К любому приходу или расходу прикрепляется чек или накладная (jpg, png, pdf). Статьи расходов единые для сети, задаёт владелец.','k5.png','kassa-4-expense.png',top=-200,logo=KLOGO)
+    desk('Касса','История правок — <span>кто создал, кто и что изменил</span>','У каждой операции видно автора, изменения и время. Удаление тоже остаётся в истории с причиной — спорить о пересменке не о чем.','k7.png','kassa-5-history.png',top=-200,logo=KLOGO)
