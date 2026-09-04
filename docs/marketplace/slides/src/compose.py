@@ -4,7 +4,7 @@ EXE='/sessions/dreamy-wonderful-gates/.cache/ms-playwright/chromium-1234/chrome-
 def b64(p): return 'data:'+('image/svg+xml' if p.endswith('.svg') else 'font/ttf' if p.endswith('.ttf') else 'image/png')+';base64,'+base64.b64encode(open(p,'rb').read()).decode()
 CSS = "@font-face{font-family:Inter;src:url('"+b64('InterVariable.ttf')+"');font-weight:100 900}" + """
 *{box-sizing:border-box;margin:0;padding:0}
-body{width:1600px;height:900px;overflow:hidden;font-family:Inter,'DejaVu Sans',sans-serif;color:#0f172a;
+body{width:1600px;height:1022px;overflow:hidden;font-family:Inter,'DejaVu Sans',sans-serif;color:#0f172a;
  background:linear-gradient(135deg,#eef3ff 0%,#f8fafc 55%,#e6f0ff 100%);position:relative}
 .brand{position:absolute;left:64px;top:52px;display:flex;align-items:center;gap:14px;white-space:nowrap;font-weight:700;font-size:26px;color:#0f172a}
 .brand img{width:40px;height:40px}
@@ -13,7 +13,7 @@ body{width:1600px;height:900px;overflow:hidden;font-family:Inter,'DejaVu Sans',s
 h1{position:absolute;left:64px;top:120px;font-size:52px;line-height:1.12;font-weight:700;letter-spacing:-.015em;max-width:1400px}
 h1 span{color:#2563eb}
 p.sub{position:absolute;left:64px;top:262px;font-size:26px;line-height:1.35;color:#475569;max-width:1100px}
-.shot{position:absolute;left:64px;right:64px;top:352px;height:620px;border-radius:18px 18px 0 0;overflow:hidden;
+.shot{position:absolute;left:64px;right:64px;top:352px;height:740px;border-radius:18px 18px 0 0;overflow:hidden;
  box-shadow:0 30px 80px rgba(15,23,42,.18),0 0 0 1px rgba(15,23,42,.06);background:#fff}
 .shot .bar{height:36px;background:#f1f5f9;display:flex;align-items:center;gap:8px;padding-left:16px;border-bottom:1px solid #e2e8f0}
 .shot .bar i{width:12px;height:12px;border-radius:50%;background:#cbd5e1;display:block}
@@ -34,7 +34,7 @@ def page(body, out):
     html=f"<html><head><meta charset='utf-8'><style>{CSS}</style></head><body>{body}</body></html>"
     with sync_playwright() as p:
         b=p.chromium.launch(executable_path=EXE,args=['--no-sandbox'])
-        pg=b.new_page(viewport={'width':1600,'height':900},device_scale_factor=2)
+        pg=b.new_page(viewport={'width':1600,'height':1022},device_scale_factor=2)
         pg.set_content(html); pg.wait_for_timeout(300); pg.screenshot(path=out); b.close()
     print(out)
 LOGO=b64('icon.svg')
@@ -75,7 +75,7 @@ if which=='k2':
 
 if which=='kassa':
     desk('Касса','Учёт наличных вместо Google-таблицы — <span>выручка из Dodo IS</span>','Выручка по каналам подтягивается из Dodo IS и попадает в журнал отдельными операциями. Остатки по кассам и сейфу, операции за день — в одном окне.','k1.png','kassa-1-journal.png',top=0,logo=KLOGO)
-    desk('Касса','Закрытие смены со сверкой — <span>«сошлось» или расхождение</span>','Факт по каждой кассе сверяется с расчётным остатком; Касса предупредит, если у курьера не сданы деньги. Передача смены под подпись.','k2.png','kassa-2-shift-close.png',top=-230,logo=KLOGO)
+    desk('Касса','Закрытие смены со сверкой — <span>«сошлось» или расхождение</span>','Факт по каждой кассе сверяется с расчётным остатком; Касса предупредит, если у курьера не сданы деньги. Передача смены под подпись.','k2.png','kassa-2-shift-close.png',top=-150,logo=KLOGO)
     desk('Касса','Деньги у курьеров на руках — <span>из Dodo IS</span>','Выдали сдачу, приняли выручку — по каждому курьеру видно, сколько у него на руках. Несданная сумма остаётся на курьере до следующей смены.','k4.png','kassa-3-couriers.png',top=0,logo=KLOGO)
-    desk('Касса','Чек к каждой операции — <span>файлом или фото с телефона</span>','К любому приходу или расходу прикрепляется чек или накладная (jpg, png, pdf). Статьи расходов единые для сети, задаёт владелец.','k5.png','kassa-4-expense.png',top=-200,logo=KLOGO)
-    desk('Касса','История правок — <span>кто создал, кто и что изменил</span>','У каждой операции видно автора, изменения и время. Удаление тоже остаётся в истории с причиной — спорить о пересменке не о чем.','k7.png','kassa-5-history.png',top=-200,logo=KLOGO)
+    desk('Касса','Чек к каждой операции — <span>файлом или фото с телефона</span>','К любому приходу или расходу прикрепляется чек или накладная (jpg, png, pdf). Статьи расходов единые для сети, задаёт владелец.','k5.png','kassa-4-expense.png',top=-120,logo=KLOGO)
+    desk('Касса','История правок — <span>кто создал, кто и что изменил</span>','У каждой операции видно автора, изменения и время. Удаление тоже остаётся в истории с причиной — спорить о пересменке не о чем.','k7.png','kassa-5-history.png',top=-120,logo=KLOGO)
