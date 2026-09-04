@@ -1,16 +1,16 @@
 import base64, sys
 from playwright.sync_api import sync_playwright
 EXE='/sessions/dreamy-wonderful-gates/.cache/ms-playwright/chromium-1234/chrome-linux/chrome'
-def b64(p): return 'data:image/'+('svg+xml' if p.endswith('.svg') else 'png')+';base64,'+base64.b64encode(open(p,'rb').read()).decode()
-CSS = """
+def b64(p): return 'data:'+('image/svg+xml' if p.endswith('.svg') else 'font/ttf' if p.endswith('.ttf') else 'image/png')+';base64,'+base64.b64encode(open(p,'rb').read()).decode()
+CSS = "@font-face{font-family:Inter;src:url('"+b64('InterVariable.ttf')+"');font-weight:100 900}" + """
 *{box-sizing:border-box;margin:0;padding:0}
-body{width:1600px;height:900px;overflow:hidden;font-family:Lato,'DejaVu Sans',sans-serif;color:#0f172a;
+body{width:1600px;height:900px;overflow:hidden;font-family:Inter,'DejaVu Sans',sans-serif;color:#0f172a;
  background:linear-gradient(135deg,#eef3ff 0%,#f8fafc 55%,#e6f0ff 100%);position:relative}
 .brand{position:absolute;left:64px;top:52px;display:flex;align-items:center;gap:14px;white-space:nowrap;font-weight:700;font-size:26px;color:#0f172a}
 .brand img{width:40px;height:40px}
 .brand b{color:#2563eb;font-weight:700;display:inline}
 .tag{position:absolute;right:64px;top:56px;font-size:20px;color:#475569;letter-spacing:.04em;text-transform:uppercase;font-weight:700}
-h1{position:absolute;left:64px;top:120px;font-size:54px;line-height:1.1;font-weight:900;letter-spacing:-.01em;max-width:1200px}
+h1{position:absolute;left:64px;top:120px;font-size:52px;line-height:1.12;font-weight:700;letter-spacing:-.015em;max-width:1400px}
 h1 span{color:#2563eb}
 p.sub{position:absolute;left:64px;top:262px;font-size:26px;line-height:1.35;color:#475569;max-width:1100px}
 .shot{position:absolute;left:64px;right:64px;top:352px;height:620px;border-radius:18px 18px 0 0;overflow:hidden;
@@ -25,8 +25,8 @@ p.sub{position:absolute;left:64px;top:262px;font-size:26px;line-height:1.35;colo
 .phone img{width:100%;display:block}
 .tiles{position:absolute;left:64px;right:64px;top:400px;display:flex;gap:28px}
 .tile{flex:1;background:#fff;border-radius:20px;padding:34px 34px 30px;box-shadow:0 20px 60px rgba(15,23,42,.10),0 0 0 1px rgba(15,23,42,.05)}
-.tile .ic{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:22px;font-size:28px;color:#fff;font-weight:900}
-.tile h3{font-size:32px;margin-bottom:12px;font-weight:900}
+.tile .ic{width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:22px;font-size:28px;color:#fff;font-weight:700}
+.tile h3{font-size:32px;margin-bottom:12px;font-weight:700}
 .tile p{font-size:21px;line-height:1.35;color:#475569}
 .foot{position:absolute;left:64px;bottom:44px;font-size:20px;color:#64748b}
 """
@@ -76,5 +76,5 @@ if which=='kassa':
     desk('Касса','Учёт наличных вместо Google-таблицы — <span>выручка из Dodo IS</span>','Выручка по каналам подтягивается из Dodo IS и попадает в журнал отдельными операциями. Остатки по кассам и сейфу, операции за день — в одном окне.','k1.png','kassa-1-journal.png',top=0)
     desk('Касса','Закрытие смены со сверкой — <span>«сошлось» или расхождение</span>','Факт по каждой кассе сверяется с расчётным остатком; Касса предупредит, если у курьера не сданы деньги. Передача смены под подпись.','k2.png','kassa-2-shift-close.png',top=-230)
     desk('Касса','Деньги у курьеров на руках — <span>из Dodo IS</span>','Выдали сдачу, приняли выручку — по каждому курьеру видно, сколько у него на руках. Несданная сумма остаётся на курьере до следующей смены.','k4.png','kassa-3-couriers.png',top=0)
-    desk('Касса','Чек к каждой операции — <span>файлом или фото с телефона</span>','К любому приходу или расходу прикрепляется чек или накладная (jpg, png, pdf). Статьи расходов единые для сети, задаёт владелец.','k5.png','kassa-4-expense.png',top=-260)
-    desk('Касса','История правок — <span>кто создал, кто и что изменил</span>','У каждой операции видно автора, изменения и время. Удаление тоже остаётся в истории с причиной — спорить о пересменке не о чем.','k7.png','kassa-5-history.png',top=-330)
+    desk('Касса','Чек к каждой операции — <span>файлом или фото с телефона</span>','К любому приходу или расходу прикрепляется чек или накладная (jpg, png, pdf). Статьи расходов единые для сети, задаёт владелец.','k5.png','kassa-4-expense.png',top=-200)
+    desk('Касса','История правок — <span>кто создал, кто и что изменил</span>','У каждой операции видно автора, изменения и время. Удаление тоже остаётся в истории с причиной — спорить о пересменке не о чем.','k7.png','kassa-5-history.png',top=-200)
