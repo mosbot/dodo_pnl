@@ -1,0 +1,23 @@
+import time, sys
+sys.argv=['x','x']
+exec(open('shoot3.py').read().split("import sys\njob=")[0])
+with sync_playwright() as p:
+    b,c=ctx(p,1440,900); pg=c.new_page()
+    pg.goto('https://pnl.dodotool.ru/', wait_until='networkidle', timeout=120000); time.sleep(2)
+    pg.click('button[data-mode="period"]'); time.sleep(1)
+    pg.evaluate("()=>{const f=document.getElementById('monthSelectFrom'); f.value='2026-03'; f.dispatchEvent(new Event('change',{bubbles:true})); const t=document.getElementById('monthSelectTo'); t.value='2026-08'; t.dispatchEvent(new Event('change',{bubbles:true}));}")
+    pg.evaluate("()=>{document.querySelectorAll('input.js-grp-toggle').forEach(cb=>{ if(!cb.checked) cb.click(); }); document.querySelectorAll('input[data-pid]').forEach(cb=>{ if(!cb.checked) cb.click(); }); document.getElementById('projApplyBtn').click();}")
+    time.sleep(1); pg.click('#periodApplyBtn'); time.sleep(8); pg.wait_for_load_state('networkidle', timeout=180000); time.sleep(20)
+    pg.evaluate("()=>{document.body.classList.remove('drawer-open'); const bd=document.getElementById('drawerBackdrop'); if(bd) bd.hidden=true;}")
+    print('cards', pg.evaluate("()=>document.querySelectorAll('.card.card-clickable').length"))
+    pg.screenshot(path='pm_before.png')
+    print('mode', pg.evaluate("()=>[document.querySelectorAll('.card').length, document.querySelector('.mode-toggle-btn.is-active')?.textContent, document.getElementById('dateStart').value, document.getElementById('dateEnd').value]"))
+    pg.evaluate("()=>{const c=[...document.querySelectorAll('.card')].find(x=>/Тучково/.test(x.textContent)); c.click();}")
+    time.sleep(6)
+    fixname(pg)
+    pg.screenshot(path='pm_full.png', full_page=True)
+    box=pg.evaluate("()=>{const m=document.querySelector('#pmModal .modal-content'); const r=m.getBoundingClientRect(); return [r.x,r.y,r.width,r.height, document.querySelector('#pmModal').scrollTop];}")
+    print('box',box)
+    pg.locator('#pmModal .modal-content').screenshot(path='pm_modal.png')
+    b.close()
+print('done')
