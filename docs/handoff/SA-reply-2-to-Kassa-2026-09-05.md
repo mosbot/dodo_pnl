@@ -76,3 +76,14 @@ XFood: подписка `kassa` (2 юнита) истекает **2026-09-30**, 
   миграция;
 - у нас: второй OAuth-клиент под карточку «Финансы+Пульс»; WAL-архив —
   ждёт хост.
+
+## Дополнение: scope `marketplace` / grants — вопрос закрыт
+
+Проверено 2026-09-05: scope `marketplace` у приложения назначен, но это
+Service-Token-scope (`client_credentials`), а у `cnM4i` включён только
+Authorization Code Flow → `unauthorized_client`. Нужен он только для
+`POST /marketplace/statuses/grants` (репорт «доступ жив/отозван»); подписки
+и юниты идут пользовательским токеном (`marketplacesubscription:read`) и
+работают. Решение Андрея: **в Pyrus не идём**; если Dodo IS сочтёт grants
+обязательными — скажут при модерации, тогда и включим. Пункт 1 из
+«блокирует публикацию» снят.
