@@ -279,3 +279,18 @@ starlette 1.0, httpx 0.28, cryptography 48).
 - Решения владельца: держатель XFood не переоформляется; запрос scope
   `marketplace` в Dodo IS отправлен; Grafana anonymous — пока оставить.
 - sa-репо синхронизирован с VPS-чекаутом (`314861f`, `d977f29`).
+
+### 2026-09-05 (вечер) — по ответу Кассы
+
+- Redis ACL сужен для `kassa`/`kassa-stg`: `~entitlements:* ~dodois:*`,
+  команды get/set/del/exists/expire/ttl/ping/select/hello/info/client|setinfo.
+- CSP на `kassa.dodotool.ru` / `stg-kassa` (Caddy sa): список источников от
+  Кассы + `base-uri 'self'; object-src 'none'`; headless-проверка без нарушений.
+- `kassa_prod`: гранты в `dodotool_sa` (ALL на кассовые таблицы, S/I/U на
+  настройки сети/юнита, SELECT на платформенные, CREATE на public, default
+  privileges на новые таблицы sa), `DATABASE_URL` в `.env` кассы — переход
+  за Кассой.
+- `DEFAULT_CAPABILITIES` снят (fail-closed + warning) после расчёта: 6 активных
+  подписок, 0 расхождений по 74 юнитам. sa `1188228`.
+- Грабли деплоя sa: `compose build api` ничего не собирает (build у `migrate`)
+  — только `compose build` без аргументов.
