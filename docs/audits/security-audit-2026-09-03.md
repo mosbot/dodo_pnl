@@ -256,3 +256,26 @@ starlette 1.0, httpx 0.28, cryptography 48).
 5. Grafana anonymous Viewer — «пока оставить» (владелец).
 6. Zero-downtime деплой pnl (секунды 502 при рестарте) — требование
    маркетплейса, не безопасность.
+
+## Дополнение 2026-09-05 — по открытым вопросам Кассы
+
+- **Redis ACL** (вместо общего `requirepass`): пользователи `sa`, `kassa`,
+  `kassa-stg` (`~* &* +@all`, префиксы ключей — после ответа Кассы),
+  `default off`. ACL-файл `~/dodotool-sa/redis/users.acl` (gitignore), compose
+  redis `--aclfile /data/users.acl`, volume `./redis:/data`, healthcheck под
+  `sa`. `REDIS_URL` вида `redis://<user>:<pw>@redis:6379` в `.env` sa, kassa,
+  kassa-staging; бэкапы `*.bak-acl-<ts>`. Проверено: старый пароль →
+  WRONGPASS, 25 ключей сохранены, все контейнеры healthy, kassa `/auth/sso` 302.
+- **Дампы каждые 4 часа**: `~/ops/backup-db-intraday.sh` (dodotool_sa +
+  pnl_service, `pg_dump -Fc`, проверка `pg_restore --list`, ретенция 48 ч в
+  `~/backups/intraday`), cron `0 7,11,15,19,23 * * *`. RPO ≤4 ч; WAL-архив —
+  ждёт решения по хосту.
+- **Refresh-задача sa** пропускает учётки с `expires_at` старше 14 дней
+  (`STALE_AFTER_DAYS`, `app/token_refresh.py`, sa `d977f29`) — 9 отозванных
+  учёток больше не держат задачу «красной».
+- Попутно: **celery-beat sa крашился с 03.09** (non-root uid 10001 не имел
+  прав на volume `/var/celerybeat`) — `chown -R 10001:10001`, beat запущен.
+  Последствие волны 2 (non-root образы); проверять volume-права при смене uid.
+- Решения владельца: держатель XFood не переоформляется; запрос scope
+  `marketplace` в Dodo IS отправлен; Grafana anonymous — пока оставить.
+- sa-репо синхронизирован с VPS-чекаутом (`314861f`, `d977f29`).
