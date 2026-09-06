@@ -411,3 +411,42 @@ sudo docker exec dodotool-pnl-api-1 python -c "<...>"
 # Caddy (vhost pnl): правки в ~/dodotool-sa/Caddyfile, затем
 sudo docker exec dodotool-sa-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
+
+## Состояние на 2026-09-06 (handoff из Cowork-сессии)
+
+Подробности — `docs/marketplace/*-card-status.md`, `docs/handoff/`,
+`docs/audits/security-audit-2026-09-03.md`, `docs/plans/wal-archive-runbook.md`,
+`docs/plans/yandex-cloud-migration.md`.
+
+- **Маркетплейс Dodo IS — два приложения.** «Dodotool Касса» (`019e26f1…`,
+  клиент `cnM4i`, тариф KASSA 2 990) и «Dodotool Финансы» (`01a072b7…`, стр.
+  `01a072cc…`, клиент `cyuqZ`; тарифы FINANSY 1 490 / PUL'S 990 /
+  FINANSY-I-PUL'S 1 990, триал 14 дн). Обе заполнены, не опубликованы.
+  Позиционирование Финансов — от данных Dodo IS (Lite = база), PlanFact —
+  не киллер-фича. Обсуждается лестница с «Финансы Pro» 2 990 (PlanFact P&L,
+  cap `finance.pnl`, гейт в pnl: настройки PlanFact + PF-блоки) и Планёрка в
+  базе (cap `planerka`) — решение Андрея ожидается. Алиасы тарифов кабинет
+  генерит сам (транслит, верхний регистр) — замаплены в sa
+  `tariff_capabilities`. **Блокеры**: redirect URL `cyuqZ` (только
+  localhost:5001 → Pyrus), sa под два client_id (не начато), соглашение.
+  Scope `marketplace`/grants (client_credentials) — закрыт, не просить.
+- **sa capabilities**: `DEFAULT_CAPABILITIES` снят (немапленный alias = нет
+  доступа + warning). XFood: kassa истекает 30.09, finance/pulse 02.10.
+- **Безопасность** (волны 0–2 + 2026-09-05): Redis ACL per-service (`~*`
+  сужен до `entitlements:* dodois:*` у Кассы), CSP на kassa/stg-kassa,
+  роли Postgres per-service (`kassa_prod` с грантами, Касса переезжает сама),
+  4-часовые дампы `~/ops/backup-db-intraday.sh`, ssh key-only.
+- **WAL-архив** (2026-09-06): sa-Postgres на образе `dodotool-postgres-walg:16`
+  (`~/dodotool-sa/Dockerfile.postgres`), архив в Yandex Object Storage
+  `dodotool-pg-backups/pg`, креды `/home/ask/ops/walg.env` (root:600, в git
+  нет), cron 03:45 `~/ops/walg-backup.sh` (retain 14), restore-тест
+  `~/ops/walg-restore-test.sh` пройден. RPO ≤ 5 мин.
+- **Инфра-грабли**: в sa `docker compose build api` ничего не собирает
+  (build только у сервиса `migrate`) — `compose build` без аргументов;
+  `caddy reload` не применяется — `docker restart dodotool-sa-caddy-1`;
+  celery-beat sa — volume должен быть chown 10001. Диск VPS 74 % — 14 ГБ
+  это docker-образы/кэш (`docker image prune -a`). Миграция в облако по
+  нагрузке не нужна до ~30–50 сетей.
+- Локальный чекаут DodoPnl отстаёт от origin/main (правки идут через
+  `~/pnl-service` на VPS) — перед работой `git pull --ff-only`; локальный
+  `main.py` = staging-версия, на прод не копировать.
