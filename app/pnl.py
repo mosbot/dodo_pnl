@@ -274,7 +274,7 @@ LINE_CODE_DEFAULT_MIN_LEVEL: dict[str, int] = {
     "MGMT": 30, "OPERATING_PROFIT": 30,
     "OTHER_INCOME": 30, "NON_OPER_EXPENSE": 30, "EBITDA": 30,
     "INTEREST": 60, "TAX": 60, "NET_PROFIT": 60,
-    "DIVIDENDS": 100,
+    "DIVIDENDS": 100, "RETAINED": 100,
 }
 
 
@@ -750,6 +750,15 @@ async def build_pnl(
             - totals.get((pid, "TAX"), 0.0)
         )
 
+    def retained_profit(pid: str) -> float:
+        # Нераспределённая прибыль = Чистая прибыль − Дивиденды.
+        # В ПланФакт формула шире («Доходы − Расходы − Дивиденды + Курсовая
+        # разница»), но курсовая разница у нас уже сидит внутри
+        # OTHER_INCOME/NON_OPER_EXPENSE и, значит, учтена в net_profit.
+        # Раньше строка «Нераспределенная прибыль» была calc-узлом шаблона без
+        # маппинга и рисовалась прочерками (см. CALC_TITLE_TO_LINE_CODE).
+        return net_profit(pid) - totals.get((pid, "DIVIDENDS"), 0.0)
+
     lines = [
         row("REVENUE", "Выручка", 1, "header"),
         row("UC", "Себестоимость продукции (UC)", 2),
@@ -772,6 +781,7 @@ async def build_pnl(
         row("TAX", "Налог на прибыль", 2),
         computed_row("NET_PROFIT", "Чистая прибыль", net_profit, 1, "final"),
         row("DIVIDENDS", "Дивиденды", 2),
+        computed_row("RETAINED", "Нераспределенная прибыль", retained_profit, 1, "final"),
     ]
 
     # --- цели ---
@@ -1114,6 +1124,7 @@ CALC_TITLE_TO_LINE_CODE: dict[str, str] = {
     "Операционная прибыль": "OPERATING_PROFIT",
     "EBITDA": "EBITDA",
     "Чистая прибыль (убыток)": "NET_PROFIT",
+    "Нераспределенная прибыль": "RETAINED",
 }
 
 # Процентные calc-метрики: показываются как «X%» (без денежной суммы).
