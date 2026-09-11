@@ -1,0 +1,4955 @@
+openapi: 3.2.0
+x-stoplight:
+  id: zdqsi3sfgeo0b
+info:
+  title: Accounting API
+  version: '1.0'
+  description: API предоставляет возможность работать с учетом Dodo IS
+  contact:
+    name: Dodo Brands
+    url: 'https://dodobrands.io'
+  license:
+    url: 'https://cdn.dodostatic.com/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  termsOfService: 'https://cdn.dodostatic.com/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/accounting'
+    description: RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/accounting'
+    description: Other countries
+tags:
+  - name: _in_development
+paths:
+  /stock-transfer/transfer-items:
+    get:
+      operationId: get-stock-transfer-items
+      tags:
+        - Перемещения
+      summary: Перемещения → Позиции перемещений
+      description: |-
+        Возвращает список перемещений сырья за указанный период (включительно), отсортированный по дате заявки на перемещение по возрастанию.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`). Одно перемещение может занимать несколько записей (по одной на каждую позицию) и разбиваться между страницами — при сборе данных ориентируйтесь на `transferOrderId`, а не на границы страниц.
+
+        ### Даты перемещения:
+        - `orderedAtLocal` / `orderedAtUtc` — дата заявки: когда перемещение было заказано. В предыдущей версии эндпоинта это значение возвращалось как `createdAt`;
+        - `createdAt` — служебная дата появления записи в сервисе учёта. Может отличаться от даты заявки;
+        - `modifiedAt` — служебная дата последнего изменения записи.
+
+        Каждой из этих дат соответствует пара фильтров: `orderedFrom`/`orderedTo`, `createdFrom`/`createdTo`, `modifiedFrom`/`modifiedTo`.
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+        3. `orderedFrom` должен быть меньше `orderedTo`;
+        4. `createdFrom` должен быть меньше `createdTo`;
+        5. `modifiedFrom` должен быть меньше `modifiedTo`;
+        6. `shippedFrom` должен быть меньше `shippedTo`;
+        7. `receivedFrom` должен быть меньше `receivedTo`;
+        8. В `statuses` следует перечислять статусы перемещений через запятую без пробелов;
+
+        Статусы перемещений:
+        <code>
+        Created: 1 (Новая заявка на перемещение)
+        Ordered:2 (Заказанная заявка на перемещение)
+        Shipped: 3 (Отгруженная заявка на перемещение)
+        Received: 4 (Полученная заявка на перемещение)
+        Cancelled: 5 (Отмененная заявка на перемещение)
+        </code>
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - schema:
+            type: string
+            example: 'Ordered,Shipped'
+            enum:
+              - Created
+              - Ordered
+              - Shipped
+              - Received
+              - Cancelled
+          in: query
+          name: statuses
+          description: Статусы перемещений
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:21:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: orderedFrom
+          description: 'Фильтр по дате заявки на перемещение, начало диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:22:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: orderedTo
+          description: 'Фильтр по дате заявки на перемещение, конец диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:21:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: createdFrom
+          description: 'Фильтр по служебной дате создания записи в сервисе учёта, начало диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:22:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: createdTo
+          description: 'Фильтр по служебной дате создания записи в сервисе учёта, конец диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:21:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: modifiedFrom
+          description: 'Фильтр по служебной дате изменения записи, начало диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:22:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: modifiedTo
+          description: 'Фильтр по служебной дате изменения записи, конец диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:21:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: shippedFrom
+          description: 'Фильтр по дате отгрузки, начало диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:22:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: shippedTo
+          description: 'Фильтр по дате отгрузки, конец диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:21:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: receivedFrom
+          description: 'Фильтр по дате получения, начало диапазона (UTC)'
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:22:53'
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+          in: query
+          name: receivedTo
+          description: 'Фильтр по дате получения, конец диапазона (UTC)'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/takeLarge'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - transfers
+                  - isEndOfListReached
+                properties:
+                  transfers:
+                    type: array
+                    description: Список записей о перемещениях сырья
+                    items:
+                      $ref: '#/components/schemas/StockTransfer'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+              - `Required` - не передано обязательное поле
+              - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+              - `DateOutOfRange` - передан невалидный временной интервал from-to
+              - `NegativeValue` - передано отрицательное значение для параметра, принимающего только положительные числа
+              - `ValueTooLarge` - переданное значение превышает максимальное значение для параметра
+              - `ValueTooSmall` - переданное значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+              examples:
+                Example 1:
+                  $ref: '#/components/examples/QueryTake'
+                Example 2:
+                  $ref: '#/components/examples/QuerySkip'
+                Example 3:
+                  $ref: '#/components/examples/QueryMinUnits'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+  /stock-transfer/transfers:
+    post:
+      operationId: post-stock-transfer
+      tags:
+        - _in_development
+      summary: Перемещения → Создание перемещения
+      description: |-
+        Создаёт заявку на перемещение сырья между заведениями.
+
+        Перемещение создаётся сразу в нужном статусе:
+        - `Ordered` — заявка на перемещение создана и заказана;
+        - `Shipped` — перемещение создано и сразу отгружено. Обрабатывается так же, как обычное перемещение: сначала создаётся заявка, затем выполняется отгрузка.
+
+        Других статусов при создании не бывает: перевод в статус `Received` выполняется при фактической приёмке перемещения на заведении-получателе в Додо ИС. Изменение и отмена созданных перемещений через API не поддерживаются.
+
+        Обязательность полей зависит от статуса:
+        - `orderedAt`, `expectedAt` и `items[].orderedQuantity` обязательны всегда;
+        - `shippedAt` и `items[].shippedQuantity` (для каждой позиции) обязательны, если `status` = `Shipped`, и не должны передаваться, если `status` = `Ordered`. Если они переданы вместе со статусом `Ordered`, запрос отклоняется с ошибкой `InvalidValue`.
+
+        Повторное создание перемещения с той же тройкой `originUnitId` + `destinationUnitId` + `orderedAt` отклоняется с ошибкой `TransferExists` — это защищает от дублей при повторной отправке запроса.
+
+        ### Доступ к заведениям:
+        - `Ordered` — достаточно доступа к заведению-получателю (`destinationUnitId`);
+        - `Shipped` — нужен доступ и к заведению-получателю, и к заведению отгрузки (`originUnitId`).
+
+        В ответе возвращается только идентификатор созданного перемещения. Остальные данные (номер заявки, цены, даты) можно получить в эндпоинте «Перемещения → Позиции перемещений».
+
+        Цены и НДС в запросе не передаются — сервис рассчитывает их сам по учётным ценам сырья.
+
+        Все даты передаются в UTC. Локальные значения дат в эндпоинте «Перемещения → Позиции перемещений» рассчитываются сервисом: `orderedAtLocal` и `expectedAtLocal` — по часовому поясу заведения-получателя, `shippedAtLocal` — по часовому поясу заведения отгрузки.
+
+        ### Требования к телу запроса:
+        - `originUnitId` и `destinationUnitId` должны различаться;
+        - Между заведениями должны быть настроены перемещения: заведение отгрузки должно входить в список доступных для перемещений заведений заведения-получателя;
+        - В `items` должна быть хотя бы одна позиция;
+        - `stockItemId` в позициях не должны повторяться;
+        - Сырьё должно быть доступно обоим заведениям (страна, бренд и подразделение сырья должны совпадать с заведениями) и не должно быть архивным;
+        - Для сырья, которое учитывается в штуках, количество должно быть целым;
+        - `orderedAt` и `shippedAt` не могут быть в будущем;
+        - `shippedAt` не может быть раньше, чем `orderedAt`;
+        - `expectedAt` не может быть раньше текущей даты в часовом поясе заведения-получателя (сравнение по дате, без времени). Из-за этого перенести «задним числом» уже состоявшееся перемещение нельзя: ожидаемая дата получения всегда сегодняшняя или будущая;
+        - Ни одна из дат не может быть раньше `2011-01-01T00:00:00Z`; `expectedAt` также не может быть позже `9999-12-31T00:00:00Z`;
+        - `orderedAt` не должен попадать в закрытый учётный месяц заведения-получателя, а `shippedAt` — в закрытый учётный месяц заведения отгрузки;
+        - Перемещение с такими же `originUnitId`, `destinationUnitId` и `orderedAt` не должно существовать;
+        - Для сырья, которое учитывается в кг или л, `items[].orderedQuantity` и `items[].shippedQuantity` должны быть меньше 10 000;
+        - `items[].orderedQuantity` и `items[].shippedQuantity` не могут содержать больше 3 знаков после запятой.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStockTransferRequest'
+            examples:
+              ordered:
+                summary: Заявка на перемещение с двумя позициями
+                value:
+                  originUnitId: 000d3a240c719a8711e68aba13f7f862
+                  destinationUnitId: 000d3a240c719a8711e68aba13f7fc8a
+                  status: Ordered
+                  expectedAt: '2026-08-11T09:00:00Z'
+                  orderedAt: '2026-08-10T10:00:00Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      orderedQuantity: 12.5
+                    - stockItemId: 0298f3c2a1b2c3d4e5f6a7b8c9d0e1f3
+                      orderedQuantity: 5
+              shipped:
+                summary: 'Перемещение, созданное сразу отгруженным (отгружено меньше, чем заказано)'
+                value:
+                  originUnitId: 000d3a240c719a8711e68aba13f7f862
+                  destinationUnitId: 000d3a240c719a8711e68aba13f7fc8a
+                  status: Shipped
+                  expectedAt: '2026-08-11T09:00:00Z'
+                  orderedAt: '2026-08-10T10:00:00Z'
+                  shippedAt: '2026-08-10T12:00:00Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      orderedQuantity: 12.5
+                      shippedQuantity: 11.352
+      responses:
+        '200':
+          description: Перемещение создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateStockTransferResponse'
+              example:
+                transferId: 01991a7c3d5e7f8091a2b3c4d5e6f708
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок поля `code`:
+            - `ValidationError` — передан некорректный запрос
+            - `MonthClosed` — дата перемещения попадает в закрытый учётный месяц: `orderedAt` — для заведения-получателя, `shippedAt` (при `status` = `Shipped`) — для заведения отгрузки
+            - `TransferExists` — перемещение с такими же `originUnitId`, `destinationUnitId` и `orderedAt` уже существует. Статус существующего перемещения не учитывается: отменённое перемещение тоже занимает эту тройку значений
+
+            Коды ошибок блока `details.errors`:
+            - `Required` — не передано обязательное поле
+            - `InvalidValue` — передано недопустимое значение параметра (в том числе `shippedAt` или `items[].shippedQuantity` вместе со статусом `Ordered`, повторяющийся `stockItemId`, совпадающие `originUnitId` и `destinationUnitId`, отсутствие настроенных перемещений между заведениями, недоступность сырья для этих заведений, дробное количество для штучного сырья, ненастроенный НДС мануфактуры, если заведение отгрузки — мануфактура из другого юрлица, или дата (`orderedAt`, `expectedAt`, `shippedAt`), переданная не в UTC (без `Z`))
+            - `InvalidDateRange` — `shippedAt` раньше `orderedAt`
+            - `DateOutOfRange` — дата перемещения находится в будущем или раньше `2011-01-01T00:00:00Z`
+            - `EntityNotFound` — заведение или сырьё с переданным идентификатором не существует либо удалено
+            - `EntityIsArchived` — сырьё с переданным идентификатором архивировано
+            - `ValueTooSmall` — значение меньше минимально допустимого
+            - `ValueTooLarge` — значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` — отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` — нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` — нет доступа к заведению-получателю, а для статуса `Shipped` — ещё и к заведению отгрузки. Также возвращается, если `destinationUnitId` передан пустым (все нули), а для статуса `Shipped` — если пустым передан `originUnitId`, так как проверка доступа выполняется до валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` — внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:write'
+  /write-offs-by-order:
+    get:
+      summary: Инвентаризация → Списания сырья на производство
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    x-stoplight:
+                      id: n113vxg5oj3vd
+                    uniqueItems: true
+                    description: Список заказов со списанным сырьем
+                    items:
+                      $ref: '#/components/schemas/OrderWithWriteOffsResponse'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - orders
+                  - isEndOfListReached
+              examples:
+                Example 1:
+                  value:
+                    orders:
+                      - orderId: 000d3a240c719a8711e68aba13f7f862
+                        unitId: 000d3a240c719a8711e68aba13f7f862
+                        writeOffs:
+                          - orderItemId: 000d3a240c719a8711e68aba13f7f862
+                            productId: 000d3a240c719a8711e68aba13f7f862
+                            stockItemId: 000d3a240c719a8711e68aba13f7f862
+                            stockItemName: Бекон
+                            writtenOffAtLocal: '2011-08-01T18:31:42'
+                            quantity: 0.352
+                            measurementUnit: Kilogram
+                            reason: Sale
+                    isEndOfListReached: true
+      operationId: get-write-offs-by-order
+      description: |-
+        > Бизнес-специфичные адреса `https://api.dodois.io/dodopizza/accounting`, `https://api.dodois.com/dodopizza/accounting`, `https://api.dodois.io/drinkit/accounting` и `https://api.dodois.com/drinkit/accounting` помечены как устаревшие. Используйте универсальные URL `https://api.dodois.io/accounting` и `https://api.dodois.com/accounting`.
+
+        Возвращает списанное сырье за указанный период, использованное для приготовления заказа. Данные отсортированы по дате списания. 
+
+        Внимание! На данный момент `orderNumber` и `productId` доступны только за последние 30 дней.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 10 заведений в одном запросе
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов
+        3. `from` должен быть меньше, чем `to`
+        4. Максимальный период запроса - 7 дней
+        5. Максимальное количество записей в одном запросе `take` - 1000
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+      parameters:
+        - schema:
+            type: string
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+            pattern: '^[0-9a-f]{32}(,[0-9a-f]{32})*$'
+            minLength: 32
+            maxLength: 329
+          in: query
+          name: units
+          description: Список заведений (пиццерий) Dodo IS в формате UUID
+          required: true
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-08-01T18:31:42'
+          in: query
+          name: from
+          description: Начало периода в формате ISO 8601
+          required: true
+        - schema:
+            type: string
+            format: date-time
+            example: '2011-09-02T19:21:53'
+          in: query
+          name: to
+          description: Конец периода в формате ISO 8601
+          required: true
+        - schema:
+            type: integer
+            default: 0
+            example: 100
+            minimum: 0
+          in: query
+          name: skip
+          description: 'Количество записей, которые следует пропустить'
+        - schema:
+            type: integer
+            default: 100
+            example: 100
+            minLength: 1
+            maxLength: 1000
+            maximum: 1000
+            minimum: 0
+            exclusiveMinimum: true
+          in: query
+          name: take
+          description: 'Количество записей, которые следует выбрать'
+      security:
+        - Dodo oauth2:
+            - accounting
+        - Dodo oauth2:
+            - 'accounting:read'
+  /write-offs/stock-items:
+    get:
+      summary: Учёт → Списанное сырье
+      tags:
+        - _in_development
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  writeOffs:
+                    type: array
+                    description: Список записей о списаниях сырья
+                    items:
+                      $ref: '#/components/schemas/StockWriteOff'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - writeOffs
+                  - isEndOfListReached
+              examples:
+                Example 1:
+                  value:
+                    writeOffs:
+                      - writeOffId: 000d3a240c719a8711e68aba13f7f100
+                        writeOffItemId: 000d3a240c719a8711e68aba13f7f101
+                        unitId: 000d3a240c719a8711e68aba13f7f862
+                        unitName: Сыктывкар-1
+                        writtenOffAtLocal: '2011-08-01T18:31:42'
+                        writtenOffAtUtc: '2011-08-01T15:31:42Z'
+                        stockItemId: 000d3a240c719a8711e68aba13f7f862
+                        stockItemName: Бекон
+                        quantity: 0.352
+                        measurementUnit: Kilogram
+                        reason: Expired
+                      - writeOffId: 000d3a240c719a8711e68aba13f7f200
+                        writeOffItemId: 000d3a240c719a8711e68aba13f7f201
+                        unitId: 000d3a240c719a8711e68aba13f7f862
+                        unitName: Сыктывкар-1
+                        writtenOffAtLocal: '2011-08-01T19:10:05'
+                        writtenOffAtUtc: '2011-08-01T16:10:05Z'
+                        stockItemId: 000d3a240c719a8711e68aba13f7f862
+                        stockItemName: Бекон
+                        quantity: 0.15
+                        measurementUnit: Kilogram
+                        reason: Defected
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+              - `Required` - не передано обязательное поле
+              - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+              - `DateOutOfRange` - передан невалидный временной интервал from-to
+              - `ValueTooLarge` - переданное значение превышает максимальное значение для параметра
+              - `ValueTooSmall` - переданное значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+              examples:
+                Example 1:
+                  $ref: '#/components/examples/QueryLargeTake'
+                Example 2:
+                  $ref: '#/components/examples/QuerySkip'
+                Example 3:
+                  $ref: '#/components/examples/QueryMinUnits'
+                Example 4:
+                  $ref: '#/components/examples/QueryRequiredFrom'
+                Example 5:
+                  $ref: '#/components/examples/QueryRequiredTo'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к одному или нескольким заведениям, переданным в параметре `units`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-write-offs-stock-items
+      description: |-
+        Возвращает списанное сырье за указанный период (включительно), отсортированное по дате списания.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+        3. `from` должен быть меньше, чем `to`.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+        >
+        >   `Shift supervisor` - Менеджер смены
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/takeLarge'
+  /write-offs/products:
+    get:
+      summary: Учёт → Списанные продукты
+      tags:
+        - _in_development
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  writeOffs:
+                    type: array
+                    description: Список записей о списаниях продуктов
+                    items:
+                      $ref: '#/components/schemas/ProductWriteOff'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - writeOffs
+                  - isEndOfListReached
+              examples:
+                Example 1:
+                  value:
+                    writeOffs:
+                      - writeOffId: 000d3a240c719a8711e68aba13f7f300
+                        writeOffItemId: 000d3a240c719a8711e68aba13f7f301
+                        unitId: 000d3a240c719a8711e68aba13f7f862
+                        unitName: Сыктывкар-1
+                        writtenOffAtLocal: '2011-08-01T18:31:42'
+                        writtenOffAtUtc: '2011-08-01T15:31:42Z'
+                        reason: Expired
+                        productId: 000d3a240c719a8711e68aba13f7f100
+                        productName: Пепперони Большая
+                        quantity: 5.3
+                        stockItems:
+                          - stockItemId: 000d3a240c719a8711e68aba13f7f862
+                            stockItemName: Тесто
+                            quantity: 0.352
+                            measurementUnit: Kilogram
+                          - stockItemId: 111d3a240c719a8711e68aba13f7f862
+                            stockItemName: Пепперони
+                            quantity: 0.12
+                            measurementUnit: Kilogram
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+              - `Required` - не передано обязательное поле
+              - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+              - `DateOutOfRange` - передан невалидный временной интервал from-to
+              - `ValueTooLarge` - переданное значение превышает максимальное значение для параметра
+              - `ValueTooSmall` - переданное значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+              examples:
+                Example 1:
+                  $ref: '#/components/examples/QueryLargeTake'
+                Example 2:
+                  $ref: '#/components/examples/QuerySkip'
+                Example 3:
+                  $ref: '#/components/examples/QueryMinUnits'
+                Example 4:
+                  $ref: '#/components/examples/QueryRequiredFrom'
+                Example 5:
+                  $ref: '#/components/examples/QueryRequiredTo'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к одному или нескольким заведениям, переданным в параметре `units`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-write-offs-products
+      description: |-
+        Возвращает списанные продукты за указанный период (включительно), отсортированные по дате списания.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+        3. `from` должен быть меньше, чем `to`.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+        >
+        >   `Shift supervisor` - Менеджер смены
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/takeLarge'
+  /stock-transfer/returns:
+    get:
+      summary: Перемещения → Возврат сырья
+      tags:
+        - Перемещения
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: array
+                    description: Список возвратов сырья
+                    items:
+                      $ref: '#/components/schemas/MaterialReturn'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - result
+                  - isEndOfListReached
+              examples:
+                Example 1:
+                  value:
+                    result:
+                      - id: 000d3a240c719a8711e68aba13f7f862
+                        transferOrderId: 000d3a240c719a8711e68aba13f7fc8a
+                        originUnitId: 000d3a240c719a8711e68aba13f7f862
+                        destinationUnitId: 000d3a240c719a8711e68aba13f7fc8a
+                        state: Processed
+                        createdAtLocal: '2024-01-05T10:30:00'
+                        processedAtLocal: '2024-01-05T14:20:00'
+                        items:
+                          - id: 000d3a240c719a8711e68aba13f7f111
+                            transferOrderItemId: 000d3a240c719a8711e68aba13f7f222
+                            stockItemId: 000d3a240c719a8711e68aba13f7f333
+                            measurementUnit: Kilogram
+                            receivedQuantity: 10.5
+                            returnQuantity: 2.3
+                            state: Accepted
+                            processingResult:
+                              decision: WriteOff
+                              writeOffReason: ShelfLifeIssue
+                              writeOffComment: Истек срок годности
+                            comment: Повреждена упаковка
+                    isEndOfListReached: false
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `TooManyUnits` - передано слишком много юнитов (максимум 10)
+              - `InvalidDateRange` - некорректный диапазон дат (from > to)
+              - `DateOutOfRange` - диапазон дат превышает максимально допустимый (31 день)
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '422':
+          description: |-
+            #### Функциональность не поддерживается
+
+            Возвращается для DodoPizza.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Material returns are not supported for DodoPizza business
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-material-returns
+      description: |-
+        Возвращает список возвратов сырья за указанный период. 
+
+        > **Важно:** На данный момент функциональность поддерживается только для **Drinkit**. Для DodoPizza будет возвращен статус код `422 Unprocessable Entity`.
+
+        Фильтрация по датам: в результат попадают возвраты, у которых `createdAtLocal` ИЛИ `processedAtLocal` входят в указанный диапазон `[from, to)`. Данные отсортированы по дате создания `createdAtLocal` (от новых к старым).
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 10 заведений в одном запросе
+        2. `from` должен быть меньше, чем `to`
+        3. Максимальный период запроса - 31 день
+        4. Максимальное количество записей в одном запросе `take` - 1000
+        5. В `states` можно указать до 3 статусов одновременно
+        6. Параметры `from` и `to` фильтруют возвраты по полям `createdAtLocal` ИЛИ `processedAtLocal` (OR логика)
+
+        Статусы возвратов:
+        <code>
+        Created: 1 (Возврат создан)
+        InProgress: 2 (Возврат в процессе обработки)
+        Processed: 3 (Возврат обработан)
+        </code>
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Office Manager` - Менеджер офиса
+        >
+        >   `Shift Manager` - Менеджер смены
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+            example: '2011-08-01T18:31:42'
+          description: Начало периода в формате ISO 8601 (локальное время)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+            pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+            example: '2011-09-02T19:21:53'
+          description: Конец периода в формате ISO 8601 (локальное время)
+        - $ref: '#/components/parameters/skip'
+        - name: take
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+            maximum: 1000
+          description: 'Количество записей, которые следует выбрать (максимум 1000)'
+        - schema:
+            type: string
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+            pattern: '^[0-9a-f]{32}(,[0-9a-f]{32})*$'
+            minLength: 32
+            maxLength: 329
+          in: query
+          name: units
+          description: Список заведений (пиццерий) Dodo IS в формате UUID через запятую (максимум 10)
+          required: true
+        - schema:
+            type: string
+            example: 'Created,Processed'
+            enum:
+              - Created
+              - InProgress
+              - Processed
+          in: query
+          name: states
+          description: |-
+            Фильтр по статусам возвратов через запятую. Опционально, максимум 3 статуса.
+
+            Возможные значения:
+            - `Created` - возврат создан
+            - `InProgress` - возврат в процессе обработки
+            - `Processed` - возврат обработан
+
+            Можно указать несколько статусов через запятую, например: `Created,Processed`
+          required: false
+  /incoming-stock/supplies:
+    post:
+      summary: Поставки → Поступление сырья
+      tags:
+        - Поставки
+      operationId: post-supply
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ответа:
+              - `ValidationError` - передан некорректный запрос
+              - `SupplyExists`  - приход с такими параметрами уже существует
+              - `MonthClosed`   - месяц приема поступления уже закрыт
+
+            Коды ошибок блока details.errors:
+              - `Required`      - не передано обязательное поле
+              - `InvalidInput`  - передано невалидное значение для параметра
+              - `NegativeValue` - передано отрицательное значение для параметра, принимающего только положительные числа
+              - `ValueTooLarge` - переданное значение превышает максимальное значение для параметра
+              - `ValueTooSmall` - переданное значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                unitId:
+                  type: string
+                  x-stoplight:
+                    id: nnn4d7v1b7shn
+                  description: Идентификатор заведения
+                  pattern: '[0-9a-f]{32}'
+                  example: 000d3a240c719a8711e68aba13f7f862
+                  minLength: 32
+                  maxLength: 32
+                supplierId:
+                  type: string
+                  x-stoplight:
+                    id: i2s50q2773ebo
+                  description: Идентификатор поставщика. Можно получить через "Учет → Список поставщиков"
+                  example: 000d3a240c719a8711e68aba13f7f862
+                  pattern: '[0-9a-f]{32}'
+                  minLength: 32
+                  maxLength: 32
+                invoiceNumber:
+                  type: string
+                  x-stoplight:
+                    id: nztxfwegmdi3w
+                  description: Номер накладной
+                  minLength: 1
+                  example: '123456789'
+                invoiceDate:
+                  type: string
+                  x-stoplight:
+                    id: ab6fb91fvxyfe
+                  format: date
+                  description: Дата оформления накладной
+                  example: '2011-08-01'
+                commercialInvoiceNumber:
+                  type: string
+                  nullable: true
+                  x-stoplight:
+                    id: nztxfwegmdi4w
+                  description: Номер счет фактуры
+                  minLength: 1
+                  example: 1-005
+                commercialInvoiceDate:
+                  type: string
+                  nullable: true
+                  x-stoplight:
+                    id: ab6fb92fvxyfe
+                  format: date
+                  description: Дата оформления счет фактуры
+                  example: '2011-08-01'
+                receiptAt:
+                  type: string
+                  x-stoplight:
+                    id: tlmoocssrhtal
+                  format: date-time
+                  example: '2011-08-01T18:31:42'
+                  description: Дата и время приема поступления в формате ISO 8601 (в UTC)
+                containers:
+                  type: array
+                  x-stoplight:
+                    id: y9po1wzdk8cqm
+                  description: Состав поступления в тарах
+                  items:
+                    $ref: '#/components/schemas/SupplyStockItem'
+              required:
+                - unitId
+                - supplierId
+                - invoiceNumber
+                - invoiceDate
+                - receiptAt
+                - containers
+      description: |-
+        Позволяет оформить поставку сырья поставщиком.
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+        >
+        >   `Shift supervisor` - Менеджер смены
+      security:
+        - Dodo oauth2:
+            - 'accounting:write'
+    get:
+      summary: Поставки → Приходы сырья
+      tags:
+        - Поставки
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: array
+                    description: Список записей о приходах
+                    items:
+                      $ref: '#/components/schemas/IncomingStockSupply'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - result
+                  - isEndOfListReached
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+              - `Required` - не передано обязательное поле
+              - `InvalidInput` - передано невалидное значение для параметра
+              - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+              - `DateOutOfRange` - передан невалидный временной интервал from-to
+              - `NegativeValue` - передано отрицательное значение для параметра, принимающего только положительные числа
+              - `ValueTooLarge` - переданное значение превышает максимальное значение для параметра
+              - `ValueTooSmall` - переданное значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+              examples:
+                Example 1:
+                  $ref: '#/components/examples/QueryTake'
+                Example 2:
+                  $ref: '#/components/examples/QuerySkip'
+                Example 3:
+                  $ref: '#/components/examples/QueryMinUnits'
+                Example 4:
+                  $ref: '#/components/examples/QueryRequiredFrom'
+                Example 5:
+                  $ref: '#/components/examples/QueryRequiredTo'
+                Example 6:
+                  $ref: '#/components/examples/QueryIncludeRemoved'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-incoming-stock-supplies
+      description: |-
+        Возвращает список приходов за указанный период (включительно), сгруппированный по накладной и отсортированный по дате получения и идентификатору записи.
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+        3. `from` должен быть меньше, чем `to`;
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+      parameters:
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/includeRemoved'
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+  '/documents/{documentId}/changes':
+    get:
+      summary: Документы → История изменений
+      tags:
+        - Документы
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documentChanges:
+                    type: array
+                    x-stoplight:
+                      id: e2g5k7h9m1pq
+                    uniqueItems: true
+                    description: Список изменений документов
+                    items:
+                      $ref: '#/components/schemas/DocumentChangesResponse'
+                required:
+                  - documentChanges
+              examples:
+                Example 1:
+                  value:
+                    documentChanges:
+                      - documentId: 000d3a240c719a8711e68aba13f7f862
+                        documentType: Supply
+                        documentVersion: 1
+                        modifiedByUserId: 000d3a240c719a8711e68aba13f7f862
+                        modifiedAt: '2011-08-01T18:31:42'
+                        unitId: 000d3a240c719a8711e68aba13f7f862
+                        unitName: Сыктывкар-1
+                        changes:
+                          - Дата счета-фактуры была изменена с 09.02.2026 на 10.02.2026.
+                        componentChanges:
+                          - documentItemId: 000d3a240c719a8711e68aba13f7f862
+                            changes:
+                              - 'Запись добавлена Тесто 20 \"Плюшка 20\" - 176 шт, сумма без НДС - 725,12, сумма НДС - 0,00, сумма с НДС - 725,12, цена за единицу шт, цена за 1 кг — 4,12.'
+                              - 'Сумма с НДС: было 11,00, теперь 111,00.'
+                              - 'Сумма без НДС: было 11,00, стало 111,00.'
+      operationId: get-document-changes
+      description: |-
+        Получение хронологии изменений документа.
+        Метод доступен для приходов сырья и перемещений.
+        Ответ содержит массив версий документа. Каждая версия включает в себя массив изменений основного документа и соответствующий список изменений его элементов (позиций/компонентов).
+        Сортировка записей - по возрастанию номера версии. Уникальность каждого элемента массива обеспечивается по номеру версии.
+        ### Требования к параметрам запроса:
+        1. В path-параметре `documentId` следует указать UUID документа;
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+        >
+        >   `Shift Manager` - Менеджер смены
+      parameters:
+        - schema:
+            type: string
+            example: 000d3a240c719a8711e68aba13f7f862
+            pattern: '[0-9a-f]{32}'
+            minLength: 32
+            maxLength: 32
+          in: path
+          name: documentId
+          description: ID документа в формате UUID. Соответствует идентификатору из "Поставки → Приходы сырья" (`incomingStockOrderId`) или "Перемещения → Позиции перемещений" (`transferOrderId`)
+          required: true
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+  /catalogs/stock-items:
+    get:
+      summary: Справочники → Сырьё
+      tags:
+        - Справочники
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stockItems:
+                    type: array
+                    description: Список сырья
+                    items:
+                      $ref: '#/components/schemas/StockItem'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - stockItems
+                  - isEndOfListReached
+              examples:
+                Example 1:
+                  value:
+                    stockItems:
+                      - id: 000d3a240c719a8711e68aba13f7f862
+                        name: Томаты
+                        measurementUnit: Kilogram
+                        categoryName: Ingredient
+                        isLocal: false
+                        isRemoved: false
+                        isArchived: false
+                        isProducible: false
+                        modifiedAt: '2025-01-15T10:30:00.000100Z'
+                    isEndOfListReached: false
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `TooManyUnits` - передано слишком много юнитов (максимум 30)
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-stock-items
+      description: |-
+        Возвращает список сырья.
+
+        Если указан параметр `modifiedAt`, результат отсортирован по дате последнего изменения (`modifiedAt`) по возрастанию, а затем по идентификатору. Иначе — только по идентификатору.
+
+        По умолчанию возвращает только федеральное сырьё. 
+
+        Если указан параметр `units`, дополнительно возвращает локальное сырьё для указанных заведений.
+
+        Поддерживается два способа пагинации:
+        - **Offset-based:** нужно указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+        - **Cursor-based:** нужно использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса. Повторять до `isEndOfListReached = true`.
+        В обоих случаях нужно указывать `take` - сколько записей нужно получить.
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 30 заведений в одном запросе
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов
+        3. `modifiedAt` должен быть в формате ISO 8601 (UTC)
+        4. `includeRemoved` и `includeArchived` — булевые значения, по умолчанию `false`
+        5. `skip` должен быть не меньше 0, по умолчанию 0
+        6. `take` должен быть от 1 до 1000, по умолчанию 100
+      parameters:
+        - name: units
+          in: query
+          required: false
+          schema:
+            type: string
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a'
+            pattern: '^[0-9a-f]{32}(,[0-9a-f]{32})*$'
+            minLength: 32
+            maxLength: 989
+          description: 'Список заведений Dodo IS в формате UUID через запятую. Если указан, в ответ дополнительно включается локальное сырьё для этих заведений'
+        - name: modifiedAt
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+            example: '2025-01-15T10:30:00.000012Z'
+          description: Фильтр по дате последнего изменения в формате ISO 8601 (UTC). Возвращает записи с `modifiedAt >= значение`. Используется для cursor-based пагинации
+        - $ref: '#/components/parameters/includeRemoved'
+        - $ref: '#/components/parameters/includeArchived'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/takeLarge'
+      security:
+        - Dodo oauth2:
+            - 'accounting:read'
+  /manufactures/catalogs/stock-items/compositions:
+    get:
+      operationId: get-stock-items-compositions
+      tags:
+        - _in_development
+      summary: Справочники → Составы сырья
+      description: |-
+        Возвращает список федеральных составов сырья, изменённых с момента `modifiedAt` (включительно), отсортированных по возрастанию даты изменения.
+
+        В состав конкретного сырья входит информация о:
+        - Идентификаторе сырья, чей состав изменился;
+        - Дате изменения состава сырья;
+        - Новом списке дочернего сырья, из которого состоит изменённое сырьё, с указанием количества дочернего сырья в единице родительского.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+
+        Сырьё без состава в общем случае не возвращается в этом эндпоинте. В частности, если у сырья был удалён состав в какой-то момент, то состав для такого сырья просто перестанет возвращаться в этом эндпоинте.
+
+        Важное замечание: на текущий момент есть небольшой шанс, что сырьё с удалённым составом всё же вернётся здесь с пустым массивом в `stockItemsCompositions.composition`, такую ситуацию нужно обработать.
+      parameters:
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/takeLarge'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetStockItemsCompositionsResponse'
+              example:
+                stockItemsCompositions:
+                  - stockItemId: 000d3a240c719a8711e68aba13f7f862
+                    composition:
+                      - stockItemId: 111d3a240c719a8711e68aba13f7f862
+                        quantity: 350
+                        netQuantity: 320
+                        measurementUnit: Gram
+                      - stockItemId: 222d3a240c719a8711e68aba13f7f862
+                        quantity: 0.1
+                        netQuantity: 0.095
+                        measurementUnit: Liter
+                    modifiedAt: '2024-03-15T14:30:00.000001Z'
+                  - stockItemId: 333d3a240c719a8711e68aba13f7f862
+                    composition:
+                      - stockItemId: 444d3a240c719a8711e68aba13f7f862
+                        quantity: 100
+                        netQuantity: 90
+                        measurementUnit: Quantity
+                    modifiedAt: '2024-03-15T16:30:00.000002Z'
+                isEndOfListReached: false
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/catalogs/stock-items/{id}/composition':
+    get:
+      operationId: get-stock-items-composition
+      tags:
+        - _in_development
+      summary: Справочники → Состав сырья
+      description: |-
+        Возвращает состав сырья.
+
+        В состав сырья входит информация о:
+        - Идентификаторе сырья, чей состав изменился;
+        - Дате изменения состава сырья;
+        - Новом списке дочернего сырья, из которого состоит изменённое сырьё, с указанием количества дочернего сырья в единице родительского.
+
+        Если сырьё с указанным `id` не найдено — возвращает `404`.
+        Если сырьё найдено, но состав не задан — возвращает `200` с пустым массивом `composition`.
+      parameters:
+        - name: id
+          in: path
+          description: Уникальный идентификатор сырья
+          required: true
+          schema:
+            $ref: '#/components/schemas/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockItemComposition'
+              example:
+                stockItemId: 000d3a240c719a8711e68aba13f7f862
+                composition:
+                  - stockItemId: 111d3a240c719a8711e68aba13f7f862
+                    quantity: 0.35
+                    netQuantity: 0.32
+                  - stockItemId: 222d3a240c719a8711e68aba13f7f862
+                    quantity: 0.1
+                    netQuantity: 0.095
+                modifiedAt: '2024-03-15T14:30:00.000001Z'
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: '#### Сырьё с указанным `id` не найдено'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  /manufactures/catalogs/shelf-life-settings:
+    get:
+      operationId: get-shelf-life-settings
+      summary: Справочники → Настройки условий хранения
+      description: |-
+        Возвращает список настроек условий хранения сырья, изменённых с момента `modifiedAt` (включительно), отсортированных по возрастанию даты изменения.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+      tags:
+        - _in_development
+      parameters:
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/takeLarge'
+        - $ref: '#/components/parameters/includeRemoved'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetShelfLifeSettingsResponse'
+              example:
+                shelfLifeSettings:
+                  - id: 000d3a240c719a8711e68aba13f7f862
+                    stockItemId: 111d3a240c719a8711e68aba13f7f862
+                    manufacturer: ООО Ромашка
+                    isRemoved: false
+                    modifiedAt: '2024-03-15T14:30:00.000011Z'
+                    packagingSettings:
+                      items:
+                        - id: 222d3a240c719a8711e68aba13f7f862
+                          labels:
+                            - Маркировка 1
+                          shelfLifeHours: 48
+                          storageTemperature: от +2 до +6 °C
+                    defrostSettings:
+                      defrostingHours: 12
+                      shelfLifeHours: 24
+                      defrostTemperature: от +2 до +6 °C
+                    storageSettings:
+                      items:
+                        - id: 333d3a240c719a8711e68aba13f7f862
+                          labels:
+                            - Холодильник
+                          shelfLifeHours: 72
+                          storageTemperature: от -18 до -24 °C
+                isEndOfListReached: false
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/catalogs/shelf-life-settings/{id}':
+    get:
+      operationId: get-shelf-life-settings-id
+      summary: Справочники → Информация о настройках условий хранения
+      description: Возвращает настройки условий хранения
+      tags:
+        - _in_development
+      parameters:
+        - name: id
+          in: path
+          description: Уникальный идентификатор настроек условий хранения сырья
+          required: true
+          schema:
+            $ref: '#/components/schemas/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShelfLifeSettings'
+              example:
+                id: 000d3a240c719a8711e68aba13f7f862
+                stockItemId: 111d3a240c719a8711e68aba13f7f862
+                manufacturer: ООО Ромашка
+                isRemoved: false
+                modifiedAt: '2024-03-15T14:30:00.000011Z'
+                packagingSettings:
+                  items:
+                    - id: 222d3a240c719a8711e68aba13f7f862
+                      labels:
+                        - Маркировка 1
+                      shelfLifeHours: 48
+                      storageTemperature: от +2 до +6 °C
+                defrostSettings:
+                  defrostingHours: 12
+                  shelfLifeHours: 24
+                  defrostTemperature: от +2 до +6 °C
+                storageSettings:
+                  items:
+                    - id: 333d3a240c719a8711e68aba13f7f862
+                      labels:
+                        - Холодильник
+                      shelfLifeHours: 72
+                      storageTemperature: от -18 до -24 °C
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: '#### Настройки условий хранения не найдены'
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/{manufactureId}/containers':
+    get:
+      operationId: get-manufacture-containers
+      summary: Мануфактуры → Типы тар
+      description: |-
+        Возвращает список типов тар мануфактуры, изменённых с момента `modifiedAt` (включительно), отсортированных по возрастанию даты изменения.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+
+        При изменении привязки сырья к типу тары будет изменён `modifiedAt` у типа тары, хотя фактических изменений в данных типа тары не будет. Такую ситуацию тоже нужно дедуплицировать.
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/takeLarge'
+        - $ref: '#/components/parameters/includeRemoved'
+      responses:
+        '200':
+          description: |-
+            OK. Возвращает список типов тар для мануфактуры.
+
+            Если мануфактура существует, но для неё на текущий момент не назначено типов тар мануфактуры, возвращается объект ответа, в котором поле `containers` содержит пустой список `[]`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetManufactureContainersResponse'
+              examples:
+                hasContainers:
+                  summary: Для мануфактуры заданы типы тар
+                  value:
+                    containers:
+                      - id: 000d3a240c719a8711e68aba13f7f862
+                        name: Коробка маленькая
+                        measurementUnit: Kilogram
+                        quantity: 5.5
+                        isRemoved: false
+                        modifiedAt: '2024-03-15T14:30:00.000011Z'
+                      - id: 000d3a240c719a8711e68aba13f7f863
+                        name: Коробка большая
+                        measurementUnit: Kilogram
+                        quantity: 100
+                        isRemoved: true
+                        modifiedAt: '2024-03-18T00:30:00.000011Z'
+                    isEndOfListReached: false
+                noContainers:
+                  summary: Мануфактура не имеет типов тар
+                  value:
+                    containers: []
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/{manufactureId}/stock-items/containers/bindings':
+    get:
+      operationId: get-manufacture-stock-items-containers-bindings
+      summary: Мануфактуры → Привязки типов тар к сырью
+      description: |-
+        Возвращает список привязок типов тар к сырью для указанной мануфактуры, изменённых с момента `modifiedAt` (включительно), отсортированных по возрастанию даты изменения.
+
+        Привязка типа тары к сырью определяет в какой таре мануфактура поставляет заказанное сырьё. В настоящее время для каждого сырья может быть задана только одна привязка к типу тары.
+
+        Опционально можно указать идентификатор сырья (параметр `stockItemId`), чтобы получить информацию о том какие к этому сырью привязаны типы тар.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/takeLarge'
+        - $ref: '#/components/parameters/includeRemoved'
+        - name: stockItemId
+          in: query
+          required: false
+          description: 'Уникальный идентификатор сырья для фильтрации. Если указан, возвращаются только привязки типов тар для данного сырья.'
+          schema:
+            $ref: '#/components/schemas/Id'
+      responses:
+        '200':
+          description: |-
+            OK. Возвращает список привязок типов тар к сырью для мануфактуры.
+
+            Если мануфактура существует, но для неё на текущий момент нет привязок, возвращается объект с пустым списком привязок: `bindings: []` и признаком завершения списка `isEndOfListReached: true`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetManufactureStockItemsContainersBindingsResponse'
+              examples:
+                hasBindings:
+                  summary: Для мануфактуры заданы привязки типов тар к сырью
+                  value:
+                    bindings:
+                      - containerId: 000d3a240c719a8711e68aba13f7f863
+                        stockItemId: 111d3a240c719a8711e68aba13f7f864
+                        isRemoved: false
+                        modifiedAt: '2024-03-15T14:30:00.000011Z'
+                      - containerId: 000d3a240c719a8711e68aba13f7f866
+                        stockItemId: 222d3a240c719a8711e68aba13f7f867
+                        isRemoved: true
+                        modifiedAt: '2024-03-18T00:30:00.000011Z'
+                  isEndOfListReached: false
+                noBindings:
+                  summary: Мануфактура не имеет привязок типов тар к сырью
+                  value:
+                    bindings: []
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/{manufactureId}/stock-items/available':
+    get:
+      operationId: get-manufacture-available-stock-items
+      summary: Мануфактуры → Доступное к заказу сырьё
+      description: |-
+        Возвращает список доступного к заказу сырья мануфактуры, изменённого с момента `modifiedAt` (включительно), отсортированного по возрастанию даты изменения.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/takeLarge'
+        - $ref: '#/components/parameters/includeRemoved'
+      responses:
+        '200':
+          description: |-
+            OK. Возвращает список доступного сырья мануфактуры.
+
+            Если мануфактура существует, но для неё на текущий момент не назначено доступного сырья, возвращается объект ответа, в котором поле `stockItems` содержит пустой список `[]`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetManufactureAvailableStockItemsResponse'
+              examples:
+                hasAvailableStockItems:
+                  summary: Для мануфактуры задано доступное сырьё
+                  value:
+                    stockItems:
+                      - stockItemId: 000d3a240c719a8711e68aba13f7f862
+                        isRemoved: false
+                        modifiedAt: '2024-03-15T14:30:00.000011Z'
+                      - stockItemId: 000d3a240c719a8711e68aba13f7f863
+                        isRemoved: true
+                        modifiedAt: '2024-03-18T00:30:00.000011Z'
+                    isEndOfListReached: false
+                noAvailableStockItems:
+                  summary: Мануфактура не имеет доступного сырья
+                  value:
+                    stockItems: []
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/{manufactureId}/stock-items/available/{stockItemId}':
+    put:
+      operationId: put-manufacture-available-stock-item
+      summary: Мануфактуры → Добавление доступного сырья
+      description: |-
+        Добавляет сырьё в список доступного сырья мануфактуры. После добавления сырьё становится доступным
+        для заказа в клиентских заказах юнитов в указанную мануфактуру.
+
+        Если сырьё уже присутствует в списке доступного сырья, операция завершается успешно без изменений, сырьё останется доступным.
+        Удалённое (`isRemoved`), архивированное (`isArchived`) или несуществующее сырьё не может быть добавлено в список доступного сырья.
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: stockItemId
+          in: path
+          required: true
+          description: Уникальный идентификатор сырья
+          schema:
+            $ref: '#/components/schemas/Id'
+      responses:
+        '204':
+          description: Сырьё успешно добавлено в список доступного сырья мануфактуры или уже было в нём
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Возможные коды ошибок поля code:
+            - `ValidationError` — общая ошибка валидации
+
+            Коды ошибок блока details.errors:
+            - `EntityNotFound` — сырьё не существует
+            - `EntityIsRemoved` — сырьё удалено и не может быть добавлено
+            - `EntityIsArchived` — сырьё архивировано и не может быть добавлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Возможные коды ошибок поля code:
+            - `InsufficientRoles` — отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` — нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` — нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+    delete:
+      operationId: delete-manufacture-available-stock-item
+      summary: Мануфактуры → Удаление доступного сырья
+      description: |-
+        Удаляет сырьё из списка доступного сырья мануфактуры. После удаления сырьё перестаёт быть доступным
+        для заказа в клиентских заказах юнитов в указанную мануфактуру.
+
+        Если сырьё отсутствует в списке доступного сырья, операция завершается успешно без изменений.
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: stockItemId
+          in: path
+          required: true
+          description: Уникальный идентификатор сырья
+          schema:
+            $ref: '#/components/schemas/Id'
+      responses:
+        '204':
+          description: Сырьё успешно удалено из списка доступного сырья мануфактуры или уже отсутствовало в нём
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Возможные коды ошибок поля code:
+            - `ValidationError` — общая ошибка валидации
+
+            Коды ошибок блока details.errors:
+            - `EntityNotFound` — сырьё не существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Возможные коды ошибок поля code:
+            - `InsufficientRoles` — отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` — нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` — нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/{manufactureId}/orders':
+    get:
+      operationId: get-manufacture-orders
+      summary: Мануфактуры → Заказы кофеен
+      description: |-
+        Возвращает список заказов кофеен, адресованных указанной мануфактуре, изменённых с момента `modifiedAt` (включительно), отсортированных по возрастанию даты изменения.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+
+        Возвращаются заказы во всех статусах. Опционально можно фильтровать по статусу с помощью параметра `statuses`.
+
+        В составе заказа возвращаются только актуальные позиции. Позиция, которую мануфактура не подтвердила или не отправила, либо которую не приняла кофейня, в составе заказа не возвращается.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/take'
+        - name: statuses
+          in: query
+          required: false
+          description: |-
+            Фильтр по статусам заказа. Если не указан, возвращаются заказы во всех статусах.
+
+            Можно передать несколько статусов через запятую: `?statuses=Created,Confirmed`.
+
+            Допустимые значения:
+              - `Created` — создан
+              - `Confirmed` — подтверждён мануфактурой
+              - `Sent` — отправлен
+              - `Delivered` — доставлен
+          schema:
+            type: string
+            enum:
+              - Created
+              - Confirmed
+              - Sent
+              - Delivered
+            example: 'Created,Confirmed'
+      responses:
+        '200':
+          description: |-
+            OK. Возвращает список заказов кофеен для мануфактуры.
+
+            Если мануфактура существует, но заказов нет, возвращается объект ответа, в котором поле `orders` содержит пустой список `[]`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetManufactureOrdersResponse'
+              examples:
+                hasOrders:
+                  summary: Есть заказы кофеен
+                  value:
+                    orders:
+                      - id: 000d3a240c719a8711e68aba13f7f862
+                        unitId: 111d3a240c719a8711e68aba13f7f863
+                        status: Created
+                        createdAt: '2024-03-15T09:00:00.000000Z'
+                        plannedDate: '2024-03-18'
+                        modifiedAt: '2024-03-15T09:00:00.000000Z'
+                        items:
+                          - stockItemId: aaa1a240c719a8711e68aba13f7f111
+                            containerId: 000d3a240c719a8711e68aba13f7f863
+                            quantity: 10.5
+                            measurementUnit: Kilogram
+                          - stockItemId: bbb2b240c719a8711e68aba13f7f222
+                            containerId: null
+                            quantity: 3
+                            measurementUnit: Liter
+                    isEndOfListReached: true
+                noOrders:
+                  summary: Заказов нет
+                  value:
+                    orders: []
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+              - `InvalidValue` - передано недопустимое значение параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/orders/{orderId}/confirm':
+    post:
+      operationId: post-manufacture-order-confirm
+      summary: Мануфактуры → Подтверждение заказа внешней мануфактурой
+      description: |-
+        Подтверждение заказа кофейни мануфактурой
+
+        В запросе должны содержаться все позиции, которые будут поставлены мануфактурой.
+
+        Позицию, которая не может быть поставлена, можно **не передавать** в запросе либо передать с `quantity: 0` — оба варианта равнозначны. 
+        После этого позиция считается удалённой из заказа и не будет возвращена в эндпоинте получения заказов.
+
+        Удалённую позицию нельзя подтвердить повторно с количеством больше 0 — такая позиция
+        считается не принадлежащей заказу.
+
+        Хотя бы одна позиция должна быть подтверждена с количеством больше 0.
+
+        Заказ можно подтверждать повторно, пока он не отправлен: каждое повторное
+        подтверждение заменяет ранее подтверждённые количества, состав заказа
+        определяется последним подтверждением, непереданные позиции (или переданные с 0) считаются удалёнными.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` — Администратор подразделения
+      tags:
+        - _in_development
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Уникальный идентификатор заказа
+          schema:
+            $ref: '#/components/schemas/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmManufactureOrderRequest'
+            examples:
+              twoItems:
+                summary: Подтверждение заказа с двумя позициями
+                value:
+                  at: '2026-06-26T10:00:00.000000Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      quantity: 12
+                      totalPriceWithVat: 120
+                      totalPriceWithoutVat: 100
+                      unitPriceWithVat: 10
+                      unitPriceWithoutVat: 8.33
+                      vatRate: 20
+                    - stockItemId: 0298f3c2a1b2c3d4e5f6a7b8c9d0e1f3
+                      quantity: 5
+                      totalPriceWithVat: 60
+                      totalPriceWithoutVat: 50
+                      unitPriceWithVat: 12
+                      unitPriceWithoutVat: 10
+                      vatRate: 20
+              partialItems:
+                summary: Подтверждение части позиций заказа
+                description: |-
+                  В заказе было три позиции. Мануфактура подтверждает только первую: вторая не передана, третья передана с `quantity: 0`.
+                  Обе неподтверждённые позиции не будут поставлены.
+                value:
+                  at: '2026-06-26T10:00:00.000000Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      quantity: 12
+                      totalPriceWithVat: 120
+                      totalPriceWithoutVat: 100
+                      unitPriceWithVat: 10
+                      unitPriceWithoutVat: 8.33
+                      vatRate: 20
+                    - stockItemId: 0398f3c2a1b2c3d4e5f6a7b8c9d0e1f4
+                      quantity: 0
+                      totalPriceWithVat: 0
+                      totalPriceWithoutVat: 0
+                      unitPriceWithVat: 0
+                      unitPriceWithoutVat: 0
+                      vatRate: 20
+      responses:
+        '204':
+          description: Заказ успешно подтверждён.
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок поля `code`:
+            - `ValidationError` — общая ошибка валидации
+
+            Коды ошибок блока `details.errors`:
+            - `Required` — не передано обязательное поле
+            - `InvalidValue` — передано недопустимое значение параметра
+            - `ValueTooSmall` — значение меньше минимально допустимого
+            - `ValueTooLarge` — значение превышает максимально допустимое
+            - `InvalidEntityState` — заказ не может быть подтверждён в текущем статусе; статусы, в которых возможно подтверждение: `Created`, `RequestedCorrection`, `Confirmed`
+            - `InvalidValue` (поле `items`) — ни одна позиция не подтверждена с количеством больше 0, либо переданы дубликаты `stockItemId`; см. детали в сообщении
+            - `InvalidValue` (поле `items.stockItemId`) — переданная позиция не принадлежит заказу
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` — отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` — нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` — нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Ресурс не найден
+
+            Возможные причины:
+            - Заказ с указанным `orderId` не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` — внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/orders/{orderId}/send':
+    post:
+      operationId: post-manufacture-order-send
+      summary: Мануфактуры → Отправка заказа кофейне
+      description: |-
+        Отправляет заказ из мануфактуры в кофейню.
+
+        В запросе должны содержаться все позиции, которые были отправлены мануфактурой.
+
+        Позицию, которая не будет отправлена, можно **не передавать** в запросе либо передать с `quantity: 0` — оба варианта равнозначны. 
+        После этого позиция считается удалённой из заказа и не будет возвращена в эндпоинте получения заказов.
+
+        Удалённую позицию нельзя отправить повторно с количеством больше 0 — такая позиция
+        считается не принадлежащей заказу.
+
+        Запрос, в котором все переданные позиции имеют `quantity: 0` или не передано ни одной позиции, валиден: заказ будет переведён в статус `Sent`,
+        при этом ни одна позиция фактически не будет отправлена, в заказе не будет позиций.
+
+        Заказ можно отправлять повторно, пока он не доставлен: каждая повторная отправка заменяет ранее
+        отправленные количества, цены и время отправки.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+      tags:
+        - _in_development
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Уникальный идентификатор заказа
+          schema:
+            $ref: '#/components/schemas/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendManufactureOrderRequest'
+            examples:
+              twoItems:
+                summary: Отправка заказа с двумя позициями
+                value:
+                  at: '2026-06-26T10:00:00.000000Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      quantity: 12
+                      totalPriceWithVat: 120
+                      totalPriceWithoutVat: 100
+                      unitPriceWithVat: 10
+                      unitPriceWithoutVat: 8.33
+                      vatRate: 20
+                    - stockItemId: 0298f3c2a1b2c3d4e5f6a7b8c9d0e1f3
+                      quantity: 5
+                      totalPriceWithVat: 60
+                      totalPriceWithoutVat: 50
+                      unitPriceWithVat: 12
+                      unitPriceWithoutVat: 10
+                      vatRate: 20
+              twoItemsWithMarkingCodes:
+                summary: Отправка заказа с двумя позициями и кодами маркировки
+                value:
+                  at: '2026-06-26T10:00:00.000000Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      quantity: 12
+                      totalPriceWithVat: 120
+                      totalPriceWithoutVat: 100
+                      unitPriceWithVat: 10
+                      unitPriceWithoutVat: 8.33
+                      vatRate: 20
+                      markingCodes:
+                        - 010460778423244821JOB05_q93yBfj
+                        - 010460778423244821JOB05_q93yBfk
+                    - stockItemId: 0298f3c2a1b2c3d4e5f6a7b8c9d0e1f3
+                      quantity: 5
+                      totalPriceWithVat: 60
+                      totalPriceWithoutVat: 50
+                      unitPriceWithVat: 12
+                      unitPriceWithoutVat: 10
+                      vatRate: 20
+                      markingCodes:
+                        - 010460778423244821JOB05_q93yBfa
+              partialItems:
+                summary: Отправка части позиций заказа
+                description: |-
+                  В заказе было три подтверждённые позиции. Мануфактура отправляет только первую: вторая не передана,
+                  третья передана с `quantity: 0`. Обе неотправленные позиции не будут отправлены и останутся
+                  в перемещении с количеством `0`.
+                value:
+                  at: '2026-06-26T10:00:00.000000Z'
+                  items:
+                    - stockItemId: 0198f3c2a1b2c3d4e5f6a7b8c9d0e1f2
+                      quantity: 12
+                      totalPriceWithVat: 120
+                      totalPriceWithoutVat: 100
+                      unitPriceWithVat: 10
+                      unitPriceWithoutVat: 8.33
+                      vatRate: 20
+                    - stockItemId: 0398f3c2a1b2c3d4e5f6a7b8c9d0e1f4
+                      quantity: 0
+                      totalPriceWithVat: 0
+                      totalPriceWithoutVat: 0
+                      unitPriceWithVat: 0
+                      unitPriceWithoutVat: 0
+                      vatRate: 20
+      responses:
+        '204':
+          description: Заказ успешно отправлен
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Возможные коды ошибок поля code:
+            - `ValidationError` — общая ошибка валидации
+
+            Коды ошибок блока `details.errors`:
+            - `Required` — не передано обязательное поле
+            - `InvalidValue` — передано недопустимое значение параметра
+            - `ValueTooSmall` — значение меньше минимально допустимого
+            - `ValueTooLarge` — значение превышает максимально допустимое
+            - `InvalidEntityState` — заказ не может быть отправлен в текущем статусе; ожидаемые статусы: `Confirmed`, `Sent`
+            - `InvalidValue` (поле `items`) — переданы неправильные позиции заказа: позиция не принадлежит заказу, либо переданы дубликаты `stockItemId`; см. детали в сообщении
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` - нет доступа к мануфактуре, которой принадлежит заказ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Ресурс не найден
+
+            Возможные причины:
+            - Заказ с указанным `orderId` не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+  '/manufactures/{manufactureId}/delivered':
+    get:
+      operationId: get-manufacture-delivered-orders
+      summary: Мануфактуры → Факт приёма заказов
+      description: |-
+        Возвращает список заказов, принятых кофейней (статус `Delivered`), изменённых с момента `modifiedAt` (включительно), отсортированных по возрастанию даты изменения.
+
+        Получение всего списка выполняется следующим образом:
+        - В первом запросе в качестве `modifiedAt` рекомендуется использовать наиболее раннее значение `0001-01-01T00:00:00.000000Z`;
+        - Затем необходимо использовать `modifiedAt` последней записи из предыдущего ответа в качестве значения параметра `modifiedAt` следующего запроса;
+        - Повторять до достижения `isEndOfListReached = true`.
+
+        При необходимости получить только записи, обновлённые с какого-то момента времени (включительно), в первом запросе в качестве `modifiedAt` отправляется соответствующая дата.
+
+        Запись может быть получена несколько раз до достижения конца списка `isEndOfListReached = true`:
+          - если запись была изменена в процессе получения списка;
+          - если запись расположена на границе запросов, то она будет возвращена и в первом, и во втором запросе, так как выборка данных для следующего запроса выполняется по условию "дата изменения" >= modifiedAt.
+
+        Гарантирует получение всех изменений сущности, но требует дедупликации возвращённых результатов на границе страниц.
+
+        В составе заказа возвращаются фактически принятые кофейней количества. Отправленная позиция, которую кофейня не приняла, возвращается с количеством `0`. Позиция, которую мануфактура не подтвердила или не отправила, в составе заказа не возвращается.
+
+        ### Окно редактирования приёмки
+
+        После отгрузки заказа из мануфактуры кофейня может корректировать фактически принятые количества сырья до конца следующего дня с момента отгрузки (по местному времени кофейни).
+
+        Пример: мануфактура отгрузила заказ 07.07.2026 в 07:35 — кофейня вправе вносить изменения до 08.07.2026 23:59 по местному времени.
+
+        До истечения срока кофейня может вносить изменения **неограниченное количество раз**. После истечения срока изменения заказа невозможны.
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+      tags:
+        - _in_development
+      parameters:
+        - name: manufactureId
+          in: path
+          required: true
+          description: Уникальный идентификатор мануфактуры
+          schema:
+            $ref: '#/components/schemas/Id'
+        - $ref: '#/components/parameters/requiredModifiedAt'
+        - $ref: '#/components/parameters/take'
+      responses:
+        '200':
+          description: |-
+            OK. Возвращает список принятых заказов кофеен для мануфактуры.
+
+            Если мануфактура существует, но принятых заказов нет, возвращается объект ответа, в котором поле `orders` содержит пустой список `[]`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetManufactureDeliveredOrdersResponse'
+              examples:
+                hasOrders:
+                  summary: Есть принятые заказы
+                  value:
+                    orders:
+                      - id: 000d3a240c719a8711e68aba13f7f862
+                        unitId: 111d3a240c719a8711e68aba13f7f863
+                        plannedDate: '2024-03-18'
+                        deliveredAt: '2024-03-18T11:20:00.000000Z'
+                        modifiedAt: '2024-03-18T11:20:00.000000Z'
+                        claimLink: 'https://claims.example.com/claims/12345'
+                        items:
+                          - stockItemId: aaa1a240c719a8711e68aba13f7f111
+                            quantity: 9.5
+                          - stockItemId: bbb2b240c719a8711e68aba13f7f222
+                            quantity: 3
+                    isEndOfListReached: true
+                noOrders:
+                  summary: Принятых заказов нет
+                  value:
+                    orders: []
+                    isEndOfListReached: true
+        '400':
+          description: |-
+            #### Некорректный запрос.
+
+            Коды ошибок блока errors:
+              - `Required` - не передано обязательное поле
+              - `ValueTooSmall` - значение меньше минимально допустимого
+              - `ValueTooLarge` - значение превышает максимально допустимое
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '401':
+          description: '#### Пользователь не авторизован'
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутствует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходимый scope
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '404':
+          description: |-
+            #### Мануфактура не найдена
+
+            Возвращается если мануфактуры с переданным manufactureId не существует
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      security:
+        - Dodo oauth2:
+            - 'accounting:manufacture'
+components:
+  schemas:
+    Id:
+      type: string
+      format: uuid
+      pattern: '[0-9a-f]{32}'
+      minLength: 32
+      maxLength: 32
+      example: 000d3a240c719a8711e68aba13f7f862
+    ModifiedAt:
+      description: 'Дата и время последнего изменения записи в UTC (ISO 8601), с точностью до микросекунд'
+      type: string
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$'
+      example: '2024-03-15T14:30:00.000001Z'
+    UtcDateTime:
+      description: Дата и время строго в UTC с указанием суффикса `Z`. Дробная часть секунд необязательна (до 7 знаков)
+      type: string
+      format: date-time
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$'
+      example: '2026-06-26T10:00:00.000000Z'
+    OrderWithWriteOffsResponse:
+      title: OrderWithWriteOffsResponse
+      x-stoplight:
+        id: uxo4py2t5yxq4
+      type: object
+      properties:
+        orderId:
+          type: string
+          x-stoplight:
+            id: lcuay012471ys
+          description: Идентификатор заказа
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+        orderNumber:
+          type: integer
+          x-stoplight:
+            id: tlzv6nqn9ulo7
+          description: Номер заказа
+          example: 33
+          nullable: true
+        unitId:
+          type: string
+          x-stoplight:
+            id: mujehxasfmxoq
+          description: Идентификатор заведения
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+        writeOffs:
+          type: array
+          x-stoplight:
+            id: 6eipx6s4w1ag3
+          description: Список списаний сырья
+          items:
+            $ref: '#/components/schemas/OrderWriteOffItem'
+      required:
+        - orderId
+        - unitId
+        - writeOffs
+    OrderWriteOffItem:
+      title: OrderWriteOffItem
+      x-stoplight:
+        id: 69vqjytpb7fuj
+      type: object
+      properties:
+        orderItemId:
+          type: string
+          x-stoplight:
+            id: 0mfhsjcgw2iwj
+          description: Идентификатор позиции в заказе
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+        productId:
+          type: string
+          x-stoplight:
+            id: 9gucylcsfa3qx
+          description: 'Идентификатор продукта, на который было списано сырье'
+          example: 000d3a240c719a8711e68aba13f7f862
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+        stockItemId:
+          type: string
+          x-stoplight:
+            id: 857iuf0leewnf
+          description: Идентификатор сырья списания
+          example: 000d3a240c719a8711e68aba13f7f862
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+        stockItemName:
+          type: string
+          x-stoplight:
+            id: 4gceuqih649dz
+          description: Наименование списанного сырья
+          example: Бекон
+        writtenOffAtLocal:
+          type: string
+          format: date-time
+          x-stoplight:
+            id: 92gwciewa4764
+          description: Дата и время списания в формате ISO 8601 (локальное время)
+          example: '2011-08-01T18:31:42'
+        quantity:
+          type: number
+          x-stoplight:
+            id: mxjdqwq6ltgos
+          description: Списанное количество
+          example: 0.352
+        measurementUnit:
+          type: string
+          x-stoplight:
+            id: ikgozigh3aawb
+          enum:
+            - Quantity
+            - Kilogram
+            - Liter
+            - Meter
+            - Gram
+            - Milliliter
+          description: Наименование единицы измерения
+          example: Kilogram
+        reason:
+          type: string
+          x-stoplight:
+            id: aqefoolsq8jo1
+          description: Причина списания
+          enum:
+            - Sale
+            - Production
+            - Defect
+            - Cancel
+          example: Sale
+      required:
+        - orderItemId
+        - stockItemId
+        - stockItemName
+        - writtenOffAtLocal
+        - quantity
+        - measurementUnit
+        - reason
+    WriteOffReason:
+      title: WriteOffReason
+      x-stoplight:
+        id: h7d2m9x4t1qwb
+      type: string
+      enum:
+        - Expired
+        - Defected
+        - DamagedPackaging
+        - HumanElement
+        - Marketing
+        - ExpiredShowcaseTime
+        - ShowcaseWriteOff
+        - DrinkitRemakeForGuest
+        - DrinkitStaffTraining
+        - DrinkitEmployeeTesting
+        - DrinkitProductionNeeds
+        - DrinkitMenuDevelopment
+        - ManufactureQualityControl
+      example: Marketing
+      description: |-
+        Причина списания.
+
+        **Доступность причин по бизнесам:**
+
+        **Dodo Pizza:**
+        - `Expired` - Истёк срок годности
+        - `Defected` - Брак
+        - `DamagedPackaging` - Повреждённая упаковка
+        - `HumanElement` - Человеческий фактор
+        - `Marketing` - Маркетинговые активности
+        - `ExpiredShowcaseTime` - Списания по времени с витрины
+        - `ShowcaseWriteOff` - Списания кусочков
+
+        **Drinkit (кофейни):**
+        - Все причины Dodo Pizza
+        - `DrinkitRemakeForGuest` - Переделка для гостя
+        - `DrinkitStaffTraining` - Обучение команды
+        - `DrinkitEmployeeTesting` - Тестирование сотрудниками
+        - `DrinkitProductionNeeds` - Производственные нужды
+
+        **Drinkit Manufacture (производство):**
+        - Все причины Dodo Pizza
+        - `DrinkitProductionNeeds` - Производственные нужды
+        - `ManufactureQualityControl` - Контроль качества на производстве
+        - `DrinkitMenuDevelopment` - Разработка меню
+    StockWriteOff:
+      title: StockWriteOff
+      x-stoplight:
+        id: ecf57bd129239
+      type: object
+      description: Списание сырья
+      properties:
+        writeOffId:
+          description: Уникальный идентификатор документа списания
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        writeOffItemId:
+          description: Уникальный идентификатор позиции списания
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        unitId:
+          description: Идентификатор заведения
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        unitName:
+          type: string
+          description: Название заведения
+          example: Сыктывкар-1
+        writtenOffAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: Дата и время списания в формате ISO 8601 (локальное время)
+        writtenOffAtUtc:
+          description: Дата и время списания в формате ISO 8601 (UTC с указанием суффикса `Z`)
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        stockItemId:
+          description: Идентификатор сырья списания
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        stockItemName:
+          type: string
+          description: Наименование списанного сырья
+          example: Бекон
+        quantity:
+          type: number
+          example: 0.352
+          description: Списанное количество
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnit'
+        reason:
+          $ref: '#/components/schemas/WriteOffReason'
+      required:
+        - writeOffId
+        - writeOffItemId
+        - unitId
+        - unitName
+        - writtenOffAtLocal
+        - writtenOffAtUtc
+        - stockItemId
+        - stockItemName
+        - quantity
+        - measurementUnit
+        - reason
+    ProductWriteOff:
+      title: ProductWriteOff
+      x-stoplight:
+        id: pw4tof81xk93q
+      type: object
+      description: Списание продукта
+      properties:
+        writeOffId:
+          description: Уникальный идентификатор документа списания
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        writeOffItemId:
+          description: Уникальный идентификатор позиции списания
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        unitId:
+          description: Идентификатор заведения
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        unitName:
+          type: string
+          description: Название заведения
+          example: Сыктывкар-1
+        writtenOffAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: Дата и время списания в формате ISO 8601 (локальное время)
+        writtenOffAtUtc:
+          description: Дата и время списания в формате ISO 8601 (UTC с указанием суффикса `Z`)
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        reason:
+          $ref: '#/components/schemas/WriteOffReason'
+        productId:
+          description: Идентификатор продукта
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        productName:
+          type: string
+          description: Наименование продукта
+          example: Пепперони Большая
+        quantity:
+          type: number
+          example: 5.3
+          description: Списанное количество
+        stockItems:
+          type: array
+          description: 'Список сырья, списанного в составе продукта'
+          items:
+            $ref: '#/components/schemas/ProductStockItemWriteOff'
+      required:
+        - writeOffId
+        - writeOffItemId
+        - unitId
+        - unitName
+        - writtenOffAtLocal
+        - writtenOffAtUtc
+        - reason
+        - productId
+        - productName
+        - quantity
+        - stockItems
+    ProductStockItemWriteOff:
+      title: ProductStockItemWriteOff
+      x-stoplight:
+        id: 5islyvtjymine
+      type: object
+      description: Списанное сырье в составе продукта
+      properties:
+        stockItemId:
+          description: Идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        stockItemName:
+          type: string
+          description: Наименование сырья
+          example: Тесто
+        quantity:
+          type: number
+          example: 0.352
+          description: Списанное количество сырья
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnit'
+      required:
+        - stockItemId
+        - stockItemName
+        - quantity
+        - measurementUnit
+    SupplyStockItem:
+      title: SupplyStockItem
+      x-stoplight:
+        id: qmyzo16l05kib
+      type: object
+      properties:
+        productCode:
+          type: string
+          x-stoplight:
+            id: mepii06dldmnx
+          description: Код продукта поставщика
+          example: '123456789'
+        quantity:
+          type: integer
+          x-stoplight:
+            id: wvden9wfk87nq
+          description: Количество тар
+          example: 2
+        totalPrice:
+          type: number
+          x-stoplight:
+            id: x0djuzk5gvfl4
+          description: Итоговая стоимость без НДС
+          minimum: 0
+          example: 3000
+        vatRate:
+          type: integer
+          x-stoplight:
+            id: c0jrgdkg3g431
+          description: Ставка НДС в %
+          minimum: 0
+          example: 20
+          maximum: 100
+      required:
+        - productCode
+        - quantity
+        - totalPrice
+        - vatRate
+    IncomingStockSupply:
+      title: IncomingStockSupply
+      x-stoplight:
+        id: g9vd3dhlyefow
+      type: object
+      properties:
+        incomingStockOrderId:
+          type: string
+          format: uuid
+          example: 000d3a240c719a8711e68aba13f7f862
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор поставки
+          x-stoplight:
+            id: npomm6cwouf5y
+        unitId:
+          type: string
+          description: Идентификатор заведения
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f862
+        unitName:
+          type: string
+          description: Название заведения
+          example: Сыктывкар-1
+        organizationId:
+          type: string
+          format: uuid
+          example: 019c576054687058aa46b3f69790ab5f
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор организации. Соответствует идентификатору из "Оргструктура → Список юрлиц"
+        supplierId:
+          type: string
+          format: uuid
+          example: 000d3a240c719a8711e68aba13f7f862
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор поставщика. Соответствует идентификатору из "Учет → Список поставщиков"
+        supplierName:
+          type: string
+          example: ООО Продукты
+          x-stoplight:
+            id: f9oh9nuiwtmor
+          description: Наименование поставщика
+        supplierTaxId:
+          type: string
+          example: '1234567890'
+          description: ИНН/TIN/NIP/KVK и т.д. поставщика
+          x-stoplight:
+            id: f9oh9nuiwtmor
+        suppliedAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: Дата и время поставки в формате ISO 8601 (локальное время)
+        invoiceDate:
+          type: string
+          format: date
+          example: '2011-08-01'
+          description: Дата накладной
+        invoiceNumber:
+          type: string
+          example: 1-005
+          description: Номер накладной
+        commercialInvoiceDate:
+          type: string
+          format: date
+          example: '2011-08-01'
+          description: Дата счет фактуры
+          x-stoplight:
+            id: chi5mfwhq0wi8
+        commercialInvoiceNumber:
+          type: string
+          example: 1-005
+          description: Номер счет фактуры
+        totalPriceWithVat:
+          type: number
+          description: 'Общая цена с НДС в формате #.##'
+          example: 110.99
+        totalPriceWithoutVat:
+          type: number
+          description: 'Общая цена без налога в формате #.##'
+          example: 100.55
+        vatValue:
+          type: number
+          x-stoplight:
+            id: bmpof1xe71d4s
+          example: 10.44
+          description: 'Размер налога в формате #.##'
+        comment:
+          type: string
+          example: Дополнительная информация о поставке
+          description: Комментарий к поставке
+        createdAt:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:43.123456Z'
+          description: Дата и время создания поставки в UTC
+          x-stoplight:
+            id: v59lw458c2kws
+        modifiedAt:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:32:44.123456Z'
+          description: Дата и время последнего изменения поставки в UTC
+          x-stoplight:
+            id: hz6j8eyk4slnw
+        isRemoved:
+          type: boolean
+          example: false
+          description: Удалена ли запись о поставке
+          x-stoplight:
+            id: hz6j8eyk4slkt
+        stockItems:
+          type: array
+          description: Список позиций сырья в поставке
+          x-stoplight:
+            id: 37035hfnlar77
+          items:
+            x-stoplight:
+              id: hfhegx7z20k2m
+            type: object
+            properties:
+              id:
+                type: string
+                x-stoplight:
+                  id: 4e2fdoc8lpg8g
+                description: Идентификатор сырья
+                format: uuid
+                example: 000d3a240c719a8711e68aba13f7f862
+                pattern: '[0-9a-f]{32}'
+              name:
+                type: string
+                x-stoplight:
+                  id: yymx30kckr433
+                example: Томаты
+                description: Название сырья
+              supplierName:
+                type: string
+                x-stoplight:
+                  id: aamx40kckr423
+                example: Томаты в банке
+                description: Название сырья от поставщика
+              categoryName:
+                x-stoplight:
+                  id: ybmx30kckr422
+                $ref: '#/components/schemas/StockItemCategoryName'
+              quantity:
+                type: number
+                x-stoplight:
+                  id: 52sbl4sicxd8l
+                exclusiveMinimum: false
+                minimum: 0
+                example: 11.111
+                description: 'Полученное количество в формате #.###'
+              measurementUnit:
+                $ref: '#/components/schemas/MeasurementUnit'
+              totalPriceWithVat:
+                type: number
+                x-stoplight:
+                  id: 88f6euox4v6e1
+                example: 110.61
+                description: 'Цена с НДС в формате #.##'
+              totalPriceWithoutVat:
+                type: number
+                x-stoplight:
+                  id: vvd9zwrwuqdeg
+                description: 'Цена без налога в формате #.##'
+                example: 100.55
+              pricePerMeasurementUnitWithVat:
+                type: number
+                description: 'Цена за единицу измерения с учетом НДС в формате #.##'
+                example: 9.95
+              vatRate:
+                type: number
+                x-stoplight:
+                  id: acr1t5m50g32x
+                description: Ставка налога в %
+                minimum: 0
+                maximum: 100
+                example: 10
+              vatValue:
+                type: number
+                x-stoplight:
+                  id: kyhyt9g8qpbwj
+                description: 'Размер налога в формате #.##'
+                example: 10.06
+              createdAt:
+                type: string
+                format: date-time
+                example: '2011-08-01T18:31:43.123456Z'
+                description: Дата и время создания записи о позиции поставки в UTC
+                x-stoplight:
+                  id: v59lw45823kws
+              modifiedAt:
+                type: string
+                format: date-time
+                example: '2011-08-01T18:32:44.123456Z'
+                description: Дата и время последнего изменения записи о позиции поставки в UTC
+                x-stoplight:
+                  id: hz6a4eyk412nw
+              isRemoved:
+                type: boolean
+                example: false
+                description: Удалена ли позиция поставки
+                x-stoplight:
+                  id: hz6j8eyk3slkt
+              incomingStockOrderItemId:
+                type: string
+                x-stoplight:
+                  id: 4e2fdoc1lpg8g
+                description: Идентификатор позиции поставки
+                format: uuid
+                example: 000d3a240c719a8711e68aba13f7f862
+                pattern: '[0-9a-f]{32}'
+            required:
+              - id
+              - name
+              - supplierName
+              - categoryName
+              - quantity
+              - measurementUnit
+              - totalPriceWithVat
+              - totalPriceWithoutVat
+              - pricePerMeasurementUnitWithVat
+              - vatRate
+              - vatValue
+              - createdAt
+              - modifiedAt
+              - isRemoved
+              - incomingStockOrderItemId
+      required:
+        - incomingStockOrderId
+        - unitId
+        - unitName
+        - organizationId
+        - supplierId
+        - supplierName
+        - supplierTaxId
+        - suppliedAtLocal
+        - invoiceDate
+        - invoiceNumber
+        - commercialInvoiceDate
+        - commercialInvoiceNumber
+        - totalPriceWithVat
+        - totalPriceWithoutVat
+        - vatValue
+        - comment
+        - createdAt
+        - modifiedAt
+        - isRemoved
+        - stockItems
+    MeasurementUnit:
+      title: MeasurementUnit
+      x-stoplight:
+        id: qr9gfe0b8o264
+      type: string
+      enum:
+        - Quantity
+        - Kilogram
+        - Liter
+        - Meter
+      description: Наименование единицы измерения
+      example: Quantity
+    MeasurementUnitBase:
+      title: MeasurementUnitBase
+      type: string
+      enum:
+        - Quantity
+        - Kilogram
+        - Gram
+        - Liter
+        - Milliliter
+        - Meter
+      description: Наименование единицы измерения
+      example: Quantity
+    DocumentChangesResponse:
+      title: DocumentChangesResponse
+      x-stoplight:
+        id: uy14py2t5yxq4
+      type: object
+      properties:
+        documentId:
+          type: string
+          description: Идентификатор документа
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f862
+        documentType:
+          type: string
+          enum:
+            - Supply
+            - Transfer
+          description: 'Тип документа. Supply - приход сырья, Transfer - перемещение'
+          example: Supply
+        documentVersion:
+          type: integer
+          x-stoplight:
+            id: mujehxasfm2oq
+          description: Идентификатор текущей версии документа
+          example: 1
+        modifiedByUserId:
+          type: string
+          x-stoplight:
+            id: lcuay0124711s
+          description: 'Идентификатор пользователя, сделавшего изменение'
+          format: uuid
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+        modifiedAt:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:32:44.123456Z'
+          description: Дата и время изменения в UTC
+          x-stoplight:
+            id: hz6j8eyk4sln1
+        unitId:
+          type: string
+          description: Идентификатор заведения
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f862
+        unitName:
+          type: string
+          description: Название заведения
+          example: Сыктывкар-1
+        changes:
+          type: array
+          x-stoplight:
+            id: 6eipx6s4w1ag4
+          description: Список изменений в текущей версии документа
+          items:
+            type: string
+        componentChanges:
+          type: array
+          x-stoplight:
+            id: 6eipx6s4w1ag5
+          description: Список изменений компонентов в текущей версии документа. Пустой список в случае отсутствия изменений компонентов.
+          items:
+            $ref: '#/components/schemas/DocumentComponentChange'
+      required:
+        - documentId
+        - documentType
+        - documentVersion
+        - modifiedByUserId
+        - modifiedAt
+        - unitId
+        - unitName
+        - changes
+        - componentChanges
+    DocumentComponentChange:
+      title: DocumentComponentChange
+      x-stoplight:
+        id: uy141y2t5yxq4
+      type: object
+      properties:
+        documentItemId:
+          type: string
+          description: Идентификатор компонента
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f862
+        changes:
+          type: array
+          x-stoplight:
+            id: 6eipx7s4w1ag4
+          description: Список изменений компонента в текущей версии документа
+          items:
+            type: string
+      required:
+        - documentItemId
+        - changes
+    IsEndOfListReached:
+      title: IsEndOfListReached
+      x-stoplight:
+        id: m8zw0rhzgox67
+      type: boolean
+      description: 'Индикатор того, что достигнут конец списка. Выдаёт true, если достигнут конец списка'
+    StockItem:
+      title: StockItem
+      type: object
+      description: Сырьё (федеральное или локальное)
+      properties:
+        id:
+          description: Уникальный идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        name:
+          type: string
+          description: Название сырья
+          example: Томаты
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnit'
+        categoryName:
+          $ref: '#/components/schemas/StockItemCategoryName'
+        isLocal:
+          type: boolean
+          description: 'Признак локального сырья. `true` — локальное (создано для конкретного подразделения), `false` — федеральное'
+          example: false
+        isRemoved:
+          type: boolean
+          description: Признак удалённого сырья. Если true — позиция была удалена из каталога.
+          example: false
+        isArchived:
+          type: boolean
+          description: 'Признак архивной позиции. Если true — позиция была переведена в архив. Архивные позиции больше не используются в операционной деятельности (не участвуют в заказах, приёмках, списаниях), но сохраняются для исторических данных.'
+          example: false
+        isProducible:
+          type: boolean
+          description: 'Признак производимой позиции. Если true — позиция является полуфабрикатом или готовым продуктом, который может производиться на точке (например, тесто, соус). Если false — позиция всегда закупается у поставщиков и не может производиться самостоятельно.'
+          example: false
+        modifiedAt:
+          $ref: '#/components/schemas/ModifiedAt'
+      required:
+        - id
+        - name
+        - measurementUnit
+        - categoryName
+        - isLocal
+        - isRemoved
+        - isArchived
+        - isProducible
+        - modifiedAt
+    StockItemCategoryName:
+      title: StockItemCategoryName
+      type: string
+      description: |-
+        Категория сырья:
+        - `Ingredient` — ингредиент
+        - `SemiFinishedProduct` — полуфабрикат
+        - `FinishedProduct` — готовый продукт
+        - `Inventory` — инвентарь
+        - `Packing` — упаковка
+        - `Consumables` — расходные материалы
+      enum:
+        - Ingredient
+        - SemiFinishedProduct
+        - FinishedProduct
+        - Inventory
+        - Packing
+        - Consumables
+      example: Ingredient
+    MaterialReturn:
+      title: MaterialReturn
+      x-stoplight:
+        id: material-return-schema
+      type: object
+      description: Возврат сырья
+      properties:
+        id:
+          type: string
+          description: Идентификатор возврата
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f862
+        transferOrderId:
+          type: string
+          description: Идентификатор перемещения
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7fc8a
+        originUnitId:
+          type: string
+          description: Идентификатор заведения-отправителя
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f862
+        destinationUnitId:
+          type: string
+          description: Идентификатор заведения-получателя
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7fc8a
+        state:
+          type: string
+          enum:
+            - Created
+            - InProgress
+            - Processed
+          description: Статус возврата сырья
+          example: Processed
+        createdAtLocal:
+          type: string
+          format: date-time
+          description: Дата и время создания возврата в формате ISO 8601 (локальное время)
+          example: '2024-01-05T10:30:00'
+        processedAtLocal:
+          type: string
+          format: date-time
+          description: 'Дата и время обработки возврата в формате ISO 8601 (локальное время, null если не обработан)'
+          example: '2024-01-05T14:20:00'
+          nullable: true
+        items:
+          type: array
+          description: Список позиций возврата
+          items:
+            $ref: '#/components/schemas/MaterialReturnItem'
+      required:
+        - id
+        - transferOrderId
+        - originUnitId
+        - destinationUnitId
+        - state
+        - createdAtLocal
+        - processedAtLocal
+        - items
+    MaterialReturnItem:
+      title: MaterialReturnItem
+      x-stoplight:
+        id: material-return-item-schema
+      type: object
+      description: Позиция возврата сырья
+      properties:
+        id:
+          type: string
+          description: Идентификатор позиции возврата
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f111
+        transferOrderItemId:
+          type: string
+          description: Идентификатор позиции перемещения
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f222
+        stockItemId:
+          type: string
+          description: Идентификатор сырья
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7f333
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnit'
+        receivedQuantity:
+          type: number
+          description: Полученное количество
+          example: 10.5
+          minimum: 0
+        returnQuantity:
+          type: number
+          description: Возвращаемое количество
+          example: 2.3
+          minimum: 0
+        state:
+          type: string
+          enum:
+            - Created
+            - Accepted
+            - Cancelled
+          description: Статус позиции возврата
+          example: Accepted
+        processingResult:
+          type: object
+          description: Результат обработки позиции возврата
+          properties:
+            decision:
+              type: string
+              enum:
+                - Undefined
+                - ReturnedToStock
+                - WriteOff
+                - Cancelled
+              description: Решение по позиции возврата
+              example: WriteOff
+            writeOffReason:
+              type: string
+              enum:
+                - Rejection
+                - ShelfLifeIssue
+                - AppearanceIssue
+                - CriticalQualityDefect
+                - PackagingIntegrityViolation
+                - MarkingMismatch
+                - WeightOrQuantityMismatch
+                - NonFoodSupplierDefect
+              description: Причина списания
+              example: ShelfLifeIssue
+              nullable: true
+            writeOffComment:
+              type: string
+              description: Комментарий к списанию
+              example: Истек срок годности
+              nullable: true
+          required:
+            - decision
+            - writeOffReason
+            - writeOffComment
+        comment:
+          type: string
+          description: Комментарий к позиции возврата
+          example: Повреждена упаковка
+          nullable: true
+      required:
+        - id
+        - transferOrderItemId
+        - stockItemId
+        - measurementUnit
+        - receivedQuantity
+        - returnQuantity
+        - state
+        - processingResult
+        - comment
+    ErrorContract:
+      title: ErrorContract
+      x-stoplight:
+        id: rpu8pu1mktm38
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: gp37yh7avamb3
+          example: NoAccessToUnit
+          description: Код ошибки
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: dfnqa03b2prbk
+          format: int32
+          example: 403
+          description: Http статус ответа
+        requestId:
+          type: string
+          x-stoplight:
+            id: l3by88afzhtl1
+          example: '0HLEACIU86PT6:0000000D'
+          description: Уникальный идентификатор запроса
+        message:
+          type: string
+          x-stoplight:
+            id: jgfb919lxa8oj
+          example: No access to the requested unit
+        details:
+          type: object
+          x-stoplight:
+            id: f7p5m7bc1i18e
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат может отличаться в зависимости от кода ошибки.
+      required:
+        - code
+        - httpStatus
+        - requestId
+    ErrorContractBadRequest:
+      title: ErrorContractBadRequest
+      x-stoplight:
+        id: 3me8m5p7gkc7h
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: ahk2nuf90zizl
+          example: ValidationError
+          description: Код ошибки
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: np1k0ln1ugwju
+          format: int32
+          example: 400
+          description: Http статус ответа
+        requestId:
+          type: string
+          x-stoplight:
+            id: gr85c96v0c6hp
+          example: '0HLEACIU86PT6:0000000D'
+          description: Уникальный идентификатор запроса
+        message:
+          type: string
+          x-stoplight:
+            id: bm8tb9ubb5v6k
+        details:
+          type: object
+          x-stoplight:
+            id: qxia77z80kcc1
+          description: Детализация ошибки.
+          properties:
+            errors:
+              type: array
+              x-stoplight:
+                id: 4afsn4w1zkpez
+              description: Список валидационных ошибок.
+              items:
+                $ref: '#/components/schemas/BadRequestError'
+      required:
+        - code
+        - httpStatus
+        - requestId
+    BadRequestError:
+      title: BadRequestError
+      x-stoplight:
+        id: dk9bke161s3kz
+      type: object
+      properties:
+        code:
+          type: string
+          description: Код ошибки
+        field:
+          type: string
+          description: 'Параметр запроса, содержащий невалидные данные'
+        message:
+          type: string
+      required:
+        - code
+        - field
+        - message
+    GetShelfLifeSettingsResponse:
+      type: object
+      required:
+        - shelfLifeSettings
+        - isEndOfListReached
+      properties:
+        shelfLifeSettings:
+          type: array
+          description: Настройки условий хранения
+          items:
+            $ref: '#/components/schemas/ShelfLifeSettings'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    GetManufactureContainersResponse:
+      type: object
+      required:
+        - containers
+        - isEndOfListReached
+      properties:
+        containers:
+          type: array
+          description: Типы тар мануфактуры
+          items:
+            $ref: '#/components/schemas/ManufactureContainer'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    ManufactureContainer:
+      type: object
+      required:
+        - id
+        - name
+        - measurementUnit
+        - quantity
+        - isRemoved
+        - modifiedAt
+      properties:
+        id:
+          description: Уникальный идентификатор типа тары
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        name:
+          type: string
+          description: Название типа тары
+          example: Тара для теста
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnit'
+        quantity:
+          type: number
+          description: Количество в единицах измерения
+          example: 5.5
+          minimum: 0
+        isRemoved:
+          type: boolean
+          description: Признак удаления
+          example: false
+        modifiedAt:
+          $ref: '#/components/schemas/ModifiedAt'
+    GetManufactureStockItemsContainersBindingsResponse:
+      type: object
+      required:
+        - bindings
+        - isEndOfListReached
+      properties:
+        bindings:
+          type: array
+          description: Привязки типов тар к сырью
+          items:
+            $ref: '#/components/schemas/ManufactureStockItemContainerBinding'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    GetManufactureAvailableStockItemsResponse:
+      type: object
+      required:
+        - stockItems
+        - isEndOfListReached
+      properties:
+        stockItems:
+          type: array
+          description: Доступное к заказу сырьё мануфактуры
+          items:
+            $ref: '#/components/schemas/ManufactureAvailableStockItem'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    ManufactureAvailableStockItem:
+      type: object
+      required:
+        - stockItemId
+        - isRemoved
+        - modifiedAt
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        isRemoved:
+          type: boolean
+          description: |-
+            Признак удаления.
+
+            Если `true` — запись удалена.
+            Удалённые записи возвращаются только при `includeRemoved=true`.
+          example: false
+        modifiedAt:
+          $ref: '#/components/schemas/ModifiedAt'
+    ManufactureStockItemContainerBinding:
+      type: object
+      required:
+        - containerId
+        - stockItemId
+        - isRemoved
+        - modifiedAt
+      properties:
+        containerId:
+          description: Уникальный идентификатор типа тары
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        stockItemId:
+          description: Уникальный идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        isRemoved:
+          type: boolean
+          description: Признак удалённой привязки
+          example: false
+        modifiedAt:
+          $ref: '#/components/schemas/ModifiedAt'
+    GetManufactureOrdersResponse:
+      type: object
+      required:
+        - orders
+        - isEndOfListReached
+      properties:
+        orders:
+          type: array
+          description: Список заказов кофеен
+          items:
+            $ref: '#/components/schemas/ManufactureOrder'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    ManufactureOrder:
+      type: object
+      required:
+        - id
+        - unitId
+        - status
+        - createdAt
+        - plannedDate
+        - modifiedAt
+        - items
+      properties:
+        id:
+          description: Уникальный идентификатор заказа в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        unitId:
+          description: Уникальный идентификатор кофейни-заказчика в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        status:
+          type: string
+          description: |-
+            Текущий статус заказа в Dodo IS.
+
+            Возможные значения:
+              - `Created` — создан
+              - `Confirmed` — подтверждён мануфактурой
+              - `Sent` — отправлен
+              - `Delivered` — доставлен
+          enum:
+            - Created
+            - Confirmed
+            - Sent
+            - Delivered
+          example: Created
+        createdAt:
+          description: 'Дата и время создания заказа (UTC, ISO 8601)'
+          allOf:
+            - $ref: '#/components/schemas/ModifiedAt'
+        plannedDate:
+          description: Запрошенная дата поставки (без времени). Формат соответствует стандарту ISO 8601.
+          type: string
+          format: date
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          example: '2024-03-18'
+        modifiedAt:
+          description: 'Дата и время последнего изменения заказа (UTC, ISO 8601). Используется как курсор для следующего запроса.'
+          allOf:
+            - $ref: '#/components/schemas/ModifiedAt'
+        items:
+          type: array
+          description: |-
+            Состав заказа.
+
+            Позиция, которую мануфактура не подтвердила или не отгрузила, либо которую кофейня не приняла, в состав заказа не входит и не возвращается.
+          items:
+            $ref: '#/components/schemas/ManufactureOrderItem'
+    ManufactureOrderItem:
+      type: object
+      required:
+        - stockItemId
+        - quantity
+        - measurementUnit
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор номенклатуры (сырья) в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        containerId:
+          description: 'Уникальный идентификатор типа тары мануфактуры, в которой поставляется сырьё. Null, если тара не задана.'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        quantity:
+          type: number
+          format: double
+          description: Количество сырья
+          exclusiveMinimum: 0
+          example: 10.5
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnitBase'
+    ConfirmManufactureOrderRequest:
+      type: object
+      required:
+        - at
+        - items
+      properties:
+        at:
+          description: 'Дата и время подтверждения заказа мануфактурой, строго в UTC с указанием суффикса `Z`'
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        items:
+          type: array
+          description: |-
+            Позиции подтверждаемого заказа.
+
+            Не переданная позиция равнозначна позиции с `quantity: 0` — она считается неподтверждённой и не будет поставлена.
+
+            Хотя бы одна позиция должна быть передана с количеством больше 0.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ConfirmManufactureOrderItem'
+    ConfirmManufactureOrderItem:
+      type: object
+      required:
+        - stockItemId
+        - quantity
+        - totalPriceWithVat
+        - totalPriceWithoutVat
+        - unitPriceWithVat
+        - unitPriceWithoutVat
+        - vatRate
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор сырья (номенклатуры) в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        quantity:
+          type: number
+          format: double
+          description: |-
+            Подтвержденное мануфактурой количество сырья, которое будет поставлено.
+
+            Значение `0` означает, что позиция не подтверждена и не будет поставлена. Равнозначно тому, чтобы не передавать позицию в запросе.
+          minimum: 0
+          exclusiveMaximum: 10000000
+          example: 12
+        totalPriceWithVat:
+          type: number
+          format: double
+          description: Итоговая стоимость позиции с НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 120
+        totalPriceWithoutVat:
+          type: number
+          format: double
+          description: Итоговая стоимость позиции без НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 100
+        unitPriceWithVat:
+          type: number
+          format: double
+          description: Цена за единицу сырья с НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 10
+        unitPriceWithoutVat:
+          type: number
+          format: double
+          description: Цена за единицу сырья без НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 8.33
+        vatRate:
+          type: number
+          description: 'Ставка НДС в процентах (например, `20` для 20%)'
+          minimum: 0
+          maximum: 100
+          example: 20
+    SendManufactureOrderRequest:
+      type: object
+      required:
+        - at
+        - items
+      properties:
+        at:
+          description: 'Дата и время отправки заказа мануфактурой, строго в UTC с указанием суффикса `Z`'
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        items:
+          type: array
+          description: |-
+            Позиции отправляемого заказа.
+
+            Не переданная позиция равнозначна позиции с `quantity: 0` — она считается неотправленной.
+
+            Все переданные позиции могут иметь `quantity: 0`, либо массив может быть пустым — в обоих случаях заказ будет отправлен без единой позиции.
+          items:
+            $ref: '#/components/schemas/SendManufactureOrderItem'
+    SendManufactureOrderItem:
+      type: object
+      required:
+        - stockItemId
+        - quantity
+        - totalPriceWithVat
+        - totalPriceWithoutVat
+        - unitPriceWithVat
+        - unitPriceWithoutVat
+        - vatRate
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор сырья (номенклатуры) в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        quantity:
+          type: number
+          format: double
+          description: |-
+            Отправленное количество сырья.
+
+            Значение `0` означает, что сырьё не отправляется в этом заказе. Равнозначно тому, чтобы вовсе не передавать позицию в запросе.
+          minimum: 0
+          exclusiveMaximum: 10000000
+          example: 12
+        totalPriceWithVat:
+          type: number
+          format: double
+          description: Итоговая стоимость позиции с НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 120
+        totalPriceWithoutVat:
+          type: number
+          format: double
+          description: Итоговая стоимость позиции без НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 100
+        unitPriceWithVat:
+          type: number
+          format: double
+          description: Цена за единицу сырья с НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 10
+        unitPriceWithoutVat:
+          type: number
+          format: double
+          description: Цена за единицу сырья без НДС
+          minimum: 0
+          maximum: 1000000000
+          example: 8.33
+        vatRate:
+          type: number
+          description: 'Ставка НДС в процентах (например, `20` для 20%)'
+          minimum: 0
+          maximum: 100
+          example: 20
+        markingCodes:
+          type: array
+          description: 'Коды маркировки, связанные с отправляемым заказом'
+          items:
+            type: string
+            example: 010460778423244821JOB05_q93yBfj
+    GetManufactureDeliveredOrdersResponse:
+      type: object
+      required:
+        - orders
+        - isEndOfListReached
+      properties:
+        orders:
+          type: array
+          description: Список принятых заказов кофеен
+          items:
+            $ref: '#/components/schemas/ManufactureDeliveredOrder'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    ManufactureDeliveredOrder:
+      type: object
+      required:
+        - id
+        - unitId
+        - plannedDate
+        - deliveredAt
+        - modifiedAt
+        - items
+      properties:
+        id:
+          description: Уникальный идентификатор заказа в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        unitId:
+          description: Уникальный идентификатор кофейни-получателя в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        plannedDate:
+          description: Запрошенная дата поставки (без времени). Формат соответствует стандарту ISO 8601.
+          type: string
+          format: date
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          example: '2024-03-18'
+        deliveredAt:
+          description: |-
+            Дата и время фиксации факта приёмки кофейней (UTC, ISO 8601).
+
+            Соответствует последнему переходу заказа в статус `Delivered`. Может обновляться несколько раз в течение окна редактирования.
+          type: string
+          format: date-time
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$'
+          example: '2024-03-18T11:20:00.000001Z'
+        modifiedAt:
+          description: 'Дата и время последнего изменения заказа (UTC, ISO 8601). Используется как курсор для следующего запроса.'
+          allOf:
+            - $ref: '#/components/schemas/ModifiedAt'
+        claimLink:
+          type: string
+          nullable: true
+          description: |-
+            Ссылка на претензию, оформленную кофейней по расхождениям при приёмке.
+
+            `null`, если претензии по заказу нет.
+          maxLength: 2048
+          example: 'https://claims.example.com/claims/12345'
+        items:
+          type: array
+          description: Состав заказа с фактически принятыми количествами
+          items:
+            $ref: '#/components/schemas/ManufactureDeliveredOrderItem'
+    ManufactureDeliveredOrderItem:
+      type: object
+      required:
+        - stockItemId
+        - quantity
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор номенклатуры (сырья) в Dodo IS
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        quantity:
+          type: number
+          format: double
+          description: |-
+            Фактически принятое количество сырья.
+
+            Значение фиксируется кофейней при приёмке и может отличаться от отправленного количества.
+            Значение `0` означает, что отправленную позицию кофейня не приняла.
+          minimum: 0
+          example: 9.5
+    ShelfLifeSettings:
+      type: object
+      required:
+        - id
+        - stockItemId
+        - isRemoved
+        - modifiedAt
+      properties:
+        id:
+          description: Уникальный идентификатор условий хранения
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        stockItemId:
+          description: Уникальный идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        manufacturer:
+          type: string
+          nullable: true
+          description: Название производителя
+          example: ООО Ромашка
+        isRemoved:
+          type: boolean
+          description: |
+            Признак удалённой настройки. Если true — настройка была удалена. Используется для синхронизации удалений
+          example: false
+        modifiedAt:
+          $ref: '#/components/schemas/ModifiedAt'
+        packagingSettings:
+          nullable: true
+          description: |
+            Настройки условий долгого хранения. Определяют условия хранения сырья в различных вариантах фасовки.  Если сырьё пришло крупной партией, неудобной для хранения, то его можно расфасовать в тару меньшего объема, при этом будут использованы эти условия долгого хранения.
+          allOf:
+            - $ref: '#/components/schemas/PackagingSettings'
+        defrostSettings:
+          nullable: true
+          description: |
+            Настройки разморозки. Определяют время и условия разморозки замороженного сырья, а также срок годности после разморозки
+          allOf:
+            - $ref: '#/components/schemas/DefrostSettings'
+        storageSettings:
+          nullable: true
+          description: |
+            Настройки хранения. Определяют сроки годности при хранении в различных температурных условиях (холодильник, морозильник и др.)
+          allOf:
+            - $ref: '#/components/schemas/StorageSettings'
+    PackagingSettings:
+      type: object
+      description: |
+        Условия хранения сырья в упаковке. Одно сырьё может иметь несколько вариантов упаковки с разными сроками годности и температурными режимами
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: Варианты упаковки
+          items:
+            $ref: '#/components/schemas/PackagingSettingsItem'
+    PackagingSettingsItem:
+      type: object
+      required:
+        - id
+        - labels
+        - shelfLifeHours
+        - storageTemperature
+      properties:
+        id:
+          description: Уникальный идентификатор варианта упаковки
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        labels:
+          description: Маркировки варианта упаковки
+          type: array
+          items:
+            type: string
+          example:
+            - Маркировка 1
+        shelfLifeHours:
+          description: Срок годности в часах
+          type: number
+          format: double
+          example: 48
+          minimum: 0
+        storageTemperature:
+          description: Температура хранения
+          type: string
+          example: от +2 до +6 °C
+    DefrostSettings:
+      type: object
+      description: |
+        Настройки разморозки замороженного сырья. Описывают, сколько времени занимает разморозка, при какой температуре она проводится и сколько сырьё хранится после разморозки
+      required:
+        - defrostingHours
+        - shelfLifeHours
+      properties:
+        defrostingHours:
+          description: Время разморозки в часах
+          type: number
+          format: double
+          example: 12
+          minimum: 0
+        shelfLifeHours:
+          description: Срок годности после разморозки в часах
+          type: number
+          format: double
+          example: 24
+          minimum: 0
+        defrostTemperature:
+          description: Температура разморозки
+          type: string
+          nullable: true
+          example: от +2 до +6 °C
+    StorageSettings:
+      type: object
+      description: |
+        Настройки хранения сырья на складе. Одна позиция может иметь несколько вариантов хранения — например, в холодильнике и в морозильной камере с разными сроками годности
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: Варианты хранения
+          items:
+            $ref: '#/components/schemas/StorageSettingsItem'
+    StorageSettingsItem:
+      type: object
+      required:
+        - id
+        - labels
+        - shelfLifeHours
+      properties:
+        id:
+          description: Уникальный идентификатор варианта хранения
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        labels:
+          description: Маркировки варианта хранения
+          type: array
+          items:
+            type: string
+          example:
+            - Холодильник
+        shelfLifeHours:
+          description: Срок годности в часах
+          type: number
+          format: double
+          example: 72
+          minimum: 0
+        storageTemperature:
+          description: Температура хранения
+          type: string
+          nullable: true
+          example: от -18 до -24 °C
+    GetStockItemsCompositionsResponse:
+      type: object
+      description: Составы типов сырья
+      required:
+        - stockItemsCompositions
+        - isEndOfListReached
+      properties:
+        stockItemsCompositions:
+          type: array
+          description: Список составов сырья
+          items:
+            $ref: '#/components/schemas/StockItemComposition'
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+    StockItemComposition:
+      type: object
+      description: Состав сырья
+      required:
+        - stockItemId
+        - composition
+        - modifiedAt
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        composition:
+          type: array
+          description: Позиции состава сырья
+          items:
+            $ref: '#/components/schemas/StockItemCompositionItem'
+        modifiedAt:
+          $ref: '#/components/schemas/ModifiedAt'
+    StockItemCompositionItem:
+      type: object
+      description: Позиция состава сырья
+      required:
+        - stockItemId
+        - quantity
+        - netQuantity
+        - measurementUnit
+      properties:
+        stockItemId:
+          description: Уникальный идентификатор сырья
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        quantity:
+          description: Количество сырья в составе
+          type: number
+          format: double
+          minimum: 0
+          example: 0.35
+        netQuantity:
+          description: Количество сырья нетто в составе
+          type: number
+          format: double
+          minimum: 0
+          example: 0.32
+        measurementUnit:
+          description: Единица измерения сырья
+          allOf:
+            - $ref: '#/components/schemas/MeasurementUnitBase'
+    StockTransferStatus:
+      title: StockTransferStatus
+      type: string
+      description: Статус перемещения. Клиенты должны корректно обрабатывать неизвестные значения — список может расширяться.
+      enum:
+        - Created
+        - Ordered
+        - Shipped
+        - Received
+        - Cancelled
+      example: Shipped
+    StockTransfer:
+      title: StockTransfer
+      type: object
+      description: |-
+        Перемещение сырья (одна запись на каждую позицию перемещения)
+
+        Статусы перемещений:
+        <code>
+        Created: 1 (Новая заявка на перемещение)
+        Ordered:2 (Заказанная заявка на перемещение)
+        Shipped: 3 (Отгруженная заявка на перемещение)
+        Received: 4 (Полученная заявка на перемещение)
+        Cancelled: 5 (Отмененная заявка на перемещение)
+        </code>
+      properties:
+        transferOrderNumber:
+          type: string
+          example: П-17/23
+          description: Номер заявки
+        transferOrderId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор заявки
+        transferOrderItemId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор позиции заявки
+        originUnitId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор заведения отгрузки
+        originUnitName:
+          type: string
+          example: Сыктывкар-1
+          description: Название заведения отгрузки
+        originOrganizationId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор юрлица отгрузки
+        originOrganizationName:
+          type: string
+          example: Dodo
+          description: Название юрлица отгрузки
+        destinationUnitId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор заведения получателя
+        destinationUnitName:
+          type: string
+          example: Сыктывкар-2
+          description: Название заведения получателя
+        destinationOrganizationId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор юрлица получателя
+        destinationOrganizationName:
+          type: string
+          example: Dodo
+          description: Название юрлица получателя
+        status:
+          $ref: '#/components/schemas/StockTransferStatus'
+        orderedAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: Дата заявки на перемещение в формате ISO 8601 (локальное время)
+        orderedAtUtc:
+          type: string
+          format: date-time
+          example: '2011-08-01T15:31:42Z'
+          description: Дата заявки на перемещение (UTC). В предыдущей версии эндпоинта возвращалась как `createdAt`
+        expectedAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: Ожидаемая дата получения в формате ISO 8601 (локальное время)
+        expectedAtUtc:
+          type: string
+          format: date-time
+          example: '2011-08-01T15:31:42Z'
+          description: Ожидаемая дата получения (UTC)
+        shippedAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: 'Дата отгрузки в формате ISO 8601 (локальное время, null если не отгружено)'
+          nullable: true
+        shippedAtUtc:
+          type: string
+          format: date-time
+          example: '2011-08-01T15:31:42Z'
+          description: 'Дата отгрузки (UTC, null если не отгружено)'
+          nullable: true
+        receivedAtLocal:
+          type: string
+          format: date-time
+          example: '2011-08-01T18:31:42'
+          description: 'Дата получения в формате ISO 8601 (локальное время, null если не получено)'
+          nullable: true
+        receivedAtUtc:
+          type: string
+          format: date-time
+          example: '2011-08-01T15:31:42Z'
+          description: 'Дата получения (UTC, null если не получено)'
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2011-08-01T15:31:42.123456Z'
+          description: 'Служебная дата создания записи в сервисе учёта (UTC). Может отличаться от `orderedAtUtc` — даты, когда перемещение было заказано'
+        modifiedAt:
+          type: string
+          format: date-time
+          example: '2011-08-01T15:31:42.123456Z'
+          description: Служебная дата изменения записи (UTC). Для отменённых перемещений отражает момент отмены.
+        stockItemId:
+          $ref: '#/components/schemas/Id'
+          description: Идентификатор сырья
+        stockItemName:
+          type: string
+          example: Бекон
+          description: Наименование отгруженного сырья
+        categoryName:
+          type: string
+          example: Ingredient
+          description: Категория сырья
+        orderedQuantity:
+          type: number
+          example: 0.352
+          description: Заказанное количество
+        shippedQuantity:
+          type: number
+          example: 0.352
+          description: Отгруженное количество (null если не отгружено)
+          nullable: true
+        receivedQuantity:
+          type: number
+          example: 0.352
+          description: Полученное количество (null если не получено)
+          nullable: true
+        measurementUnit:
+          $ref: '#/components/schemas/MeasurementUnit'
+        pricePerUnitWithVat:
+          type: number
+          example: 120
+          description: 'Цена за единицу измерения с НДС в формате #.##'
+        pricePerUnitWithoutVat:
+          type: number
+          example: 100
+          description: 'Цена за единицу измерения без НДС в формате #.##'
+        totalPriceWithVat:
+          type: number
+          example: 42.24
+          description: 'Сумма с НДС в формате #.##'
+        totalPriceWithoutVat:
+          type: number
+          example: 35.2
+          description: 'Сумма без НДС в формате #.##'
+        vatRate:
+          type: number
+          example: 20
+          description: Ставка НДС
+        vatValue:
+          type: number
+          example: 7.04
+          description: 'Сумма НДС в формате #.##'
+      required:
+        - transferOrderNumber
+        - transferOrderId
+        - transferOrderItemId
+        - originUnitId
+        - originUnitName
+        - originOrganizationId
+        - originOrganizationName
+        - destinationUnitId
+        - destinationUnitName
+        - destinationOrganizationId
+        - destinationOrganizationName
+        - status
+        - orderedAtLocal
+        - orderedAtUtc
+        - expectedAtLocal
+        - expectedAtUtc
+        - createdAt
+        - modifiedAt
+        - stockItemId
+        - stockItemName
+        - categoryName
+        - orderedQuantity
+        - measurementUnit
+        - pricePerUnitWithVat
+        - pricePerUnitWithoutVat
+        - totalPriceWithVat
+        - totalPriceWithoutVat
+        - vatRate
+        - vatValue
+    CreateStockTransferStatus:
+      title: CreateStockTransferStatus
+      type: string
+      description: |-
+        Статус, в котором создаётся перемещение:
+        - `Ordered` — заявка на перемещение создана и заказана. Поля `shippedAt` и `items[].shippedQuantity` передавать нельзя;
+        - `Shipped` — перемещение создано и сразу отгружено. В этом статусе обязательны `shippedAt` и `items[].shippedQuantity` для каждой позиции.
+
+        Статусы `Created`, `Received` и `Cancelled` при создании перемещения не поддерживаются.
+      enum:
+        - Ordered
+        - Shipped
+      example: Ordered
+    CreateStockTransferRequest:
+      title: CreateStockTransferRequest
+      type: object
+      description: Заявка на перемещение сырья между заведениями
+      required:
+        - originUnitId
+        - destinationUnitId
+        - status
+        - expectedAt
+        - orderedAt
+        - items
+      properties:
+        originUnitId:
+          description: Идентификатор заведения отгрузки
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        destinationUnitId:
+          description: Идентификатор заведения получателя. Должен отличаться от `originUnitId`
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        status:
+          $ref: '#/components/schemas/CreateStockTransferStatus'
+        expectedAt:
+          description: Ожидаемая дата получения (UTC). Не может быть раньше текущей даты в часовом поясе заведения-получателя — задним числом перемещение не создать
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        orderedAt:
+          description: Дата заявки на перемещение (UTC). Не может быть в будущем
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        shippedAt:
+          description: 'Дата отгрузки (UTC). Обязательна, если `status` = `Shipped`; при `status` = `Ordered` передавать нельзя. Не может быть в будущем и раньше `orderedAt`'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/UtcDateTime'
+        items:
+          type: array
+          description: Позиции перемещения. `stockItemId` в позициях не должны повторяться
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CreateStockTransferItem'
+    CreateStockTransferItem:
+      title: CreateStockTransferItem
+      type: object
+      description: Позиция перемещения
+      required:
+        - stockItemId
+        - orderedQuantity
+      properties:
+        stockItemId:
+          description: Идентификатор сырья. Можно получить через "Учет → Список сырья"
+          allOf:
+            - $ref: '#/components/schemas/Id'
+        orderedQuantity:
+          type: number
+          description: 'Заказанное количество в единице измерения сырья. Может быть дробным — например, `0.352` для сырья, которое учитывается в килограммах. Для штучного сырья количество должно быть целым'
+          exclusiveMinimum: 0
+          exclusiveMaximum: 10000000
+          example: 12.5
+        shippedQuantity:
+          type: number
+          description: 'Отгруженное количество в единице измерения сырья. Обязательно для каждой позиции, если `status` = `Shipped`; при `status` = `Ordered` передавать нельзя. Может отличаться от `orderedQuantity`. Значение `0` означает, что позиция не была отгружена'
+          nullable: true
+          minimum: 0
+          exclusiveMaximum: 10000000
+          example: 11.5
+    CreateStockTransferResponse:
+      title: CreateStockTransferResponse
+      type: object
+      description: Результат создания перемещения
+      required:
+        - transferId
+      properties:
+        transferId:
+          description: Идентификатор созданного перемещения. По нему перемещение можно найти в эндпоинте «Перемещения → Позиции перемещений» — там это поле называется `transferOrderId`
+          allOf:
+            - $ref: '#/components/schemas/Id'
+  parameters:
+    requiredModifiedAt:
+      name: modifiedAt
+      in: query
+      required: true
+      schema:
+        $ref: '#/components/schemas/ModifiedAt'
+      description: |
+        Фильтр по дате последнего изменения записи (ISO 8601, UTC, с точностью до микросекунд). Будут возвращены записи, у которых дата изменения >= `modifiedAt`.
+    skip:
+      name: skip
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        example: 100
+        default: 0
+      description: 'Количество записей, которые следует пропустить'
+    take:
+      name: take
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        example: 10
+        default: 10
+        maximum: 100
+      description: 'Количество записей, которые следует выбрать'
+    takeLarge:
+      name: take
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 100
+        maximum: 1000
+        example: 100
+      description: 'Количество записей, которые следует выбрать (максимум 1000)'
+    units:
+      name: units
+      in: query
+      schema:
+        type: string
+        uniqueItems: true
+        maxItems: 30
+        minItems: 1
+        example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+      description: Список заведений (пиццерий) Dodo IS в формате UUID
+      required: true
+    from:
+      name: from
+      in: query
+      schema:
+        type: string
+        example: '2011-08-01T18:31:42'
+        format: date-time
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+      description: Начало периода в формате ISO 8601 (в UTC)
+      required: true
+    to:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+        example: '2011-09-02T19:21:53'
+      description: Конец периода в формате ISO 8601 (в UTC)
+    includeRemoved:
+      name: includeRemoved
+      in: query
+      schema:
+        type: boolean
+        default: false
+        example: false
+      description: Включать в ответ удаленные записи
+    includeArchived:
+      name: includeArchived
+      in: query
+      schema:
+        type: boolean
+        default: false
+        example: false
+      description: Включать в ответ архивные записи
+  examples:
+    QueryTake:
+      value:
+        field: Take
+        message: The field Take must be between 1 and 100.
+    QueryLargeTake:
+      value:
+        field: Take
+        message: The field Take must be between 1 and 1000.
+    QuerySkip:
+      value:
+        field: Skip
+        message: The field Skip must be between 0 and 2147483647.
+    QueryMinUnits:
+      value:
+        field: Units
+        message: The field Units must be a string or array type with a minimum length of '1'.
+    QueryRequiredFrom:
+      value:
+        field: From
+        message: The From field is required.
+    QueryRequiredTo:
+      value:
+        field: To
+        message: The To field is required.
+    QueryIncludeRemoved:
+      value:
+        field: IncludeRemoved
+        message: The IncludeRemoved field must be true or false.
+  securitySchemes:
+    Dodo oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          scopes:
+            accounting: 'Учет, общий доступ (obsolete, наследуемая область для совместимости)'
+            'accounting:read': 'Учет, доступ на чтение'
+            'accounting:write': 'Учет, доступ на запись'
+            'accounting:manufacture': 'Учет, мануфактура, доступ на чтение и запись. Используется для интеграции с 1С'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+      description: ''

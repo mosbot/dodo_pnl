@@ -1,0 +1,559 @@
+openapi: 3.0.1
+x-stoplight:
+  id: bpdmw4gt4yhg2
+info:
+  title: IoT API
+  version: v1
+  description: |
+    API предоставляет возможность работать c IoT данными
+  contact:
+    name: Dodo Brands
+    url: 'https://dodobrands.io'
+  license:
+    url: 'https://cdn.dodostatic.com/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  termsOfService: 'https://cdn.dodostatic.com/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/iot'
+    description: RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/iot'
+    description: Other countries
+paths:
+  /telemetry/v1/device/register:
+    post:
+      tags:
+        - SmartDevices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartDeviceRegistrationDto'
+      responses:
+        '200':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartDeviceDto'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequest'
+        '401':
+          description: Forbidden Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForbiddenRequest'
+      description: |-
+        Регистрация устройству
+        При регистрации в массиве схемы необходимо указать какой вид измерений будет передаваться девайсом.
+        Так для передачи усредненной температуры выбираем `scheme` - `periodTemperature`, и `version` 1 (пока все версии первые)
+      security:
+        - Dodo oauth2:
+            - iot.partnerDevice
+      summary: IoT → Регистрация устройства
+  /telemetry/v1/measurement:
+    post:
+      tags:
+        - DeviceMeasurements
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDeviceMeasurementRequest'
+      responses:
+        '200':
+          description: Success
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequest'
+        '401':
+          description: Forbidden Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForbiddenRequest'
+      description: |
+        Предача данных по устройству.
+        Метод принимает два вида данных - мгновенное значение (`DeviceMeasurementRawValue`) или усредненое значение (`DeviceMeasurementPeriodValue`).
+        Они коррелируют со схемой данных девайса при регистрации.
+        Так ожидается, что `periodTemperature` - `DeviceMeasurementPeriodValue`, а `temperature` - `DeviceMeasurementRawValue`
+      security:
+        - Dodo oauth2:
+            - iot.partnerDevice
+      summary: IoT → Добавление измерения
+  '/telemetry/v1/device/{id}':
+    get:
+      tags:
+        - SmartDevices
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartDeviceDto'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequest'
+        '401':
+          description: Forbidden Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForbiddenRequest'
+      description: Пролучение устройства по Id
+      security:
+        - Dodo oauth2:
+            - iot.partnerDevice
+      summary: IoT → Получение устройства
+  /telemetry/v1/device/update:
+    put:
+      tags:
+        - SmartDevices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmartDeviceDto'
+      responses:
+        '200':
+          description: Success
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequest'
+        '401':
+          description: Forbidden Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForbiddenRequest'
+      description: Обновление устройства
+      security:
+        - Dodo oauth2:
+            - iot.partnerDevice
+      summary: IoT → Обновление устройства
+  /telemetry/v1/device/find:
+    get:
+      tags:
+        - SmartDevices
+      parameters:
+        - schema:
+            type: string
+            example: 000d3a240c719a8711e68aba13f7fe13
+            pattern: '[0-9a-f]{32}'
+            minLength: 32
+            maxLength: 32
+            format: uuid
+          in: query
+          name: unitId
+          required: true
+          description: Идентификатор заведения
+        - schema:
+            type: string
+          in: query
+          name: partnerDeviceId
+          required: true
+          description: Идентификатор девайса в системе партнера
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmartDeviceDto'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequest'
+        '401':
+          description: Forbidden Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForbiddenRequest'
+      description: Поиск устройства
+      security:
+        - Dodo oauth2:
+            - iot.partnerDevice
+      summary: IoT → Поиск устройства
+components:
+  schemas:
+    AddDeviceMeasurementRequest:
+      type: object
+      additionalProperties: false
+      x-stoplight:
+        id: 756xxatn8lgme
+      properties:
+        deviceId:
+          type: string
+          description: Идентификатор девайса из DodoIS
+        at:
+          type: string
+          format: date-time
+          description: Локальное время измерения
+        atUtc:
+          type: string
+          format: date-time
+          description: UTC время измерения
+        value:
+          oneOf:
+            - $ref: '#/components/schemas/DeviceMeasurementPeriodValue'
+            - $ref: '#/components/schemas/DeviceMeasurementRawValue'
+          description: Передаваемое значение (Объект)
+      required:
+        - deviceId
+        - at
+        - atUtc
+        - value
+      description: Модель для передачи показаний по девайсам
+    DeviceMeasurementPeriodValue:
+      type: object
+      additionalProperties: false
+      x-stoplight:
+        id: f2lm3sogsk5xy
+      description: Модель описывающая усредненое значение пердающееся за период времени
+      properties:
+        schema:
+          $ref: '#/components/schemas/SmartDeviceSchemes'
+        schemaVersion:
+          type: integer
+          format: int32
+          description: Версия схемы (указанная при регистрации девайса)
+        measurementUnit:
+          $ref: '#/components/schemas/TelemetryUnits'
+        averageValue:
+          type: number
+          format: float
+          description: Усредненное значение за период
+        maximumValue:
+          type: number
+          format: float
+          description: Максимальное значение за период
+        minimumValue:
+          type: number
+          format: float
+          description: Минимальное значение за период
+        aggregationPeriod:
+          type: string
+          example: '00:00:00'
+          description: 'Период за который производилась агрегация (00:05:00)'
+      required:
+        - schema
+        - schemaVersion
+        - measurementUnit
+        - averageValue
+        - maximumValue
+        - minimumValue
+        - aggregationPeriod
+    SmartDeviceDataSchemaDto:
+      type: object
+      additionalProperties: false
+      x-stoplight:
+        id: tfpim23lu0e1p
+      properties:
+        scheme:
+          $ref: '#/components/schemas/SmartDeviceSchemes'
+        version:
+          type: integer
+          format: int32
+          description: Версия схемы (указанная при регистрации девайса)
+      required:
+        - scheme
+        - version
+    DeviceMeasurementRawValue:
+      type: object
+      additionalProperties: false
+      x-stoplight:
+        id: h8bighqkcyoq8
+      properties:
+        schema:
+          $ref: '#/components/schemas/SmartDeviceSchemes'
+        schemaVersion:
+          type: integer
+          format: int32
+          description: Версия схемы (указанная при регистрации девайса)
+        measurementUnit:
+          $ref: '#/components/schemas/TelemetryUnits'
+        value:
+          type: number
+          format: float
+          description: Значение
+      required:
+        - schema
+        - schemaVersion
+        - measurementUnit
+        - value
+      description: Модель описывающая мгновенное значение в данный момент времени
+    SmartDeviceDto:
+      type: object
+      additionalProperties: false
+      x-stoplight:
+        id: di7xfh8aq1ybc
+      description: Модель девайса хрянящаяся в DodoIS
+      properties:
+        id:
+          type: string
+          description: Идентификатор девайса из DodoIS
+        unitId:
+          type: string
+          description: Идентификатор пиццерии/кофейни из DodoIS
+        partnerDeviceId:
+          type: string
+          description: Идентификатор девайса в системе партнера
+        schemes:
+          type: array
+          description: 'Виды измерений, которые предает данный девайс'
+          items:
+            $ref: '#/components/schemas/SmartDeviceDataSchemaDto'
+        name:
+          type: string
+          description: Имя девайса в системе партнера
+        locationId:
+          type: string
+          description: Идентификатор IoT локации в пиццерии (пока устанавливается  только разработками DodoIS)
+      required:
+        - id
+        - unitId
+        - partnerDeviceId
+        - schemes
+        - name
+    SmartDeviceRegistrationDto:
+      type: object
+      additionalProperties: false
+      x-stoplight:
+        id: nlk2pj49gyypm
+      description: Модель регистрации девайса
+      properties:
+        partnerDeviceId:
+          type: string
+          description: Идентификатор девайса в системе партнера
+          x-stoplight:
+            id: 6s15ooxu6vz9v
+        unitId:
+          type: string
+          description: Идентификатор пиццерии/кофейни из DodoIS
+        schemes:
+          type: array
+          description: 'Виды измерений, которые предает данный девайс'
+          items:
+            $ref: '#/components/schemas/SmartDeviceDataSchemaDto'
+        name:
+          type: string
+          description: Имя девайса в системе партнера
+      required:
+        - partnerDeviceId
+        - unitId
+        - schemes
+        - name
+    SmartDeviceSchemes:
+      type: string
+      x-stoplight:
+        id: dw3rdkistqmmu
+      description: Cхема принимаемая девайсом
+      enum:
+        - periodTemperature
+        - temperature
+        - periodHumidity
+        - humidity
+        - powerConsumption
+    TelemetryUnits:
+      type: string
+      x-enumNames:
+        - celsius
+        - fahrenheit
+        - kelvin
+        - percentage
+        - kilowattHour
+      x-stoplight:
+        id: puy2uwg6uwnii
+      description: |-
+        Размерность измерения
+
+            // Temperature Units
+            celsius,
+            fahrenheit,
+            kelvin,
+
+            // Humidity
+            percentage
+
+            // Energy
+            kilowattHour
+      enum:
+        - celsius
+        - fahrenheit
+        - kelvin
+        - percentage
+        - kilowattHour
+    BadRequest:
+      title: BadRequest
+      x-stoplight:
+        id: vindz60y7w425
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 2q5bzgrdz7xqu
+          description: Код ошибки
+          example: ValidationError
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: glq97ey5f2mes
+          description: Http статус ответа
+          example: 400
+        requestId:
+          $ref: '#/components/schemas/ErrorRequestId'
+        message:
+          type: string
+          x-stoplight:
+            id: 82hd8n4oig9wb
+        details:
+          type: object
+          x-stoplight:
+            id: hecnxiyo17s76
+          properties:
+            errors:
+              type: array
+              x-stoplight:
+                id: 0ube4528impzn
+              items:
+                $ref: '#/components/schemas/BadRequestErrors'
+      required:
+        - code
+        - httpStatus
+        - requestId
+    ForbiddenRequest:
+      title: BadRequest
+      x-stoplight:
+        id: rll5gujznttn9
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 2q5bzgrdz7xqu
+          description: Код ошибки
+          example: NoAccessToUnit
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: glq97ey5f2mes
+          description: Http статус ответа
+          example: 403
+        requestId:
+          $ref: '#/components/schemas/ErrorRequestId'
+        message:
+          type: string
+          x-stoplight:
+            id: 82hd8n4oig9wb
+          example: No access to the requested unit
+        details:
+          type: object
+          x-stoplight:
+            id: hecnxiyo17s76
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат зависит может отличаться в зависимости от кода ошибки.
+      required:
+        - code
+        - httpStatus
+        - requestId
+    InternalErrorRequest:
+      title: BadRequest
+      x-stoplight:
+        id: h29qdfm3oykd8
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 2q5bzgrdz7xqu
+          description: Код ошибки
+          example: InternalError
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: glq97ey5f2mes
+          description: Http статус ответа
+          example: 500
+        requestId:
+          $ref: '#/components/schemas/ErrorRequestId'
+        message:
+          type: string
+          x-stoplight:
+            id: 82hd8n4oig9wb
+          example: Unhandled exception
+        details:
+          type: object
+          x-stoplight:
+            id: hecnxiyo17s76
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат зависит может отличаться в зависимости от кода ошибки.
+      required:
+        - code
+        - httpStatus
+        - requestId
+    ErrorRequestId:
+      title: ErrorRequestId
+      x-stoplight:
+        id: 0c9coav7opjwv
+      type: string
+      description: Уникальный идентификатор запроса
+      example: '0HLEACIU86PT6:0000000D'
+    BadRequestErrors:
+      title: BadRequestErrors
+      x-stoplight:
+        id: jpz8rroki2bcu
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: xcxpa5xyto0db
+          description: Код ошибки
+        field:
+          type: string
+          x-stoplight:
+            id: 2yq42r78wvm39
+          description: 'Параметр запроса, содержащий невалидные данные'
+        message:
+          type: string
+          x-stoplight:
+            id: md64f3mmbefe0
+      required:
+        - code
+        - field
+        - message
+  securitySchemes:
+    Dodo oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          scopes:
+            iot.partnerDevice: IoT
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+      description: ''
+  parameters: {}
+  responses: {}

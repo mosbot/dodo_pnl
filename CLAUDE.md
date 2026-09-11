@@ -30,7 +30,9 @@ static/
   board.html, board.js — рендер /board (compact + rich view-switch)
   *-mock.html          — статические мокапы для итераций дизайна
 docs/
-  dodois-api.md        — снапшот Dodo IS API схем
+  dodois-openapi/      — официальные OpenAPI-спеки Dodo IS (источник правды)
+  dodois-api-facts.md  — выжимка из спек (gen: _scripts/gen_dodois_facts.py)
+  dodois-api.md        — производный обзор Dodo IS API
   planfact-agent-kit/  — внешняя дока PlanFact
 scripts/deploy.sh      — деплой на SA-VPS (Docker; см. «Прод»)
 Dockerfile             — образ pnl (python:3.11-slim + uvicorn)
@@ -178,6 +180,11 @@ marketplace, ВНИМАНИЕ к точным названиям):
 - `incentives` — `/staff/incentives-by-members` (KC_LIVE)
 - `user.role:read` — `/auth/roles/units` (имена юнитов)
 - `offline_access` — refresh-токены (тихое продление в sa)
+
+В спеках (`docs/dodois-api-facts.md`) у тех же ручек стоят ДРУГИЕ имена
+скоупов (`accounting:read`, `shared`, …) — это не ошибка: в marketplace своё
+пространство имён. Ни один из двух списков не является полным сам по себе,
+единственная валидная проверка — вызов токеном без скоупа и 403.
 
 403 `InsufficientScopes` → добавить scope в приложение (marketplace) + в
 `DODOIS_OAUTH_SCOPE` sa + пересоздать sa-контейнер + **re-consent** (юзер
@@ -377,7 +384,13 @@ current-month синке.
 
 ## Связанные docs
 
-- `docs/dodois-api.md` — полный snapshot Dodo IS API (auto-gen scripts/pull_dodois_docs.py)
+- `docs/dodois-openapi/*.yaml` — **официальные OpenAPI-спеки Dodo Brands** (12 файлов,
+  сверены 2026-09-11). Источник правды по путям, параметрам и границам.
+- `docs/dodois-api-facts.md` — выжимка из спек: страны и хосты, базовый URL по
+  разделам, скоупы и границы по всем 146 операциям. Генерится
+  `_scripts/gen_dodois_facts.py`, руками не править.
+- `docs/dodois-api.md` — производный snapshot (auto-gen scripts/pull_dodois_docs.py).
+  Обзорный текст; при расхождении с facts-файлом прав facts-файл.
 - `docs/planfact-agent-kit/` — внешняя дока PlanFact (для понимания target P&L)
 - `docs/audits/*.md` — incident reports / audit notes
 

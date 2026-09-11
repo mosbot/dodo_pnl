@@ -1,0 +1,730 @@
+openapi: 3.0.1
+x-stoplight:
+  id: qcgj2v1myhesr
+info:
+  title: Магазин приложений
+  version: '1.0'
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  license:
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  contact:
+    url: 'https://dodobrands.io'
+    name: Dodo Brands
+  description: ''
+servers:
+  - url: 'https://api.dodois.io/marketplace'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/marketplace'
+    description: Dodopizza - Other countries
+  - url: 'https://api.dodois.io/marketplace'
+    description: Drinkit - RU / KZ
+  - url: 'https://api.dodois.io/marketplace'
+    description: Drinkit - AE / Other countries
+paths:
+  /subscriptions:
+    get:
+      summary: Подписки → Активные подписки пользователя в приложении
+      responses:
+        '200':
+          description: OK
+          headers: {}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activeUserSubscriptions:
+                    type: array
+                    minItems: 0
+                    description: Активные лицензии пользователя в приложении
+                    items:
+                      $ref: '#/components/schemas/Subscription'
+                required:
+                  - activeUserSubscriptions
+              examples:
+                Пример:
+                  value:
+                    activeUserSubscriptions:
+                      - id: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+                        tariffAlias: advanced
+                        expiresAt: '2022-09-02T18:40:21'
+                        units:
+                          - 11ed0d7dd11af7c0a10b4cfe94d41cc0
+                        selectedTariffExtensions:
+                          - big_report
+                          - small_report
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal Server Error
+      operationId: get-license
+      description: |
+        Возвращает активные подписки пользователя для приложения.
+      parameters: []
+      security:
+        - Authorization:
+            - 'marketplacesubscription:read'
+            - 'user.role:read'
+    parameters: []
+  /invoices:
+    get:
+      summary: Бухгалтерия → Счета на оплату
+      tags:
+        - internal
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Счета на оплату
+                properties:
+                  invoices:
+                    $ref: '#/components/schemas/Invoice'
+                required:
+                  - invoices
+              examples:
+                Example 1:
+                  value:
+                    invoices:
+                      applicationId: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+                      applicationName: Экран с отзывами клиентов
+                      applicationDeveloperTaxpayerIdentificationNumber: '2524366131'
+                      isVatIncluded: true
+                      unitId: 11ed0d7dd11af7c0a10b4cfe94d41329
+                      paidDaysCount: 15
+                      invoicePeriodYear: 2023
+                      invoicePeriodMonth: 7
+                      invoiceAmount: 333.33
+                      currency: RUB
+                      marketplaceCommission: 30
+                      legalEntityId: 11ed0d7dd11af7c0a10b4cfe94d41309
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+      operationId: get-invoices
+      security:
+        - Service Token:
+            - 'marketplaceinvoice:read'
+      parameters:
+        - schema:
+            type: integer
+            example: 2023
+          in: query
+          name: year
+          description: Год расчетного периода
+          required: true
+        - schema:
+            type: integer
+            example: 7
+            minimum: 1
+            maximum: 12
+          in: query
+          name: month
+          description: Месяц расчетного периода
+          required: true
+      description: Возвращает счета на оплату подписок в Маркетплейс за указанный период (`year` и `month`).
+    post:
+      tags:
+        - internal
+      summary: Бухгалтерия → Счета на оплату
+      operationId: post-invoices
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '500':
+          description: Internal Server Error
+      security:
+        - Service Token:
+            - 'marketplaceinvoice:write'
+      description: Позволяет передать информацию об изменение статуса счета за подписку в Маркетплейс.
+      x-internal: false
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayedInvoice'
+            examples:
+              Example 1:
+                value:
+                  invoiceStatus: paid
+                  applicationId: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+                  applicationDeveloperTaxpayerIdentificationNumber: '2524366131'
+                  unitId: 11ed0d7dd11af7c0a10b4cfe94d41329
+                  legalEntityId: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+                  legalEntityName: ИП Василий
+                  legalEntityTaxpayerIdentificationNumber: '2524366131'
+                  invoicePeriodYear: 2023
+                  invoicePeriodMonth: 7
+                  paidAmount: 333.33
+                  currency: RUB
+                  paymentDate: '2022-09-02'
+                  invoiceUrl: 'https://bitrix.ru/invoice/123'
+  /storage:
+    servers:
+      - url: 'https://api.dodois.io/store-api'
+        description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+      - url: 'https://api.dodois.com/store-api'
+        description: Dodopizza - Other countries
+    post:
+      summary: Store API → Загрузка данных
+      operationId: post-upload
+      responses:
+        '204':
+          description: No Content
+      description: Загрузка произвольных данных в Store API.
+      security:
+        - Service Token:
+            - 'storeapi:write'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dataToUpload:
+                  type: array
+                  x-stoplight:
+                    id: 9kvm6ytlaq3tu
+                  items:
+                    $ref: '#/components/schemas/StoreApiUpload'
+              required:
+                - dataToUpload
+            examples:
+              Example 1:
+                value:
+                  dataToUpload:
+                    - modelId: 000d3a240c719a8711e68aba13f7fe13
+                      unitId: 000d3a240c719a8711e68aba13f7f311
+                      data:
+                        hello: world
+      tags:
+        - in development
+    parameters: []
+    get:
+      summary: Store API → Последние данные
+      operationId: get-storage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Записи Store API
+                properties:
+                  result:
+                    x-stoplight:
+                      id: 4g012rv1mdfrb
+                    type: array
+                    minItems: 0
+                    maxItems: 100
+                    description: Записи Store API
+                    items:
+                      $ref: '#/components/schemas/StoreApiRecord'
+                required:
+                  - result
+      description: |-
+        Позволяет получить последние загруженные данные в Store API.
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 10 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+      security:
+        - Service Token:
+            - 'storeapi:read'
+      parameters:
+        - schema:
+            type: string
+            example: 000d3a240c719a8711e68aba13f7fe13
+            pattern: '[0-9a-f]{32}'
+            minLength: 32
+            maxLength: 32
+          in: query
+          name: modelId
+          required: true
+          description: Идентификатор модели данных
+        - schema:
+            type: string
+            minLength: 32
+            maxLength: 320
+            example: '000d3a240c719a8711e68aba13f7f311, 000d3a240c719a8711e68aba13f7f312'
+          in: query
+          name: units
+          description: Список заведений (пиццерий) Dodo IS в формате UUID
+          required: true
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          in: query
+          name: take
+          description: Количество запрашиваемых записей
+components:
+  securitySchemes:
+    Authorization:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'marketplacesubscription:read': Получение информации о подписках приложения
+            'user.role:read': Роли и юниты пользователя
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+      description: ''
+    Service Token:
+      type: oauth2
+      flows:
+        clientCredentials:
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'marketplaceinvoice:read': Получение счетов по приложениям
+            'marketplaceinvoice:write': Добавление информации по счетам
+            marketplace: Взаимодействие приложений с Маркетплейс
+            'storeapi:write': Загрузка данных в Store API
+            'storeapi:read': Получение данных из Store API
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+  schemas:
+    GrantStatusChangedRequest:
+      title: GrantStatusChangedRequest
+      x-stoplight:
+        id: e0xucq3rglmj1
+      type: object
+      properties:
+        userId:
+          type: string
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор пользователя в Dodo IS в формате UUID
+          example: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+        status:
+          type: integer
+          minimum: 0
+          maximum: 4
+          description: |-
+            Текущий статус прав доступа на стороне внешней системы. Доступные статусы:
+
+            0 - Пользователь не разрешил доступ приложению, и внешняя система не смогла получить токен.
+
+            1 - Пользователь разрешил доступ приложению, и внешняя система успешно получила токен.
+
+            2 - Пользователь отозвал доступ у приложения.
+
+            3 - Внешняя система не смогла получить или обновить токен (например, из-за сбоя в системе).
+
+            4 - Поменялись настройки приложения, связанные с доступом (например, scope).
+          example: 1
+        modifiedAt:
+          type: string
+          format: date-time
+          description: Дата и время изменения прав доступа на стороне внешней системы
+        description:
+          type: string
+          example: Пользователь не дал разрешение на доступ к своим данным
+          description: Собственное название статуса внешней системы или подробное описание ошибки для отображения пользователю или для техподдержки.
+      required:
+        - userId
+        - status
+        - modifiedAt
+    SubscriptionStatusChangedRequest:
+      title: SubscriptionStatusChangedRequest
+      x-stoplight:
+        id: okns6t96j363z
+      type: object
+      properties:
+        userId:
+          type: string
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор пользователя в Dodo IS в формате UUID
+          example: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+        status:
+          type: integer
+          description: |-
+            Текущий статус подписки на стороне внешней системы. Доступные статусы:
+
+            0 — Подписка отключена пользователем.
+
+            1 — Подписка активна.
+
+            2 – Идёт настройка аккаунта пользователя, подписка пока не активна. Требуются действия от пользователя (предоставить дополнительные документы, заполнить все необходимые данные и т.п.).
+
+            3 — Требуется оплата. Подписка неактивна/приостановлена.
+
+            4 — Данная услуга не может быть предоставлена. Подписка устарела или пользователю отказано в предоставлении услуги.
+          example: 2
+          minimum: 0
+          maximum: 4
+        modifiedAt:
+          type: string
+          format: date-time
+          description: Дата и время изменения статуса подписки на стороне внешней системы
+        description:
+          type: string
+          description: Собственное название статуса внешней системы или подробное описание ошибки для отображения пользователю или для техподдержки
+          example: Ожидание оплаты
+      required:
+        - userId
+        - status
+        - modifiedAt
+    Subscription:
+      title: Subscription
+      x-stoplight:
+        id: b1f6589c29fee
+      type: object
+      description: Подписка приложения
+      properties:
+        id:
+          type: string
+          minLength: 32
+          maxLength: 32
+          example: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+          description: Идентификатор подписки в формате UUID
+        tariffAlias:
+          type: string
+          maxLength: 255
+          example: advanced
+          description: Технический псевдоним тарифа
+          minLength: 2
+        expiresAt:
+          type: string
+          format: date-time
+          description: Дата окончания подписки в формате ISO 8601
+          example: '2022-09-02T18:40:21'
+        units:
+          type: array
+          description: 'Список идентификаторов заведений в формате UUID, на которые распространяется подписка'
+          items:
+            type: string
+            minLength: 32
+            maxLength: 32
+            example: 11ed0d7dd11af7c0a10b4cfe94d41cc0
+        selectedTariffExtensions:
+          type: array
+          description: Выбранные расширения тарифа
+          items:
+            type: string
+            minLength: 1
+            example: big_report
+      required:
+        - id
+        - tariffAlias
+        - expiresAt
+        - units
+        - selectedTariffExtensions
+    Invoice:
+      title: Invoice
+      x-stoplight:
+        id: xxlohoom7jor1
+      type: object
+      description: Счет на оплату
+      x-examples:
+        Example 1:
+          applicationId: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+          applicationName: Экран с отзывами клиентов
+          applicationDeveloperTaxpayerIdentificationNumber: '2524366131'
+          isVatIncluded: true
+          unitId: 11ed0d7dd11af7c0a10b4cfe94d41329
+          paidDaysCount: 15
+          invoicePeriodYear: 2023
+          invoicePeriodMonth: 7
+          invoiceAmount: 333.33
+          currency: RUB
+          marketplaceCommission: 30
+          legalEntityId: null
+      properties:
+        applicationId:
+          type: string
+          description: Идентификатор приложения
+          example: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+          minLength: 32
+          maxLength: 32
+        applicationName:
+          type: string
+          description: Название приложения
+          example: Экран с отзывами клиентов
+        applicationDeveloperTaxpayerIdentificationNumber:
+          type: string
+          description: Налоговый код разработчика приложения
+          example: '2524366131'
+        isVatIncluded:
+          type: boolean
+          description: Учитывать НДС
+          example: true
+        unitId:
+          type: string
+          description: Идентификатор заведения
+          example: 11ed0d7dd11af7c0a10b4cfe94d41329
+          minLength: 32
+          maxLength: 32
+        paidDaysCount:
+          type: integer
+          minimum: 1
+          example: 15
+          description: Количество оплачиваемых дней
+        invoicePeriodYear:
+          type: integer
+          description: Год расчетного периода
+          example: 2023
+        invoicePeriodMonth:
+          type: integer
+          description: Месяц расчетного периода
+          minimum: 1
+          maximum: 12
+          example: 7
+        invoiceAmount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: Сумма за расчетный период без учета НДС
+          example: 333.33
+        currency:
+          type: string
+          description: Валюта в формате ISO 4217
+          minLength: 3
+          maxLength: 3
+          example: RUB
+        marketplaceCommission:
+          type: number
+          description: Комиссия Маркетплейс
+          example: 30
+          minimum: 0
+        legalEntityId:
+          type: string
+          minLength: 32
+          maxLength: 32
+          example: 11ed0d7dd11af7c0a10b4cfe94d41309
+          default: null
+          description: 'Юридическое лицо для выставления счета. Если не указано, то выставляется юридическому лицу, которое владеет заведением'
+          nullable: true
+      required:
+        - applicationId
+        - applicationName
+        - applicationDeveloperTaxpayerIdentificationNumber
+        - isVatIncluded
+        - unitId
+        - paidDaysCount
+        - invoicePeriodYear
+        - invoicePeriodMonth
+        - invoiceAmount
+        - currency
+        - marketplaceCommission
+    PayedInvoice:
+      title: PayedInvoice
+      x-stoplight:
+        id: f7ypc7a9rxymu
+      type: object
+      description: Счет за подписку
+      properties:
+        invoiceStatus:
+          type: string
+          description: Статус счета
+          enum:
+            - invoiced
+            - paid
+          example: paid
+        applicationId:
+          type: string
+          description: Идентификатор приложения
+          minLength: 32
+          maxLength: 32
+          example: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+        applicationDeveloperTaxpayerIdentificationNumber:
+          type: string
+          description: Налоговый код разработчика приложения
+          example: '2524366131'
+        unitId:
+          type: string
+          description: Идентификатор заведения
+          minLength: 32
+          maxLength: 32
+          example: 11ed0d7dd11af7c0a10b4cfe94d41329
+        legalEntityId:
+          type: string
+          description: Идентификатор юридического лица
+          example: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+          minLength: 32
+          maxLength: 32
+        legalEntityName:
+          type: string
+          description: Название юридического лица
+          example: ИП Василий
+        legalEntityTaxpayerIdentificationNumber:
+          type: string
+          example: '2524366131'
+          description: Налоговый код юридического лица
+        invoicePeriodYear:
+          type: integer
+          example: 2023
+          description: Год расчетного периода
+        invoicePeriodMonth:
+          type: integer
+          example: 7
+          minimum: 1
+          maximum: 12
+          description: Месяц расчетного периода
+        paidAmount:
+          type: number
+          description: Уплаченная сумма
+          example: 333.33
+          exclusiveMinimum: true
+          minimum: 0
+          nullable: true
+        currency:
+          type: string
+          description: Валюта в формате ISO 4217
+          minLength: 3
+          maxLength: 3
+          example: RUB
+        paymentDate:
+          type: string
+          format: date
+          description: Дата оплаты
+          example: '2022-09-02'
+          nullable: true
+        invoiceUrl:
+          type: string
+          description: Ссылка для просмотра счета
+          example: 'https://bitrix.ru/invoice/123'
+      required:
+        - invoiceStatus
+        - applicationId
+        - applicationDeveloperTaxpayerIdentificationNumber
+        - unitId
+        - legalEntityId
+        - legalEntityName
+        - legalEntityTaxpayerIdentificationNumber
+        - invoicePeriodYear
+        - invoicePeriodMonth
+        - currency
+        - invoiceUrl
+      x-examples:
+        Example 1:
+          invoiceStatus: invoiced
+          applicationId: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+          applicationDeveloperTaxpayerIdentificationNumber: '2524366131'
+          unitId: 11ed0d7dd11af7c0a10b4cfe94d41329
+          legalEntityId: 11ed0d7dd11af7c0a10b4cfe94d41cc9
+          legalEntityName: ИП Василий
+          legalEntityTaxpayerIdentificationNumber: '2524366131'
+          invoicePeriodYear: 2023
+          invoicePeriodMonth: 7
+          paidAmount: 333.33
+          currency: RUB
+          paymentDate: '2022-09-02'
+          invoiceUrl: 'https://bitrix.ru/invoice/123'
+    StoreApiUpload:
+      title: StoreApiUpload
+      x-stoplight:
+        id: qtztptml1dcyq
+      type: object
+      properties:
+        modelId:
+          type: string
+          minLength: 32
+          maxLength: 32
+          example: 000d3a240c719a8711e68aba13f7fe13
+          pattern: '[0-9a-f]{32}'
+          x-stoplight:
+            id: xfdssu17e55ph
+          description: Идентификатор модели данных
+        unitId:
+          type: string
+          x-stoplight:
+            id: 0tp4p9ohfhx8l
+          example: 000d3a240c719a8711e68aba13f7f311
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор заведения, для которого предназначены данные'
+        data:
+          type: object
+          x-stoplight:
+            id: u5kl4mddlq11u
+          description: Произвольные данные в формате JSON
+      required:
+        - modelId
+        - unitId
+        - data
+    StoreApiRecord:
+      title: StoreApiRecord
+      x-stoplight:
+        id: 781qrg2vu5v87
+      type: object
+      description: Запись Store API
+      properties:
+        modelId:
+          type: string
+          x-stoplight:
+            id: ohjjd170v91ti
+          description: Идентификатор модели данных
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+          example: 000d3a240c719a8711e68aba13f7fe13
+        unitId:
+          type: string
+          x-stoplight:
+            id: ea5t8p7ikvg8y
+          description: 'Идентификатор заведения, для которого предназначены данные'
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+          example: 000d3a240c719a8711e68aba13f7f311
+        uploadedAt:
+          type: string
+          x-stoplight:
+            id: tn9lodgvsx151
+          format: date-time
+          description: Дата и время загрузки данных в формате в формате ISO 8601
+        payload:
+          type: object
+          x-stoplight:
+            id: xnvczkmtnc1q8
+          description: Загруженные данные
+      required:
+        - modelId
+        - unitId
+        - uploadedAt
+        - payload
+      x-examples:
+        Example 1:
+          modelId: 000d3a240c719a8711e68aba13f7fe13
+          unitId: 000d3a240c719a8711e68aba13f7f311
+          uploadedAt: '2019-08-24T14:15:22Z'
+          payload:
+            hello: world
+security:
+  - Authorization:
+      - 'marketplace:write'
+      - 'marketplacesubscription:read'
+  - Service Token:
+      - 'marketplaceinvoice:read'
+      - 'marketplaceinvoice:write'
+      - marketplace
+      - 'storeapi:write'
+      - 'storeapi:read'

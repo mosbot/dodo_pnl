@@ -1,0 +1,551 @@
+openapi: 3.0.4
+info:
+  title: Auth API
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  contact:
+    name: Dodo Brands
+    url: 'https://dodobrands.io'
+    email: support@dodopizza.com
+  license:
+    name: Custom
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  version: '1.0'
+servers:
+  - url: 'https://api.dodois.io/auth'
+    description: RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/auth'
+    description: Other countries
+paths:
+  /roles/catalog:
+    get:
+      summary: Auth → Каталог ролей пользователей
+      description: Возвращает список всех возможных ролей пользователей
+      operationId: get-roles-catalog
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RolesCatalog'
+              example:
+                roles:
+                  - id: 1
+                    name: RootAdmin
+                  - id: 2
+                    name: DepartmentAdmin
+        '401':
+          description: Unauthorized
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.2'
+                title: Unauthorized
+                status: 401
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.4'
+                title: Forbidden
+                status: 403
+      security:
+        - ReadRoles:
+            - 'user.role:read'
+  /users/feed/updates:
+    get:
+      summary: Auth → Обновления
+      description: 'Возвращает список всех пользователей, которые были изменены. В порядке убывания от более свежих к более старым.'
+      operationId: get-users-feed-updates
+      parameters:
+        - name: from
+          in: query
+          description: 'Дата, с которой необходимо получить список. Если не указано - 24 часа.'
+          schema:
+            type: string
+            format: date-time
+        - name: skip
+          in: query
+          description: 'Количество, которое пропускаем от начала выборки с указанной даты.'
+          schema:
+            maximum: 2147483647
+            minimum: 0
+            default: 0
+            type: integer
+            format: int32
+        - name: take
+          in: query
+          description: Объём выборки.
+          schema:
+            maximum: 100
+            minimum: 1
+            default: 10
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserUpdateFeed'
+              example:
+                users:
+                  - userId: 018e3d403e8b743c81798b6da8993ffc
+                    countryCode: 643
+                    businessId: 63d4829611ea45c8ae71394860a2481c
+                    units: []
+                    countries:
+                      - countryCode: 643
+                        roleIds:
+                          - 12
+                          - 11
+                    updatedAt: '2025-09-27T13:58:21+00:00'
+                  - userId: 018e3d403e8b743c81798b6da8993ffc
+                    countryCode: 643
+                    businessId: 63d4829611ea45c8ae71394860a2481c
+                    units:
+                      - unitId: 018d93a1b4df76c7b3fd0513b481cedd
+                        roleIds:
+                          - 15
+                          - 5
+                      - unitId: 018ca6bde998795198a969c7ca827911
+                        roleIds:
+                          - 5
+                    countries: []
+                    updatedAt: '2025-09-19T13:55:33+00:00'
+                isEndOfListReached: true
+        '401':
+          description: Unauthorized
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.2'
+                title: Unauthorized
+                status: 401
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.4'
+                title: Forbidden
+                status: 403
+      security:
+        - ReadUserStatus:
+            - 'users:feed'
+  /users/feed/deletions:
+    get:
+      summary: Auth → Удаления
+      description: 'Возвращает список всех пользователей, которые были удалены. В порядке убывания от более свежих к более старым.'
+      operationId: get-users-feed-deletions
+      parameters:
+        - name: from
+          in: query
+          description: 'Дата, с которой необходимо получить список. Если не указано - 24 часа.'
+          schema:
+            type: string
+            format: date-time
+        - name: skip
+          in: query
+          description: 'Количество, которое пропускаем от начала выборки с указанной даты.'
+          schema:
+            maximum: 2147483647
+            minimum: 0
+            default: 0
+            type: integer
+            format: int32
+        - name: take
+          in: query
+          description: Объём выборки.
+          schema:
+            maximum: 100
+            minimum: 1
+            default: 10
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDeleteFeed'
+              example:
+                users:
+                  - userId: 0194411cd4847154bbb780ef6f014a99
+                    deletedAt: '2025-11-13T14:13:16+00:00'
+                  - userId: 01923e2017997be99da1a905f9816900
+                    deletedAt: '2025-10-25T14:12:23+00:00'
+                isEndOfListReached: true
+        '401':
+          description: Unauthorized
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.2'
+                title: Unauthorized
+                status: 401
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.4'
+                title: Forbidden
+                status: 403
+      security:
+        - ReadUserStatus:
+            - 'users:feed'
+  /roles/list:
+    get:
+      tags:
+        - Роли пользователей
+      summary: Auth → Список ролей
+      description: Возвращает список всех существующих ролей пользователей.
+      operationId: get-roles-list
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+              example:
+                - id: 1
+                  name: Central administrator
+        '401':
+          description: Unauthorized
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.2'
+                title: Unauthorized
+                status: 401
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.4'
+                title: Forbidden
+                status: 403
+      security:
+        - ReadRoles:
+            - 'user.role:read'
+  /roles/units:
+    get:
+      tags:
+        - Роли пользователей
+      summary: Auth → Юниты пользователя
+      description: 'Возвращает список юнитов (пиццерий, или других заведений в рамках конепции бизнеса) доступных пользователю, от имени которого делается запрос, с указанием доступных ролей в каждом из этих юнитов.'
+      operationId: get-roles-units
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UnitRole'
+              example:
+                - id: 000d3a26b5b080dd11e6eed25ce51c88
+                  name: Москва 0-1
+                  roleIds:
+                    - 1
+                    - 2
+                  countryCode: 643
+                  businessId: dodopizza
+                  unitType: 1
+                - id: 000d3a240c719a8711e68aba13f97fc4
+                  name: Москва 0-ПРЦ-1
+                  roleIds:
+                    - 1
+                  countryCode: 643
+                  businessId: dodopizza
+                  unitType: 6
+        '401':
+          description: Unauthorized
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.2'
+                title: Unauthorized
+                status: 401
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: 'https://tools.ietf.org/html/rfc9110#section-15.5.4'
+                title: Forbidden
+                status: 403
+      security:
+        - ReadRoles:
+            - 'user.role:read'
+components:
+  schemas:
+    BusinessId:
+      enum:
+        - dodopizza
+        - drinkit
+      type: string
+    ProblemDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        status:
+          type: integer
+          format: int32
+          nullable: true
+        detail:
+          type: string
+          nullable: true
+        instance:
+          type: string
+          nullable: true
+      additionalProperties: {}
+    Role:
+      required:
+        - id
+        - name
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Идентификатор роли
+          format: int32
+        name:
+          minLength: 1
+          type: string
+          description: Название роли
+      additionalProperties: false
+      description: Роль (уровень доступа) пользователя
+    RolesCatalog:
+      required:
+        - roles
+      type: object
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+          description: Список всех возможных ролей пользователей.
+      additionalProperties: false
+      description: Каталог всех возможных ролей пользователей.
+    UnitRole:
+      required:
+        - businessId
+        - countryCode
+        - id
+        - name
+        - roleIds
+        - unitType
+      type: object
+      properties:
+        id:
+          maxLength: 32
+          pattern: '^[a-f0-9]{32}$'
+          type: string
+          description: Идентификатор юнита
+          format: uuid
+        name:
+          minLength: 1
+          type: string
+          description: Название юнита
+        roleIds:
+          type: array
+          items:
+            type: integer
+            format: int32
+          description: Список идентификаторов ролей пользователя в данном юните. Значения идентификаторов можно получить из справочника «Auth → Список ролей»
+        countryCode:
+          type: integer
+          description: Код страны юнита в ISO3166 формате
+          format: int32
+        businessId:
+          $ref: '#/components/schemas/BusinessId'
+        unitType:
+          type: integer
+          description: Тип юнита
+          format: int32
+      additionalProperties: false
+      description: 'Параметры юнита, доступного пользователю'
+    UserDeleteFeed:
+      required:
+        - users
+        - isEndOfListReached
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDeleteFeedItem'
+          description: Удалённые пользователи.
+        isEndOfListReached:
+          type: boolean
+          description: 'Индикатор того, что достигнут конец списка. Выдаёт true, если достигнут конец списка.'
+      additionalProperties: false
+      description: Данные об удалении пользователей.
+    UserDeleteFeedItem:
+      required:
+        - deletedAt
+        - userId
+      type: object
+      properties:
+        userId:
+          maxLength: 32
+          pattern: '^[a-f0-9]{32}$'
+          type: string
+          description: Идентификатор удалённого пользователя
+          format: uuid
+        deletedAt:
+          type: string
+          description: Дата удаления пользователя по UTC.
+          format: date-time
+      additionalProperties: false
+      description: Данные об удалении пользователя.
+    UserUpdateFeed:
+      required:
+        - users
+        - isEndOfListReached
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserUpdateFeedItem'
+          description: Обновлённые пользователи.
+        isEndOfListReached:
+          type: boolean
+          description: 'Индикатор того, что достигнут конец списка. Выдаёт true, если достигнут конец списка.'
+      additionalProperties: false
+      description: Данные об обновлении пользователей.
+    UserUpdateFeedItem:
+      required:
+        - businessId
+        - countries
+        - countryCode
+        - units
+        - updatedAt
+        - userId
+      type: object
+      properties:
+        userId:
+          maxLength: 32
+          pattern: '^[a-f0-9]{32}$'
+          type: string
+          description: Идентификатор обновлённого пользователя
+          format: uuid
+        countryCode:
+          type: integer
+          description: Код страны (ISO 3166-1 numeric)
+          format: int32
+        businessId:
+          maxLength: 32
+          pattern: '^[a-f0-9]{32}$'
+          type: string
+          description: "Идентификатор бизнеса.\r\n63d4829611ea45c8ae71394860a2481c - Додо Пицца\r\nc0b18e725258427a8bffea4f73957b0e - Дринкит"
+          format: uuid
+        units:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserUpdateFeedItemUnitRole'
+          description: Данные по ролям отдельных юнитов.
+        countries:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserUpdateFeedItemCountryRole'
+          description: Данные по ролям с областью действия на все юниты страны.
+        updatedAt:
+          type: string
+          description: Дата обновления пользователя по UTC.
+          format: date-time
+      additionalProperties: false
+      description: Данные об обновлении пользователя
+    UserUpdateFeedItemCountryRole:
+      required:
+        - countryCode
+        - roleIds
+      type: object
+      properties:
+        countryCode:
+          maximum: 1000
+          minimum: 0
+          type: integer
+          description: Код страны (ISO 3166-1 numeric)
+          format: int32
+        roleIds:
+          type: array
+          items:
+            type: integer
+            format: int32
+          description: 'Идентификаторы ролей пользователя, которые применяются ко всем юнитам в стране.'
+      additionalProperties: false
+      description: Данные по ролям страны.
+    UserUpdateFeedItemUnitRole:
+      required:
+        - roleIds
+        - unitId
+      type: object
+      properties:
+        unitId:
+          maxLength: 32
+          pattern: '^[a-f0-9]{32}$'
+          type: string
+          description: Идентификатор юнита
+          format: uuid
+        roleIds:
+          type: array
+          items:
+            type: integer
+            format: int32
+          description: Идентификаторы ролей пользователя в юните.
+      additionalProperties: false
+      description: Данные по ролям отдельного юнита.
+  securitySchemes:
+    ReadUserStatus:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'users:feed': Получение обновлений состояния пользователей
+    ReadRoles:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'user.role:read': Роли и юниты пользователя

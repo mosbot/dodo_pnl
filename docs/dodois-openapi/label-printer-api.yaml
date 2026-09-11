@@ -1,0 +1,243 @@
+openapi: 3.0.1
+info:
+  title: Label printer API
+  version: '1.0'
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  license:
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  contact:
+    url: 'https://dodobrands.io'
+    name: Dodo Brands
+  description: API принтера этикеток
+servers:
+  - url: 'https://api.dodois.io/label-printer/dodopizza'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/label-printer/dodopizza'
+    description: Dodopizza - Other countries
+  - url: 'https://api.dodois.io/label-printer/drinkit'
+    description: Drinkit - RU / KZ
+  - url: 'https://api.dodois.io/label-printer/drinkit'
+    description: Drinkit - AE / Other countries
+paths:
+  /queue:
+    parameters: []
+    get:
+      summary: Принтер этикеток → Очередь этикеток на печать
+      tags: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Queue'
+              examples: {}
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+      operationId: get-queue
+      description: 'Возвращает очередь этикеток, которые еще не были распечатаны. Если этикетка не была распечатана (метод `/confirmation`), она пропадает из очереди спустя 8 минут.'
+      parameters:
+        - schema:
+            type: string
+            minItems: 1
+            maxItems: 30
+            example: '000d3a240c719a8711e68aba13f7f862,81d474c64ead4e889f0cccdc22a3f753'
+          in: query
+          name: units
+          description: Список отделов (пиццерий) Dodo IS в формате UUID
+          required: true
+  /confirmation:
+    parameters: []
+    post:
+      summary: Принтер этикеток → Подтверждение печати этикетки
+      operationId: post-confirmation
+      description: Подтверждает факт печати этикетки. В случае успешного выполнения этикетка удаляется из очереди.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrintConfirmationRequest'
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+components:
+  schemas:
+    Label:
+      title: Label
+      type: object
+      x-examples: {}
+      description: Этикетка
+      properties:
+        id:
+          type: string
+          description: Идентификатор этикетки
+          format: none
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+        clientProductName:
+          type: string
+          description: Название продукта для клиента
+          example: Сытные палочки с чоризо
+        trackerProductName:
+          type: string
+          description: Название продукта для трекера
+          example: СытПалЧор
+        addedIngredients:
+          description: Добавленные ингредиенты
+          type: array
+          items:
+            type: string
+            example: Ог
+        removedIngredients:
+          type: array
+          description: Убранные ингредиенты
+          items:
+            type: string
+            example: Гс
+        sauces:
+          type: array
+          description: Соусы
+          items:
+            type: string
+            example: Сырный
+        orderTypeName:
+          type: string
+          description: Тип заказа (доставка/ресторан/самовывоз)
+          enum:
+            - Delivery
+            - Dine-in
+            - Takeaway
+          example: Delivery
+        orderNumber:
+          type: integer
+          description: Номер заказа
+          example: 36
+          minimum: 1
+        orderItemsCount:
+          type: integer
+          description: Количество позиций в заказе
+          example: 5
+          minimum: 1
+          maximum: 999
+        cookedAt:
+          type: string
+          description: Локальные дата и время изготовления для отдела (пиццерии)
+          format: date-time
+        weight:
+          type: number
+          description: Вес (г)
+          example: 756.5
+          minimum: 0
+        unitId:
+          type: string
+          description: Идентификатор отдела (пиццерии)
+          example: 4c3d78ab404346868a3b117441e88b1a
+          minLength: 32
+          maxLength: 32
+      required:
+        - id
+        - clientProductName
+        - trackerProductName
+        - addedIngredients
+        - removedIngredients
+        - sauces
+        - orderTypeName
+        - orderNumber
+        - orderItemsCount
+        - cookedAt
+        - weight
+        - unitId
+    Queue:
+      title: Queue
+      type: object
+      properties:
+        queue:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+      description: Очередь этикеток
+    PrintConfirmationRequest:
+      title: PrintConfirmationRequest
+      type: object
+      properties:
+        labelId:
+          type: string
+          description: Идентификатор этикетки
+          minLength: 32
+          maxLength: 32
+          example: 81d474c64ead4e889f0cccdc22a3f753
+        unitId:
+          type: string
+          description: 'Идентификатор отдела (пиццерии). Должен совпадать с идентификатором отдела в этикетке, полученной из `/queue`'
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+      required:
+        - labelId
+        - unitId
+      description: Запрос на подтверждение печати
+    ErrorResponse:
+      type: string
+      title: ErrorResponse
+      x-stoplight:
+        id: dswg406sthl6j
+      description: Описание ошибки
+      example: Error description
+  securitySchemes:
+    Authorization:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            labelprinter_api: Доступ к данным принтера этикеток
+            offline_access: Скоуп для получения refresh_token
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+      description: ''
+  responses: {}
+  examples: {}
+  requestBodies: {}
+security:
+  - Authorization:
+      - labelprinter_api

@@ -1,0 +1,507 @@
+openapi: 3.0.1
+x-stoplight:
+  id: t463e3zp8rcyk
+info:
+  title: Inventory API
+  version: '1.0'
+  description: API предоставляет возможность работать с учетом Dodo IS
+  contact:
+    name: Dodo Brands
+    url: 'https://dodobrands.io'
+  license:
+    url: 'https://cdn.dodostatic.com/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  termsOfService: 'https://cdn.dodostatic.com/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/dodopizza/inventory'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/dodopizza/inventory'
+    description: Dodopizza - Other countries
+  - url: 'https://api.dodois.io/drinkit/inventory'
+    description: Drinkit - RU / KZ
+  - url: 'https://api.dodois.io/drinkit/inventory'
+    description: Drinkit - AE / Other countries
+paths:
+  /revisions:
+    get:
+      summary: Учет → Ревизии
+      responses:
+        '200':
+          $ref: '#/components/responses/GetRevisionResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+            - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+            - `Required` - не передано обязательное поле
+            - `InvalidInput` - передано невалидное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+            Коды ошибок:
+            - `NoAccessToUnit` - нет доступа к запрашиваемому заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForbiddenRequest'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+            - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalErrorRequest'
+      operationId: get-revisions
+      description: |-
+        Возвращает информацию о проведенных ревизиях.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Дополнительная информация
+        #### Сырье может повторяться в разрезе одной ревизии. 
+        Это обусловлено тем, что сырье может храниться в разных местах внутри пиццерии, и каждое из этих мест учитывается отдельно. Чтобы определить общее количество сырья при проведении ревизии, необходимо суммировать все его вхождения.
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 10 заведений в одном запросе
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов
+        3. `from` должен быть меньше, чем `to`
+        4. Максимальный период запроса - 14 дней
+        5. Максимальное количество записей в одном запросе `take` - 1000
+
+        > #### Доступно для следующих ролей:
+        >
+        >   `Division administrator` - Администратор подразделения
+        >
+        >   `Store Manager` - Менеджер офиса
+      security:
+        - Dodo oauth2:
+            - accounting
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+        - schema:
+            type: string
+            enum:
+              - Day
+              - Week
+              - Month
+            example: Day
+          in: query
+          name: typeOfPeriodicity
+          description: Период ревизии. День/Неделя/Месяц
+        - $ref: '#/components/parameters/stockItems'
+components:
+  schemas:
+    IsEndOfListReached:
+      title: IsEndOfListReached
+      x-stoplight:
+        id: 4l59ifjdvdnu6
+      type: boolean
+      description: 'Индикатор того, что достигнут конец списка. Выдаёт true, если достигнут конец списка.'
+    UnitId:
+      title: UnitId
+      x-stoplight:
+        id: p0o8xw3u6cvn3
+      type: string
+      format: uuid
+      description: Идентификатор заведения (пиццерии)
+      minLength: 32
+      maxLength: 32
+      example: 000d3a240c719a8711e68aba13f7fe13
+      pattern: '[0-9a-f]{32}'
+    StockItemId:
+      title: StockItemId
+      x-stoplight:
+        id: aybwaao3bjriz
+      type: string
+      format: uuid
+      description: Идентификатор материала/продукта
+      minLength: 32
+      maxLength: 32
+      example: 2a69836ab8f583ec11ed90098ae24dff
+      pattern: '[0-9a-f]{32}'
+    StockItemName:
+      title: StockItemName
+      x-stoplight:
+        id: awtoh1p9jkqoj
+      type: string
+      example: Ананасы
+      description: Название материала/продукта
+    StockItemQuantity:
+      title: StockItemQuantity
+      x-stoplight:
+        id: kyuj1rncmmgvm
+      type: number
+      format: double
+      minimum: 0
+      example: 0.123
+      description: Количество
+    StockItemMeasurementUnit:
+      title: StockItemMeasurementUnit
+      x-stoplight:
+        id: 44cmyi9rudbro
+      type: string
+      enum:
+        - Quantity
+        - Kilogram
+        - Liter
+        - Meter
+      example: Quantity
+      description: Наименование единицы измерения
+    BadRequest:
+      title: BadRequest
+      x-stoplight:
+        id: vindz60y7w425
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 2q5bzgrdz7xqu
+          description: Код ошибки
+          example: ValidationError
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: glq97ey5f2mes
+          description: Http статус ответа
+          example: '400'
+        requestId:
+          $ref: '#/components/schemas/ErrorRequestId'
+        message:
+          type: string
+          x-stoplight:
+            id: 82hd8n4oig9wb
+        details:
+          type: object
+          x-stoplight:
+            id: hecnxiyo17s76
+          properties:
+            errors:
+              type: array
+              x-stoplight:
+                id: 0ube4528impzn
+              items:
+                $ref: '#/components/schemas/BadRequestErrors'
+      required:
+        - code
+        - httpStatus
+        - requestId
+    ForbiddenRequest:
+      title: BadRequest
+      x-stoplight:
+        id: rll5gujznttn9
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 2q5bzgrdz7xqu
+          description: Код ошибки
+          example: NoAccessToUnit
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: glq97ey5f2mes
+          description: Http статус ответа
+          example: 403
+        requestId:
+          $ref: '#/components/schemas/ErrorRequestId'
+        message:
+          type: string
+          x-stoplight:
+            id: 82hd8n4oig9wb
+          example: No access to the requested unit
+        details:
+          type: object
+          x-stoplight:
+            id: hecnxiyo17s76
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат зависит может отличаться в зависимости от кода ошибки.
+      required:
+        - code
+        - httpStatus
+        - requestId
+    InternalErrorRequest:
+      title: BadRequest
+      x-stoplight:
+        id: h29qdfm3oykd8
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 2q5bzgrdz7xqu
+          description: Код ошибки
+          example: InternalError
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: glq97ey5f2mes
+          description: Http статус ответа
+          example: 500
+        requestId:
+          $ref: '#/components/schemas/ErrorRequestId'
+        message:
+          type: string
+          x-stoplight:
+            id: 82hd8n4oig9wb
+          example: Unhandled exception
+        details:
+          type: object
+          x-stoplight:
+            id: hecnxiyo17s76
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат зависит может отличаться в зависимости от кода ошибки.
+      required:
+        - code
+        - httpStatus
+        - requestId
+    ErrorRequestId:
+      title: ErrorRequestId
+      x-stoplight:
+        id: 0c9coav7opjwv
+      type: string
+      description: Уникальный идентификатор запроса
+      example: '0HLEACIU86PT6:0000000D'
+    BadRequestErrors:
+      title: BadRequestErrors
+      x-stoplight:
+        id: jpz8rroki2bcu
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: xcxpa5xyto0db
+          description: Код ошибки
+        field:
+          type: string
+          x-stoplight:
+            id: 2yq42r78wvm39
+          description: 'Параметр запроса, содержащий невалидные данные'
+        message:
+          type: string
+          x-stoplight:
+            id: md64f3mmbefe0
+      required:
+        - code
+        - field
+        - message
+  securitySchemes:
+    Dodo oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          scopes:
+            accounting: Учет
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+      description: ''
+  parameters:
+    units:
+      name: units
+      in: query
+      required: true
+      schema:
+        type: string
+        example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+      description: Список заведений (пиццерий) Dodo IS в формате UUID
+    skip:
+      name: skip
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        example: 0
+      description: 'Количество записей, которые следует пропустить'
+    take:
+      name: take
+      in: query
+      required: false
+      schema:
+        type: integer
+        maxLength: 1000
+        example: '100'
+        exclusiveMinimum: true
+        minimum: 0
+        maximum: 1000
+      description: 'Количество записей, которые следует выбрать'
+    from:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+        example: '2011-08-01T18:31:42'
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+      description: Начало периода в формате ISO 8601
+    to:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+        example: '2011-09-02T19:21:53'
+        pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+      description: Конец периода в формате ISO 8601
+    stockItems:
+      name: stockItems
+      in: query
+      required: false
+      schema:
+        type: string
+        example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+      description: Список сырья в формате UUID
+  responses:
+    GetRevisionResponse:
+      description: ''
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              revisions:
+                type: array
+                x-stoplight:
+                  id: 2h5ydsjgk002u
+                items:
+                  x-stoplight:
+                    id: n6y0hd0rymsdv
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      x-stoplight:
+                        id: oym26ns9noif2
+                      minLength: 32
+                      maxLength: 32
+                      format: uuid
+                      example: 000d3a240c719a8711e68aba13f7f862
+                      pattern: '[0-9a-f]{32}'
+                      description: Идентификатор ревизии
+                    typeOfPeriodicity:
+                      type: string
+                      x-stoplight:
+                        id: xjds3fi1y7ra2
+                      enum:
+                        - Day
+                        - Week
+                        - Month
+                      description: Перид ревизии. День/Неделя/Месяц
+                    finishedAt:
+                      type: string
+                      x-stoplight:
+                        id: bdxsbdeeq8dqq
+                      format: date-time
+                      example: '2022-10-01T23:00:00'
+                      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+                      description: Дата и время завершения ревизии
+                    modifiedAt:
+                      type: string
+                      x-stoplight:
+                        id: bdxsbdeeq8dqq
+                      format: date-time
+                      example: '2022-10-01T23:00:00'
+                      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+                      description: Дата и время последнего изменения ревизии
+                    unitId:
+                      $ref: '#/components/schemas/UnitId'
+                    stockItems:
+                      type: array
+                      x-stoplight:
+                        id: 1oivsyfwky87b
+                      items:
+                        x-stoplight:
+                          id: f62f7slgycjt7
+                        type: object
+                        properties:
+                          id:
+                            $ref: '#/components/schemas/StockItemId'
+                          name:
+                            $ref: '#/components/schemas/StockItemName'
+                          quantity:
+                            $ref: '#/components/schemas/StockItemQuantity'
+                          measurementUnit:
+                            $ref: '#/components/schemas/StockItemMeasurementUnit'
+                          corrections:
+                            type: array
+                            x-stoplight:
+                              id: ot1rjx6lasbm6
+                            items:
+                              x-stoplight:
+                                id: eu08en46ciikk
+                              type: object
+                              properties:
+                                quantity:
+                                  type: number
+                                  x-stoplight:
+                                    id: 9a461hq3armlo
+                                  description: Установленное количество
+                                  format: double
+                                  minimum: 0
+                                  example: 55.47
+                                previousQuantity:
+                                  type: number
+                                  x-stoplight:
+                                    id: 3con062548ae2
+                                  format: double
+                                  description: Предыдущее количество
+                                  minimum: 0
+                                  example: 43.86
+                                modifiedAt:
+                                  type: string
+                                  x-stoplight:
+                                    id: r8kmyjp3b2air
+                                  description: Дата и в время изменения
+                                  example: '2022-10-01T23:00:00'
+                                  pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+                                modifiedBy:
+                                  type: string
+                                  x-stoplight:
+                                    id: rs9by8rbo3cgb
+                                  description: Идентификатор пользователя который внес изменение
+                                  format: uuid
+                                  example: 000d3a240c719a8711e68aba13f7fe13
+                                  minLength: 32
+                                  maxLength: 32
+                                  pattern: '[0-9a-f]{32}'
+                              required:
+                                - quantity
+                                - previousQuantity
+                                - modifiedAt
+                                - modifiedBy
+                        required:
+                          - id
+                          - name
+                          - quantity
+                          - measurementUnit
+                          - corrections
+                  required:
+                    - id
+                    - typeOfPeriodicity
+                    - finishedAt
+                    - modifiedAt
+                    - unitId
+                    - stockItems
+              isEndOfListReached:
+                $ref: '#/components/schemas/IsEndOfListReached'
+            required:
+              - revisions
+              - isEndOfListReached

@@ -1,5 +1,12 @@
 # Dodo IS API — справочник эндпоинтов
 
+> **Это производный текст, а не источник правды.** Источник — официальные
+> OpenAPI-спеки в `docs/dodois-openapi/*.yaml` и выжимка из них
+> `docs/dodois-api-facts.md` (генерится `_scripts/gen_dodois_facts.py`).
+> При расхождении правы спеки или живой вызов. Базовые URL, список стран и
+> заявленные скоупы смотреть ТОЛЬКО в facts-файле: здесь они пересказаны
+> по памяти и уже расходились с реальностью.
+
 Источник: `docs.dodois.io`, project `cHJqOjExMTA4MQ` (Stoplight). Базовые URL по странам — `https://api.dodois.io/dodopizza/<country>` (RU: `/dodopizza/ru`, BY: `/dodopizza/by`, прочие на `api.dodois.com`).
 
 Авторизация: OAuth Bearer (`Authorization: Bearer <access_token>`). Список юнитов пользователя — `GET https://api.dodois.io/auth/roles/units`.

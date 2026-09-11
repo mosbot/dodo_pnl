@@ -1,0 +1,575 @@
+openapi: 3.0.1
+x-stoplight:
+  id: zdqsi3sfgeo0b
+info:
+  title: Customer Rating API
+  version: '1.0'
+  description: API предоставляет возможность работать с отзывами клиентов и рейтингами заведений
+  contact:
+    name: Dodo Brands
+    url: 'https://dodobrands.io'
+  license:
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/customer-feedback'
+    description: RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/customer-feedback'
+    description: Other countries
+  - url: 'https://api.dodois.io/dodopizza/customer-feedback'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/dodopizza/customer-feedback'
+    description: Dodopizza - Other countries
+  - url: 'https://api.dodois.io/drinkit/customer-feedback'
+    description: Drinkit - RU / KZ
+  - url: 'https://api.dodois.com/drinkit/customer-feedback'
+    description: Drinkit - AE / Other countries
+paths:
+  /recent-feedbacks:
+    servers:
+      - url: 'https://api.dodois.io/dodopizza/customer-feedback'
+        description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+      - url: 'https://api.dodois.com/dodopizza/customer-feedback'
+        description: Dodopizza - Other countries
+      - url: 'https://api.dodois.io/drinkit/customer-feedback'
+        description: Drinkit - RU / KZ
+      - url: 'https://api.dodois.com/drinkit/customer-feedback'
+        description: Drinkit - AE / Other countries
+    get:
+      summary: Отзывы клиентов → Недавние отзывы
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderFeedbacks:
+                    type: array
+                    description: Отзывы к заказам
+                    items:
+                      $ref: '#/components/schemas/Feedback'
+                required:
+                  - orderFeedbacks
+              examples:
+                Пример:
+                  value:
+                    orderFeedbacks:
+                      - unitId: 000d3a240c719a8711e68aba13f7f862
+                        countryCode: 643
+                        orderId: 000d3a480c719a8911e68aba13f7f731
+                        orderNumber: 123
+                        orderCreatedAt: '2022-09-02T18:40:21'
+                        orderRate: 5
+                        feedbackComment: Самая вкусная пицца в моей жизни!!!
+                        feedbackCreatedAt: '2022-09-02T19:21:53'
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+      operationId: get-ratings-recent-feedback
+      description: |-
+        Возвращает 10 последних пользовательских отзывов по каждому из заведений (`units`). Если есть необходимость получать отзывы без комментариев к ним, то необходимо возвести флаг `includeFeedbacksWithEmptyComment`.
+
+        ### Требования к query параметрам
+        1. В `units` можно перечислить не более 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - schema:
+            type: string
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+            minLength: 32
+            maxLength: 956
+          in: query
+          name: units
+          description: Список заведений Dodo IS в формате UUID
+          required: true
+        - schema:
+            type: boolean
+            default: false
+            example: true
+          in: query
+          name: includeFeedbacksWithEmptyComment
+          description: 'Возвращать отзывы, у которых нет комментариев'
+    parameters: []
+  /customer-ratings:
+    servers:
+      - url: 'https://api.dodois.io/customer-feedback'
+        description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+      - url: 'https://api.dodois.com/customer-feedback'
+        description: Dodopizza - Other countries
+      - url: 'https://api.dodois.io/customer-feedback'
+        description: Drinkit - RU / KZ
+      - url: 'https://api.dodois.com/customer-feedback'
+        description: Drinkit - AE / Other countries
+    get:
+      summary: Отзывы клиентов → Рейтинг клиентов
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                x-examples:
+                  Example 1:
+                    averageOrderRate: 4.72
+                additionalProperties: false
+                properties:
+                  customerRatings:
+                    type: array
+                    description: Рейтинг клиентов по заведениям
+                    items:
+                      $ref: '#/components/schemas/CustomerRate'
+                required:
+                  - customerRatings
+              examples:
+                Пример:
+                  value:
+                    customerRatings:
+                      - unitId: 000d3a240c719a8711e68aba13f7f862
+                        avgDineInOrderRate: 4.73
+                        avgDeliveryOrderRate: 4.73
+                        dineInRateCount: 210
+                        deliveryRateCount: 210
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+      operationId: get-ratings-feedback-statistics
+      description: |-
+        Возвращает среднюю оценку заказов из заведений (`units`) за указанный период (`from` и `to`). Статистика доступна с шагом в один день. Невозможно получить статистику за сегодняшний день.
+
+        ### Правило преведения дат
+        1. Для полученного параметра `from` берется начало дня (`2011-08-01` → `2011-08-01 00:00:00`).
+        2. Для полученного параметра  `to` берется окончание дня (`2011-08-01` → `2011-08-01 23:59:59`).
+
+        ### Возможный результат
+        Результат выполнения запроса (`avgDineInOrderRate`, `avgDeliveryOrderRate`) представлет из себя значение в диапазоне от `0` до `5` для dodopizza и от `0` до `1` для drinkit.
+
+        ### Требования к query параметрам
+        1. В `units` можно перечислить не более 100 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+        3. Диапазон дат между `to` и `from` параметрами не должен превышать 31 день;
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - schema:
+            type: string
+            minLength: 32
+            maxLength: 3231
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+          in: query
+          name: units
+          description: Список заведений Dodo IS в формате UUID
+          required: true
+        - schema:
+            type: string
+            format: date
+            example: '2011-08-01'
+          in: query
+          name: from
+          description: Начало периода (дата без времени)
+          required: true
+        - schema:
+            type: string
+            format: date
+            example: '2011-09-02'
+          in: query
+          name: to
+          description: Конец периода (дата без времени)
+          required: true
+    parameters: []
+  /lfl/by-units:
+    servers:
+      - url: 'https://api.dodois.io/customer-feedback'
+        description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+      - url: 'https://api.dodois.com/customer-feedback'
+        description: Dodopizza - Other countries
+      - url: 'https://api.dodois.io/customer-feedback'
+        description: Drinkit - RU / KZ
+      - url: 'https://api.dodois.com/customer-feedback'
+        description: Drinkit - AE / Other countries
+    get:
+      summary: LFL → LFL по заведениям
+      description: |
+        Возвращает Like for Like (LFL) показатели по заведениям за указанный период.
+
+        ### Требования к query параметрам
+        1. В `units` можно перечислить не более 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+      operationId: get-lfl-by-units
+      parameters:
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date
+            example: '2024-01-01'
+          description: Начало периода (дата без времени)
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+            format: date
+            example: '2024-01-31'
+          description: Конец периода (дата без времени)
+        - in: query
+          name: units
+          required: true
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 990
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a'
+          description: 'Список заведений Dodo IS в формате UUID, перечисленных через запятую'
+        - in: query
+          name: granularity
+          required: false
+          schema:
+            type: string
+            enum:
+              - Day
+              - Week
+              - Month
+            default: Day
+            example: Day
+          description: 'Грануляция данных по времени (дни, недели, месяцы)'
+      responses:
+        '200':
+          description: Успешный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LflByUnitsResponse'
+              examples:
+                Пример:
+                  value:
+                    lfl:
+                      - unitId: 000d3a240c719a8711e68aba13f7f862
+                        countryId: ru
+                        date: '2024-01-01'
+                        lflRevenue: 0.05
+                        lflOrder: 0.02
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+  /lfl/by-countries:
+    servers:
+      - url: 'https://api.dodois.io/customer-feedback'
+        description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+      - url: 'https://api.dodois.com/customer-feedback'
+        description: Dodopizza - Other countries
+      - url: 'https://api.dodois.io/customer-feedback'
+        description: Drinkit - RU / KZ
+      - url: 'https://api.dodois.com/customer-feedback'
+        description: Drinkit - AE / Other countries
+    get:
+      summary: LFL → LFL по странам
+      description: |
+        Возвращает Like for Like (LFL) показатели по странам за указанный период.
+
+        ### Требования к query параметрам
+        1. В `countries` можно перечислить не более 10 стран в одном запросе;
+        2. В `countries` следует перечислять коды стран строго через запятую без пробелов;
+      operationId: get-lfl-by-countries
+      parameters:
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date
+            example: '2024-01-01'
+          description: Начало периода (дата без времени)
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+            format: date
+            example: '2024-01-31'
+          description: Конец периода (дата без времени)
+        - in: query
+          name: countries
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 300
+            example: 'ru,kz,by'
+          description: 'Список кодов стран (ISO 3166-1 alpha-2), перечисленных через запятую'
+        - in: query
+          name: granularity
+          required: false
+          schema:
+            type: string
+            enum:
+              - Day
+              - Week
+              - Month
+            default: Day
+            example: Day
+          description: 'Грануляция данных по времени (дни, недели, месяцы)'
+      responses:
+        '200':
+          description: Успешный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LflByCountriesResponse'
+              examples:
+                Пример:
+                  value:
+                    lfl:
+                      - countryId: ru
+                        date: '2024-01-01'
+                        lflRevenue: 0.03
+                        lflOrder: 0.01
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+components:
+  schemas:
+    Feedback:
+      type: object
+      x-examples:
+        Example 1:
+          countryCode: 643
+          orderUUid: 000d3a480c719a8911e68aba13f7f731
+          pizzeriaUUid: 000d3a240c719a8711e68aba13f7f862
+          rate: 5
+          comment: Самая вкусная пицца в моей жизни!!!
+          createdDateTimeUTC: '2011-09-02T19:21:53'
+          source: MobileApp
+      description: Отзыв клиента
+      properties:
+        unitId:
+          type: string
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор заведения
+          example: 000d3a240c719a8711e68aba13f7f862
+        countryCode:
+          type: integer
+          example: 643
+          description: Код страны в формате ISO 3166-1 numeric
+        orderId:
+          type: string
+          minLength: 32
+          maxLength: 32
+          example: 000d3a480c719a8911e68aba13f7f731
+          description: Идентификатор заказа
+        orderNumber:
+          type: integer
+          description: Номер заказа
+          example: 123
+        orderCreatedAt:
+          type: string
+          example: '2022-09-02T18:40:21'
+          format: date-time
+          description: Дата создания заказа
+        orderRate:
+          type: integer
+          example: 5
+          minimum: 1
+          maximum: 5
+          description: Клиентская оценка заказа
+        feedbackComment:
+          type: string
+          example: Самая вкусная пицца в моей жизни!!!
+          description: Комментарий к оценке
+          nullable: true
+        feedbackCreatedAt:
+          type: string
+          format: date-time
+          example: '2022-09-02T19:21:53'
+          description: Дата создания отзыва
+      required:
+        - unitId
+        - countryCode
+        - orderId
+        - orderNumber
+        - orderCreatedAt
+        - orderRate
+        - feedbackComment
+        - feedbackCreatedAt
+    CustomerRate:
+      title: CustomerRate
+      x-stoplight:
+        id: 11d6f52010147
+      type: object
+      description: Рейтинг клиентов по заведениям
+      properties:
+        unitId:
+          type: string
+          description: Идентификатор заведения
+          example: 000d3a240c719a8711e68aba13f7f862
+          minLength: 32
+          maxLength: 32
+        avgDineInOrderRate:
+          type: number
+          example: 4.73
+          minimum: 0
+          maximum: 5
+          description: 'Средняя оценка заказов, сделанных в ресторане'
+        avgDeliveryOrderRate:
+          type: number
+          example: 4.73
+          minimum: 0
+          maximum: 5
+          description: 'Средняя оценка заказов, сделанных на доставку'
+        dineInRateCount:
+          type: integer
+          example: 210
+          minimum: 0
+          description: 'Количество оценок заказов, сделанных в ресторане'
+        deliveryRateCount:
+          type: integer
+          example: 210
+          minimum: 0
+          description: 'Количество оценок заказов, сделанных на доставку'
+      required:
+        - unitId
+        - avgDineInOrderRate
+        - avgDeliveryOrderRate
+        - dineInRateCount
+        - deliveryRateCount
+    UnitWithFeedbacks:
+      title: UnitWithFeedbacks
+      x-stoplight:
+        id: 664e7gtqjfpqw
+      type: object
+      description: Заведения с отзывами к заказам
+      properties:
+        id:
+          type: string
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор заведения
+          example: 000d3a240c719a8711e68aba13f7f862
+        countryCode:
+          type: integer
+          example: 643
+          description: Код страны в формате ISO 3166-1 numeric
+        orderFeedbacks:
+          type: array
+          description: Отзывы к заказам
+          items:
+            $ref: '#/components/schemas/Feedback'
+      required:
+        - id
+        - countryCode
+        - orderFeedbacks
+    LflByUnitsResponse:
+      type: object
+      properties:
+        lfl:
+          type: array
+          items:
+            $ref: '#/components/schemas/LflByUnitsItem'
+      required:
+        - lfl
+    LflByUnitsItem:
+      type: object
+      properties:
+        unitId:
+          type: string
+          format: uuid
+          example: 000d3a240c719a8711e68aba13f7f862
+          description: Идентификатор заведения
+        countryId:
+          type: string
+          example: ru
+          description: Код страны (ISO 3166-1 alpha-2)
+        date:
+          type: string
+          format: date
+          example: '2024-01-01'
+          description: Дата начала периода. Для granularity `Week` или `Month` - дата первого дня недели или месяца соответственно. Для granularity `Day` - период целиком
+        lflRevenue:
+          type: number
+          format: decimal
+          example: 0.05
+          description: LFL по выручке
+        lflOrder:
+          type: number
+          format: decimal
+          example: 0.02
+          description: LFL по количеству заказов
+      required:
+        - unitId
+        - countryId
+        - date
+        - lflRevenue
+        - lflOrder
+    LflByCountriesResponse:
+      type: object
+      properties:
+        lfl:
+          type: array
+          items:
+            $ref: '#/components/schemas/LflByCountriesItem'
+      required:
+        - lfl
+    LflByCountriesItem:
+      type: object
+      properties:
+        countryId:
+          type: string
+          example: ru
+          description: Код страны (ISO 3166-1 alpha-2)
+        date:
+          type: string
+          format: date
+          example: '2024-01-01'
+          description: Дата начала периода. Для granularity `Week` или `Month` - дата первого дня недели или месяца соответственно. Для granularity `Day` - период целиком
+        lflRevenue:
+          type: number
+          format: decimal
+          example: 0.03
+          description: LFL по выручке
+        lflOrder:
+          type: number
+          format: decimal
+          example: 0.01
+          description: LFL по количеству заказов
+      required:
+        - countryId
+        - date
+        - lflRevenue
+        - lflOrder
+  securitySchemes:
+    Dodo oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          scopes:
+            shared: 'Данные, доступные внутри сети без ограничений'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+        clientCredentials:
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            shared: 'Данные, доступные внутри сети без ограничений'
+      description: ''

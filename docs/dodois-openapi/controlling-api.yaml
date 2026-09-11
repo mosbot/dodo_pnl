@@ -1,0 +1,2904 @@
+openapi: 3.0.1
+x-stoplight:
+  id: zdqsi3sfgeo0b
+info:
+  title: Customer Rating API
+  version: '1.0'
+  description: 'API предоставляет возможность работать с рейтингами и проверками, на которых они построены. '
+  contact:
+    name: Dodo Brands
+    url: 'https://dodobrands.io'
+  license:
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/controlling'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/controlling'
+    description: Dodopizza - AE / Other countries
+paths:
+  /ratings/customer-experience:
+    get:
+      summary: Рейтинги → Рейтинг клиентского опыта
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periodFrom:
+                    $ref: '#/components/schemas/PeriodFromDate'
+                  periodTo:
+                    $ref: '#/components/schemas/PeriodToDate'
+                  publishStatus:
+                    $ref: '#/components/schemas/PublishStatus'
+                  publishedAt:
+                    type: string
+                    x-stoplight:
+                      id: 670cea0rd6llq
+                    format: date-time
+                    example: '2024-07-30T14:15:50Z'
+                    pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
+                    description: Дата и время публикации рейтинга в UTC. Для ещё не опубликованного периода содержит дату его начала.
+                  unitRates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnitRating'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - periodFrom
+                  - periodTo
+                  - publishStatus
+                  - publishedAt
+                  - unitRates
+                  - isEndOfListReached
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+            - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-ratings-customer-experience
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+        - schema:
+            type: integer
+            example: 643
+          in: query
+          name: countryCode
+          description: Код страны
+        - schema:
+            type: string
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+          in: query
+          name: units
+          description: Список заведений (пиццерий) Dodo IS в формате UUID
+      description: |-
+        Возвращает информацию о рейтинге клиентского опыта пиццерий за текущий период. Поиск осуществляется по параметру units или countryCode. 
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+    parameters: []
+  /ratings/standards:
+    get:
+      summary: Рейтинги → Рейтинг стандартов
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periodFrom:
+                    $ref: '#/components/schemas/PeriodFromDate'
+                  periodTo:
+                    $ref: '#/components/schemas/PeriodToDate'
+                  publishStatus:
+                    $ref: '#/components/schemas/PublishStatus'
+                  publishedAt:
+                    type: string
+                    x-stoplight:
+                      id: 3o69xzoyqyw1u
+                    format: date-time
+                    example: '2024-07-16T14:15:50Z'
+                    pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
+                    description: Дата и время публикации рейтинга в UTC. Для ещё не опубликованного периода содержит дату его начала.
+                  unitRates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnitRating'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - periodFrom
+                  - periodTo
+                  - publishStatus
+                  - publishedAt
+                  - unitRates
+                  - isEndOfListReached
+        '400':
+          description: |
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+            - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-ratings-standards
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+        - schema:
+            type: integer
+            example: 643
+          in: query
+          name: countryCode
+          description: Код страны
+        - schema:
+            type: string
+            example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+          in: query
+          name: units
+          description: Список заведений (пиццерий) Dodo IS в формате UUID
+      description: |-
+        Возвращает информацию о рейтинге стандартов пиццерий за текущий период. Поиск осуществляется по параметру units или countryCode. 
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+    parameters: []
+  /ratings/customer-experience/detalization:
+    get:
+      summary: Рейтинги → Детальный рейтинг клиентского опыта пиццерии
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetalizationRatingResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+            - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-ratings-customer-experience-detalization
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - schema:
+            type: string
+            example: 000d3a240c719a8711e68aba13f7f862
+          in: query
+          name: unit
+          description: Заведение (пиццерия) Dodo IS в формате UUID
+          required: true
+        - schema:
+            type: string
+            example: '2000-01-01'
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+          in: query
+          name: 'on'
+          description: Дата периода для отображения рейтинга
+          required: true
+      description: |-
+        Возвращает детальную информацию о рейтинге клиентского опыта выбранной пиццерии. Укажите дату в параметре `on`, а API вернет подробную информацию за период, в который попала эта дата. 
+
+        ### Требование к query параметрам:
+        В unit можно перечислить одно заведение в одном запросе
+    parameters: []
+  /ratings/standards/detalization:
+    get:
+      summary: Рейтинги → Детальный рейтинг стандартов пиццерии
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetalizationRatingResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+            - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-ratings-standards-detalization
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - schema:
+            type: string
+            example: 000d3a240c719a8711e68aba13f7f862
+          in: query
+          name: unit
+          description: Заведение (пиццерия) Dodo IS в формате UUID
+          required: true
+        - schema:
+            type: string
+            example: '2000-01-01'
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+          in: query
+          name: 'on'
+          description: Дата периода для отображения рейтинга в формате ISO 8601
+          required: true
+      description: |-
+        Возвращает детальную информацию о рейтинге стандартов выбранной пиццерии. Укажите дату в параметре `on`, а API вернет подробную информацию за период, в который попала эта дата.  
+
+        ### Требование к query параметрам:
+        В unit можно перечислить одно заведение в одном запросе
+    parameters: []
+  /ratings/customer-experience/history:
+    get:
+      summary: Рейтинги → История рейтинга клиентского опыта
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unitRates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnitRatingHistory'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - unitRates
+                  - isEndOfListReached
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+            - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-ratings-customer-experience-history
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+      description: |-
+        Возвращает информацию о рейтинге клиентского опыта пиццерий за запрашиваемый период. 
+        В ответе вернутся периоды равные 1 недели со значением рейтинга в данный период.
+
+        **Важно:** Возвращаются только рассчитанные и опубликованные рейтинговые периоды. Периоды в праздничные дни могут отсутствовать.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+        4. Максимальный запрашиваемый период 1 год.
+    parameters: []
+  /ratings/standards/history:
+    get:
+      summary: Рейтинги → История рейтинга стандартов
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unitRates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnitRatingHistory'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - unitRates
+                  - isEndOfListReached
+        '400':
+          description: |
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+            - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-ratings-standards-history
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+      description: |-
+        Возвращает информацию о рейтинге стандартов за запрашиваемый период. 
+        В ответе вернутся периоды равные половине месяца со значением рейтинга в данный период.
+
+        **Важно:** Возвращаются только рассчитанные и опубликованные рейтинговые периоды. Периоды в праздничные дни могут отсутствовать.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+        4. Максимальный запрашиваемый период 1 год.
+    parameters: []
+  /ratings/standards/appeals:
+    get:
+      summary: Рейтинги → Апелляции рейтинга стандартов пиццерии
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unitAppeals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AppealsBlock'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - unitAppeals
+                  - isEndOfListReached
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+             - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-standards-appeals
+      description: |-
+        Возвращает апелляции рейтинга стандартов выбранной пиццерии. 
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+        4. Максимальный запрашиваемый период 1 год.
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+  /ratings/customer-experience/appeals:
+    get:
+      summary: Рейтинги → Апелляции рейтинга клиентского опыта пиццерии
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unitAppeals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AppealsBlock'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - unitAppeals
+                  - isEndOfListReached
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+             - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+      operationId: get-customer-experience-appeals
+      description: |-
+        Возвращает апелляции рейтинга клиентского опыта выбранной пиццерии. 
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+        4. Максимальный запрашиваемый период 1 год.
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+  /ratings/customer-experience/remarks:
+    get:
+      summary: Рейтинги → Замечания рейтинга клиентского опыта пиццерии
+      operationId: get-customer-experience-remarks
+      description: |-
+        Возвращает замечания, зафиксированные в рейтинге клиентского опыта выбранной пиццерии за период, в который попала дата `on`.
+
+        Каждое замечание относится к одному или нескольким критериям. В `remarks[].criteria[].result` — итог критерия за период; балл конкретной проверки возвращает `/checkups/{checkupId}`.
+
+        Если за указанную дату нет рассчитанного периода, `periodFrom` и `periodTo` будут null, а `remarks` — пустым.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. В criterionIds передаются значения `criteria[].criterionId` из `/ratings/customer-experience/detalization`
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/on'
+        - $ref: '#/components/parameters/criterionIds'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemarksResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/customer-experience/vitals:
+    get:
+      summary: Рейтинги → Ключевые показатели рейтинга клиентского опыта пиццерии
+      operationId: get-customer-experience-vitals
+      description: |-
+        Возвращает итог рейтинга клиентского опыта выбранной пиццерии за период, в который попала дата `on`, разбивку по верхним блокам критериев и апелляции периода.
+
+        `blocks[].evolution` показывает, как изменилась доля набранных баллов блока по сравнению с предыдущим периодом. Если предыдущего рассчитанного периода нет, возвращается `Neutral`.
+
+        Если за указанную дату нет рассчитанного периода, `periodFrom` и `periodTo` будут null, а списки — пустыми.
+
+        ### Требование к query параметрам:
+        В unit можно передать одно заведение в одном запросе
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/on'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VitalsResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/customer-experience/violations:
+    get:
+      summary: Рейтинги → Топ нарушений рейтинга клиентского опыта пиццерии
+      operationId: get-customer-experience-violations
+      description: |-
+        Возвращает самые частые нарушения рейтинга клиентского опыта выбранной пиццерии за запрашиваемый период, отсортированные по количеству по убыванию.
+
+        Учитываются только ответы тех критериев, которые действительно сняли баллы. Исключённые из расчёта ответы не считаются.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. Максимальный запрашиваемый период 1 год
+        3. Значение top — от 1 до 100
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/top'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ViolationsResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `InvalidDateRange` - дата начала периода больше даты конца
+             - `LargeDateRange` - запрошенный период превышает 1 год
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/customer-experience/criterion-violations:
+    get:
+      summary: Рейтинги → Топ критериев с нарушениями рейтинга клиентского опыта пиццерии
+      operationId: get-customer-experience-criterion-violations
+      description: |-
+        Возвращает критерии рейтинга клиентского опыта выбранной пиццерии с наибольшим количеством нарушений за запрашиваемый период, отсортированные по убыванию.
+
+        Критерии, которые начисляют баллы, а не снимают их, в выдачу не входят.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. Максимальный запрашиваемый период 1 год
+        3. Значение top — от 1 до 100
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/top'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CriterionViolationsResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `InvalidDateRange` - дата начала периода больше даты конца
+             - `LargeDateRange` - запрошенный период превышает 1 год
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/customer-experience/metrics/history:
+    get:
+      summary: Рейтинги → История метрики рейтинга клиентского опыта
+      operationId: get-customer-experience-metric-history
+      description: |-
+        Возвращает значения метрики по периодам рейтинга клиентского опыта для выбранной пиццерии.
+
+        Идентификатор метрики можно взять из `criteria[].result[]` с `type = Metric` в `/ratings/customer-experience/detalization` — поле `metricId`.
+
+        Периоды, в которых метрика не участвовала в расчёте, в выдачу не попадают: иначе отсутствие данных не отличить от нулевого значения.
+
+        Для неизвестного идентификатора метрики возвращается 400 с кодом ошибки `InvalidInput` и `field: metric`.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. Максимальный запрашиваемый период 1 год
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/metric'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricHistoryResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `InvalidDateRange` - дата начала периода больше даты конца
+             - `LargeDateRange` - запрошенный период превышает 1 год
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/standards/remarks:
+    get:
+      summary: Рейтинги → Замечания рейтинга стандартов пиццерии
+      operationId: get-standards-remarks
+      description: |-
+        Возвращает замечания, зафиксированные в рейтинге стандартов выбранной пиццерии за период, в который попала дата `on`.
+
+        Каждое замечание относится к одному или нескольким критериям. В `remarks[].criteria[].result` — итог критерия за период; балл конкретной проверки возвращает `/checkups/{checkupId}`.
+
+        Если за указанную дату нет рассчитанного периода, `periodFrom` и `periodTo` будут null, а `remarks` — пустым.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. В criterionIds передаются значения `criteria[].criterionId` из `/ratings/standards/detalization`
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/on'
+        - $ref: '#/components/parameters/criterionIds'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemarksResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/standards/vitals:
+    get:
+      summary: Рейтинги → Ключевые показатели рейтинга стандартов пиццерии
+      operationId: get-standards-vitals
+      description: |-
+        Возвращает итог рейтинга стандартов выбранной пиццерии за период, в который попала дата `on`, разбивку по верхним блокам критериев и апелляции периода.
+
+        `blocks[].evolution` показывает, как изменилась доля набранных баллов блока по сравнению с предыдущим периодом. Если предыдущего рассчитанного периода нет, возвращается `Neutral`.
+
+        Если за указанную дату нет рассчитанного периода, `periodFrom` и `periodTo` будут null, а списки — пустыми.
+
+        ### Требование к query параметрам:
+        В unit можно передать одно заведение в одном запросе
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/on'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VitalsResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/standards/violations:
+    get:
+      summary: Рейтинги → Топ нарушений рейтинга стандартов пиццерии
+      operationId: get-standards-violations
+      description: |-
+        Возвращает самые частые нарушения рейтинга стандартов выбранной пиццерии за запрашиваемый период, отсортированные по количеству по убыванию.
+
+        Учитываются только ответы тех критериев, которые действительно сняли баллы. Исключённые из расчёта ответы не считаются.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. Максимальный запрашиваемый период 1 год
+        3. Значение top — от 1 до 100
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/top'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ViolationsResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `InvalidDateRange` - дата начала периода больше даты конца
+             - `LargeDateRange` - запрошенный период превышает 1 год
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/standards/criterion-violations:
+    get:
+      summary: Рейтинги → Топ критериев с нарушениями рейтинга стандартов пиццерии
+      operationId: get-standards-criterion-violations
+      description: |-
+        Возвращает критерии рейтинга стандартов выбранной пиццерии с наибольшим количеством нарушений за запрашиваемый период, отсортированные по убыванию.
+
+        Критерии, которые начисляют баллы, а не снимают их, в выдачу не входят.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. Максимальный запрашиваемый период 1 год
+        3. Значение top — от 1 до 100
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/top'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CriterionViolationsResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `InvalidDateRange` - дата начала периода больше даты конца
+             - `LargeDateRange` - запрошенный период превышает 1 год
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /ratings/standards/metrics/history:
+    get:
+      summary: Рейтинги → История метрики рейтинга стандартов
+      operationId: get-standards-metric-history
+      description: |-
+        Возвращает значения метрики по периодам рейтинга стандартов для выбранной пиццерии.
+
+        Идентификатор метрики можно взять из `criteria[].result[]` с `type = Metric` в `/ratings/standards/detalization` — поле `metricId`.
+
+        Периоды, в которых метрика не участвовала в расчёте, в выдачу не попадают: иначе отсутствие данных не отличить от нулевого значения.
+
+        Для неизвестного идентификатора метрики возвращается 400 с кодом ошибки `InvalidInput` и `field: metric`.
+
+        ### Требования к query параметрам:
+        1. В unit можно передать одно заведение в одном запросе
+        2. Максимальный запрашиваемый период 1 год
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/unit'
+        - $ref: '#/components/parameters/metric'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricHistoryResponse'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `InvalidDateRange` - дата начала периода больше даты конца
+             - `LargeDateRange` - запрошенный период превышает 1 год
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  /checkups:
+    get:
+      summary: Проверки → Список проверок
+      operationId: get-checkups
+      description: |-
+        Возвращает проверки пиццерий, учтённые в рейтинге клиентского опыта или в рейтинге стандартов.
+        Отбор идёт по дате проведения проверки (`startedAtLocal`), а не по границам рейтингового периода, поэтому в выдачу могут попасть проверки из периодов, частично выходящих за запрошенный интервал. Рейтинговый период каждой проверки возвращается в полях `periodFrom` и `periodTo`; вместе с типом рейтинга они период однозначно определяют. Границы `fromDate` и `toDate` включаются целиком: `toDate` захватывает весь указанный день.
+
+        **Важно:** возвращаются только проверки, попавшие в расчёт рейтинга. Отменённые, исключённые из рейтинга и незавершённые проверки в выдачу не входят.
+
+        Проверки аудита территориального управляющего через это API не отдаются.
+
+        Для получения данных необходимо указывать параметр `skip`, смещая его на количество уже полученных записей. Повторять до тех пор, пока не будет достигнут конец списка (`isEndOfListReached = true`).
+
+        ### Требования к query параметрам:
+        1. В units можно перечислить до 30 заведений в одном запросе
+        2. В units следует перечислять UUID-ы строго через запятую без пробелов
+        3. Максимальное количество записей в одном запросе take — 1000
+        4. Максимальный запрашиваемый период 1 год.
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/fromDate'
+        - $ref: '#/components/parameters/toDate'
+        - $ref: '#/components/parameters/ratingKind'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Checkup'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - checkups
+                  - isEndOfListReached
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `NegativeValue` - передано отрицательное значение для параметра принимающего только положительные числа
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+             - `ValueTooSmall` - переданое значение меньше минимального значения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+  '/checkups/{checkupId}':
+    get:
+      summary: Проверки → Детали проверки
+      operationId: get-checkup-details
+      description: |-
+        Возвращает детали одной проверки: заказ, по которому её проводили, фотографии, зафиксированные замечания и комментарии.
+
+        Каждое замечание в `remarks` относится к одному или нескольким критериям рейтинга. В `remarks[].criteria[].result` возвращается балл, снятый по критерию **именно в этой проверке**, а не итог критерия за период.
+
+        Идентификаторы проверок можно получить в `/checkups`.
+
+        ### Ограничения:
+        Доступны только проверки рейтинга клиентского опыта и рейтинга стандартов. Для неизвестного или недоступного идентификатора возвращается 400 с кодом ошибки `InvalidInput` и `field: checkupId`.
+      security:
+        - Dodo oauth2:
+            - shared
+      parameters:
+        - schema:
+            type: string
+            pattern: '[0-9a-f]{32}'
+            minLength: 32
+            maxLength: 32
+            example: 2a69836ab8f583ec11ed90098ae24dff
+          in: path
+          name: checkupId
+          description: Идентификатор проверки в формате UUID
+          required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckupDetails'
+        '400':
+          description: |-
+            Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+            Коды ошибок блока details.errors:
+             - `Required` - обязательный параметр не передан
+             - `InvalidInput` - проверка не найдена или недоступна через это API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContractBadRequest'
+        '403':
+          description: |-
+            Недостаточно прав
+
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+        '500':
+          description: |-
+            Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorContract'
+    parameters: []
+components:
+  schemas:
+    UnitRating:
+      title: UnitRating
+      x-stoplight:
+        id: 9f0xzq68l26xo
+      type: object
+      properties:
+        unitId:
+          $ref: '#/components/schemas/UnitId'
+        unitName:
+          type: string
+          x-stoplight:
+            id: pqjgibrvagcok
+          description: Название заведения (пиццерии)
+          example: Сыктывкар-1
+        countryCode:
+          type: integer
+          x-stoplight:
+            id: 1qj7akdcrh57n
+          description: Код страны
+          example: 643
+        rate:
+          type: number
+          format: decimal
+          nullable: true
+          x-stoplight:
+            id: o5j6sxzqwxc8e
+          description: 'Текущий рейтинг. Может быть дробным. null, если рейтинг за период не рассчитан.'
+          minimum: 0
+          maximum: 100
+          example: 98.5
+        avgRate:
+          type: number
+          format: decimal
+          nullable: true
+          x-stoplight:
+            id: sghc2l4lad8h4
+          description: 'Среднее значение рейтинга за 12 периодов. Может быть дробным. null, если данных за длительный период нет.'
+          example: 97.25
+          minimum: 0
+          maximum: 100
+        commonRatingsPosition:
+          type: integer
+          x-stoplight:
+            id: khey4bdshrti2
+          description: Место в рейтинге пиццерий
+          example: 5
+        isRanked:
+          type: boolean
+          x-stoplight:
+            id: sj0nagb3fcd8c
+          description: Признак участия пиццерии в общем рейтинге
+    UnitRatingHistory:
+      title: UnitRatingHistory
+      x-stoplight:
+        id: gmtb6y6m2nca5
+      type: object
+      properties:
+        unitId:
+          $ref: '#/components/schemas/UnitId'
+        periodFrom:
+          $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          $ref: '#/components/schemas/PeriodToDate'
+        rate:
+          type: number
+          format: decimal
+          x-stoplight:
+            id: r4nkbbz4g2k86
+          description: 'Рейтинг за период. Может быть дробным, количество знаков после запятой не фиксировано.'
+          minimum: 0
+          maximum: 100
+          example: 98.5
+        publishStatus:
+          $ref: '#/components/schemas/PublishStatus'
+      required:
+        - unitId
+        - periodFrom
+        - periodTo
+        - rate
+        - publishStatus
+    Criterion:
+      title: Criterion
+      x-stoplight:
+        id: q0nclpmzqsslv
+      type: object
+      properties:
+        blockId:
+          type: string
+          x-stoplight:
+            id: 8wbdm0rbwgkrp
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор блока, к которому относится критерий'
+        calculatedCriterionId:
+          type: string
+          x-stoplight:
+            id: mixw6r8odfnbb
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          description: 'Идентификатор расчётного критерия: свой в каждом периоде.'
+          minLength: 32
+          maxLength: 32
+        criteriasId:
+          type: string
+          deprecated: true
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          description: Устаревшее написание поля calculatedCriterionId. Содержит то же значение. Будет удалено в следующей версии API.
+          minLength: 32
+          maxLength: 32
+        criterionId:
+          type: string
+          format: uuid
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор критерия в шаблоне: одинаков во всех периодах. Его принимает фильтр criterionIds, по нему же критерий отслеживается во времени.'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        name:
+          type: string
+          x-stoplight:
+            id: dita7t4fokfd7
+          description: Имя критерия
+        descriptionLink:
+          type: string
+          x-stoplight:
+            id: tcvahpza2bqf4
+          description: Ссылка на страницу с описанием в базе знаний
+        result:
+          type: array
+          x-stoplight:
+            id: lg24pjyc28qxq
+          description: Результат по критерию
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/RatingsApiMetricDetails'
+              - $ref: '#/components/schemas/RatingsApiAnswerDetails'
+            discriminator:
+              propertyName: type
+        scoreDelta:
+          type: number
+          format: decimal
+          x-stoplight:
+            id: fmsgzc2wmb7gn
+          description: Значение баллов. Может быть дробным.
+          example: -2.5
+        pointsForFact:
+          type: number
+          format: decimal
+          nullable: true
+          description: 'Штраф за одно нарушение по критерию для страны заведения. null у критериев без параметров расчёта и у пошаговых типов расчёта, где единого балла за факт нет.'
+          example: -2.5
+        calculation:
+          nullable: true
+          description: 'Данные, зависящие от типа расчёта критерия. null, если у типа расчёта таких данных нет. Разбирайте по полю type и игнорируйте незнакомые значения: с появлением новых типов расчёта здесь появятся новые варианты.'
+          oneOf:
+            - $ref: '#/components/schemas/CriterionAverageByCheckupsCalculation'
+          discriminator:
+            propertyName: type
+      required:
+        - blockId
+        - calculatedCriterionId
+        - criteriasId
+        - criterionId
+        - name
+        - descriptionLink
+        - result
+        - scoreDelta
+    RatingsApiMetricDetails:
+      type: object
+      required:
+        - type
+        - metricId
+        - name
+        - value
+        - valueType
+      properties:
+        type:
+          type: string
+          enum:
+            - Metric
+        isWowCriterion:
+          type: boolean
+        metricId:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор метрики: с ним можно запросить историю значений в /ratings/{тип}/metrics/history'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        name:
+          type: string
+        value:
+          type: number
+          format: decimal
+        valueType:
+          type: string
+          enum:
+            - Unknown
+            - Seconds
+            - Hours
+            - Quantity
+            - Percentage
+            - Score
+    RatingsApiAnswerDetails:
+      type: object
+      required:
+        - type
+        - answerType
+        - calculationType
+      properties:
+        type:
+          type: string
+          enum:
+            - Answer
+        isWowCriterion:
+          type: boolean
+        answerType:
+          type: string
+          enum:
+            - Defect
+            - Warning
+        calculationType:
+          type: string
+          enum:
+            - ForEachFact
+            - MetricValueSteps
+            - ForEachDefectedCheckup
+            - ForEachDefect
+            - DefectedCheckupPercentageValueSteps
+            - ViolationValueSteps
+            - ForEachUniqueDefect
+            - AverageByCheckups
+        value:
+          type: integer
+          nullable: true
+    CriteriaBlock:
+      title: CriteriaBlock
+      x-stoplight:
+        id: an8cx50zxe1my
+      type: object
+      properties:
+        id:
+          type: string
+          x-stoplight:
+            id: g1i165czkpblg
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+          format: uuid
+          description: Идентификатор блока
+        parentId:
+          type: string
+          nullable: true
+          x-stoplight:
+            id: yba8fo9518onw
+          description: Идентификатор родительского блока. null для корневого блока.
+          minLength: 32
+          maxLength: 32
+          pattern: '[0-9a-f]{32}'
+          format: uuid
+        name:
+          type: string
+          x-stoplight:
+            id: yli1t552cgkhv
+          description: Имя критерия
+        score:
+          type: number
+          format: decimal
+          x-stoplight:
+            id: ygqyt3r4qftpr
+          description: Текущее значение баллов. Может быть дробным.
+        scorePercentage:
+          type: number
+          x-stoplight:
+            id: i9mfxpvjgn6pj
+          description: Текущее значение баллов в процентах
+        max:
+          type: number
+          format: decimal
+          nullable: true
+          description: 'Максимум баллов блока. null, если у блока нет ограничения снизу.'
+          example: 30
+        fact:
+          type: number
+          format: decimal
+          nullable: true
+          description: 'Фактически набранные баллы блока. null, если у блока нет ограничения снизу.'
+          example: 27.5
+      required:
+        - id
+        - parentId
+        - name
+        - score
+        - scorePercentage
+    AppealsBlock:
+      title: AppealsBlock
+      x-stoplight:
+        id: 5etz9ms90uffn
+      type: object
+      properties:
+        unitId:
+          type: string
+          x-stoplight:
+            id: roh8p8qrrnmql
+          description: Идентификатор заведения (пиццерии)
+          minLength: 32
+          maxLength: 32
+          example: 2a69836ab8f583ec11ed90098ae24dff
+          pattern: '[0-9a-f]{32}'
+        periodFrom:
+          $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          $ref: '#/components/schemas/PeriodToDate'
+        appealsCount:
+          type: integer
+          x-stoplight:
+            id: eo6hgir1p4ov3
+          example: 4
+          minimum: 0
+          description: Количество апелляций за период
+        appealsGrantedCount:
+          type: integer
+          x-stoplight:
+            id: e6gd0y15xcykm
+          example: 3
+          minLength: 0
+          description: Количество удовлетворенных апелляций
+        appeals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Appeals'
+      required:
+        - periodFrom
+        - periodTo
+        - appealsCount
+        - appealsGrantedCount
+        - appeals
+    Appeals:
+      title: Appeals
+      x-stoplight:
+        id: 6sx91gzbp742u
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Идентификатор апелляции
+          example: 155552212
+        title:
+          type: string
+          x-stoplight:
+            id: tk7j8cfirkjp2
+          description: Заголовок апелляции
+        isGranted:
+          type: boolean
+          x-stoplight:
+            id: ic7c1gai059wf
+          description: Удовлетворена ли апелляция
+      required:
+        - id
+        - title
+        - isGranted
+    ErrorContract:
+      title: ErrorContract
+      x-stoplight:
+        id: wfut7n1wrg8z0
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: hx2ly6ztqnz5j
+          description: Код ошибки
+          example: NoAccessToUnit
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: 6dz5altl7u1xs
+          format: int32
+          description: Http статус ответа
+        requestId:
+          type: string
+          x-stoplight:
+            id: 9m8yxfo9453nb
+          example: '0HLEACIU86PT6:0000000D'
+          description: Уникальный идентификатор запроса
+        message:
+          type: string
+          x-stoplight:
+            id: x5hg4ccqz7cpn
+          example: No access to the requested unit
+        details:
+          type: object
+          x-stoplight:
+            id: dtqpv98c0yhve
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат может отличаться в зависимости от кода ошибки.
+    ErrorContractBadRequest:
+      title: ErrorContractBadRequest
+      x-stoplight:
+        id: mcbpb91mo88mf
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 7dubsg40a43bo
+          description: Код ошибки
+          example: ValidationError
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: l9hdaclkhwby7
+          description: Http статус ответа
+          format: int32
+        requestId:
+          type: string
+          x-stoplight:
+            id: tac9bblesheyb
+          description: Уникальный идентификатор запроса
+          example: '0HLEACIU86PT6:0000000D'
+        message:
+          type: string
+          x-stoplight:
+            id: lojgju264xwda
+        details:
+          type: object
+          x-stoplight:
+            id: gyow3eym4nnva
+          description: Детализация ошибки
+          properties:
+            errors:
+              x-stoplight:
+                id: fpixzv6gq2d5t
+              type: array
+              items:
+                $ref: '#/components/schemas/BadRequestError'
+    BadRequestError:
+      title: BadRequestError
+      x-stoplight:
+        id: zhipgrc20hj8x
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: m0k4csm3sbi5u
+          description: Код ошибки
+        field:
+          type: string
+          x-stoplight:
+            id: igk7d2ob8gx8m
+          description: 'Имя query-параметра, к которому относится ошибка. Совпадает с именем параметра в запросе, поэтому по нему можно сопоставить ошибку с тем, что отправляли.'
+        message:
+          type: string
+          x-stoplight:
+            id: ed4b759ybx2x7
+    PublishStatus:
+      title: PublishStatus
+      x-stoplight:
+        id: vg4gtqy40c9hp
+      type: string
+      description: 'Статус рейтинга. Наружу отдаются только рассчитанные и опубликованные периоды, поэтому в ответах встречаются лишь Calculated и Published.'
+      enum:
+        - Draft
+        - Gathering
+        - Calculated
+        - Published
+      example: Published
+    PeriodFromDate:
+      title: PeriodFromDate
+      x-stoplight:
+        id: mmvvpcem3ust9
+      type: string
+      format: date
+      example: '2000-01-01'
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      description: Дата начала периода рейтинга в формате ISO 8601
+    PeriodToDate:
+      title: PeriodToDate
+      x-stoplight:
+        id: 26mkds9midfrh
+      type: string
+      format: date
+      example: '2000-01-01'
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      description: Дата окончания периода рейтинга в формате ISO 8601
+    UnitId:
+      title: UnitId
+      x-stoplight:
+        id: 4l8elab8abacb
+      type: string
+      description: Идентификатор заведения (пиццерии)
+      example: 2a69836ab8f583ec11ed90098ae24dff
+      pattern: '[0-9a-f]{32}'
+      minLength: 32
+      maxLength: 32
+    IsEndOfListReached:
+      title: IsEndOfListReached
+      x-stoplight:
+        id: a4dkiy3ag34v6
+      type: boolean
+      description: 'Индикатор того, что достигнут конец списка. Выдаёт true, если достигнут конец списка.'
+    RatingKind:
+      title: RatingKind
+      type: string
+      description: Тип рейтинга
+      enum:
+        - CustomerExperience
+        - Standards
+      example: CustomerExperience
+    CheckupType:
+      title: CheckupType
+      type: string
+      description: Тип проверки
+      enum:
+        - Delivery
+        - Restaurant
+        - Inspection
+        - FoodCourt
+        - OnlineInspection
+      example: Delivery
+    CheckupStatus:
+      title: CheckupStatus
+      type: string
+      description: |-
+        Наличие негативных факторов в проверке:
+         - `NoNegativeFactors` - нарушений и предупреждений нет
+         - `ContainsWarnings` - есть предупреждения, баллы не сняты
+         - `ContainsDefects` - есть нарушения, по которым сняты баллы
+      enum:
+        - NoNegativeFactors
+        - ContainsWarnings
+        - ContainsDefects
+      example: ContainsDefects
+    Checkup:
+      title: Checkup
+      type: object
+      properties:
+        id:
+          type: string
+          description: Идентификатор проверки
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        unitId:
+          $ref: '#/components/schemas/UnitId'
+        periodFrom:
+          $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          $ref: '#/components/schemas/PeriodToDate'
+        ratingKind:
+          $ref: '#/components/schemas/RatingKind'
+        startedAtLocal:
+          type: string
+          format: date-time
+          description: 'Дата и время проведения проверки в локальном времени пиццерии, в формате ISO 8601'
+          example: '2024-07-30T14:15:50'
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+        startedAt:
+          type: string
+          format: date-time
+          description: 'То же время в UTC. Пересчитано по фиксированному смещению часового пояса пиццерии, переходы на летнее время не учитываются.'
+          example: '2024-07-30T11:15:50Z'
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
+        checkupType:
+          $ref: '#/components/schemas/CheckupType'
+        status:
+          $ref: '#/components/schemas/CheckupStatus'
+      required:
+        - id
+        - unitId
+        - periodFrom
+        - periodTo
+        - ratingKind
+        - startedAtLocal
+        - startedAt
+        - checkupType
+        - status
+    CheckupDetails:
+      title: CheckupDetails
+      type: object
+      properties:
+        id:
+          type: string
+          description: Идентификатор проверки
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        unitId:
+          $ref: '#/components/schemas/UnitId'
+        periodFrom:
+          $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          $ref: '#/components/schemas/PeriodToDate'
+        ratingKind:
+          $ref: '#/components/schemas/RatingKind'
+        checkupType:
+          $ref: '#/components/schemas/CheckupType'
+        startedAtLocal:
+          type: string
+          format: date-time
+          description: 'Дата и время проведения проверки в локальном времени пиццерии, в формате ISO 8601'
+          example: '2024-07-30T14:15:50'
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'
+        startedAt:
+          type: string
+          format: date-time
+          description: 'То же время в UTC. Пересчитано по фиксированному смещению часового пояса пиццерии, переходы на летнее время не учитываются.'
+          example: '2024-07-30T11:15:50Z'
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
+        calculation:
+          nullable: true
+          description: 'Данные, зависящие от типа расчёта блока. null, если у типа расчёта таких данных нет. Разбирайте по полю type и игнорируйте незнакомые значения: с появлением новых типов расчёта здесь появятся новые варианты.'
+          oneOf:
+            - $ref: '#/components/schemas/CheckupAverageByCheckupsCalculation'
+          discriminator:
+            propertyName: type
+        orderId:
+          type: string
+          nullable: true
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор заказа Dodo IS. null у проверок без заказа, например у инспекций. Состав заказа возвращает sales.'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        evaluatedProducts:
+          type: array
+          description: 'Продукты, назначенные к оценке в этой проверке. Пустой массив, если продукты не назначались. Это знание контроллинга: в составе заказа такой отметки нет.'
+          items:
+            $ref: '#/components/schemas/CheckupEvaluatedProduct'
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckupPhoto'
+        remarks:
+          type: array
+          description: Зафиксированные в проверке замечания
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/MetricRemark'
+              - $ref: '#/components/schemas/AnswerRemark'
+            discriminator:
+              propertyName: type
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckupComment'
+      required:
+        - id
+        - unitId
+        - periodFrom
+        - periodTo
+        - ratingKind
+        - checkupType
+        - startedAtLocal
+        - startedAt
+        - calculation
+        - orderId
+        - evaluatedProducts
+        - photos
+        - remarks
+        - comments
+    CheckupEvaluatedProduct:
+      title: CheckupEvaluatedProduct
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор продукта в меню Dodo IS: им находится позиция в составе заказа. Приходит из каталога вариаций или продуктов, в зависимости от того, чем была позиция заказа.'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+      required:
+        - id
+    CheckupPhoto:
+      title: CheckupPhoto
+      type: object
+      properties:
+        url:
+          type: string
+          description: Ссылка на оригинал фотографии
+        previewUrl:
+          type: string
+          description: Ссылка на миниатюру фотографии
+      required:
+        - url
+        - previewUrl
+    CheckupComment:
+      title: CheckupComment
+      type: object
+      properties:
+        text:
+          type: string
+          description: Текст комментария
+        type:
+          type: string
+          description: |-
+            Автор комментария:
+             - `ClientComment` - комментарий проверяющего
+             - `ControllingComment` - комментарий команды контроля качества
+          enum:
+            - NoComment
+            - ClientComment
+            - ControllingComment
+      required:
+        - text
+        - type
+    RemarksResponse:
+      title: RemarksResponse
+      type: object
+      properties:
+        periodFrom:
+          nullable: true
+          description: 'Дата начала периода рейтинга. null, если за указанную дату нет рассчитанного периода: тогда remarks пуст, а checkupsCount равен нулю.'
+          allOf:
+            - $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          nullable: true
+          description: 'Дата окончания периода рейтинга. null, если за указанную дату нет рассчитанного периода.'
+          allOf:
+            - $ref: '#/components/schemas/PeriodToDate'
+        publishStatus:
+          nullable: true
+          description: 'null, если за указанную дату нет рассчитанного периода'
+          allOf:
+            - $ref: '#/components/schemas/PublishStatus'
+        checkupsCount:
+          type: integer
+          description: 'Сколько проверок учтено в рейтинге за период. Нужен, чтобы посчитать долю нарушений.'
+          minimum: 0
+          example: 12
+        remarks:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/MetricRemark'
+              - $ref: '#/components/schemas/AnswerRemark'
+            discriminator:
+              propertyName: type
+        isEndOfListReached:
+          $ref: '#/components/schemas/IsEndOfListReached'
+      required:
+        - periodFrom
+        - periodTo
+        - publishStatus
+        - checkupsCount
+        - remarks
+        - isEndOfListReached
+    MetricRemark:
+      title: MetricRemark
+      type: object
+      description: Замечание по метрике
+      properties:
+        type:
+          type: string
+          enum:
+            - Metric
+        amount:
+          type: integer
+          description: Сколько раз замечание сработало
+          example: 1
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/RemarkCriterion'
+        metricId:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор метрики: с ним можно запросить историю значений'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        name:
+          type: string
+          description: Название метрики
+        value:
+          type: number
+          format: decimal
+          description: Значение метрики
+        valueType:
+          $ref: '#/components/schemas/MetricValueType'
+      required:
+        - type
+        - amount
+        - criteria
+        - metricId
+        - name
+        - value
+        - valueType
+    AnswerRemark:
+      title: AnswerRemark
+      type: object
+      description: Замечание по ответу проверяющего
+      properties:
+        type:
+          type: string
+          enum:
+            - Answer
+        amount:
+          type: integer
+          description: Сколько раз замечание сработало
+          example: 1
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/RemarkCriterion'
+        answerType:
+          $ref: '#/components/schemas/LinkedAnswerType'
+        text:
+          type: string
+          nullable: true
+          description: Текст выбранного варианта ответа
+        wasAutoDetected:
+          type: boolean
+          description: Ответ проставлен автоматическим распознаванием фотографии
+      required:
+        - type
+        - amount
+        - criteria
+        - answerType
+        - text
+        - wasAutoDetected
+    RemarkCriterion:
+      title: RemarkCriterion
+      type: object
+      description: 'Критерий рейтинга, к которому относится замечание'
+      properties:
+        criterionId:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор критерия в шаблоне, совпадает с criteria[].criterionId в детализации. Его принимает фильтр criterionIds.'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        name:
+          type: string
+          description: Имя критерия
+        parentName:
+          type: string
+          nullable: true
+          description: 'Имя блока, к которому относится критерий. null, если блока нет.'
+          example: Тесто
+        isWowCriterion:
+          type: boolean
+          description: 'Критерий начисляет баллы, а не снимает их'
+        result:
+          type: number
+          format: decimal
+          description: Балл по критерию
+          example: -2.5
+        appealedStatus:
+          $ref: '#/components/schemas/AppealedStatus'
+      required:
+        - criterionId
+        - name
+        - parentName
+        - isWowCriterion
+        - result
+        - appealedStatus
+    VitalsResponse:
+      title: VitalsResponse
+      type: object
+      properties:
+        periodFrom:
+          nullable: true
+          description: 'Дата начала периода рейтинга. null, если за указанную дату нет рассчитанного периода: тогда blocks и appeals пусты, а rate равен нулю.'
+          allOf:
+            - $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          nullable: true
+          description: 'Дата окончания периода рейтинга. null, если за указанную дату нет рассчитанного периода.'
+          allOf:
+            - $ref: '#/components/schemas/PeriodToDate'
+        publishStatus:
+          nullable: true
+          description: 'null, если за указанную дату нет рассчитанного периода'
+          allOf:
+            - $ref: '#/components/schemas/PublishStatus'
+        rate:
+          type: number
+          format: decimal
+          description: Итоговый показатель рейтинга за период
+          example: 98.5
+        blocks:
+          type: array
+          description: Верхние блоки критериев
+          items:
+            $ref: '#/components/schemas/BlockVitals'
+        appeals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Appeals'
+      required:
+        - periodFrom
+        - periodTo
+        - publishStatus
+        - rate
+        - blocks
+        - appeals
+    BlockVitals:
+      title: BlockVitals
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор блока в расчёте периода. Совпадает с blocks[].id в детализации за тот же период, поэтому по нему можно связать два ответа.'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        title:
+          type: string
+          description: Имя блока
+          example: Качество продукта
+        max:
+          type: number
+          format: decimal
+          nullable: true
+          description: 'Максимум баллов блока. null, если у блока нет ограничения снизу.'
+          example: 30
+        fact:
+          type: number
+          format: decimal
+          nullable: true
+          description: 'Фактически набранные баллы блока. null, если у блока нет ограничения снизу.'
+          example: 27.5
+        evolution:
+          type: string
+          description: |-
+            Изменение доли набранных баллов блока к предыдущему периоду:
+             - `Up` - доля выросла
+             - `Down` - доля упала
+             - `Neutral` - не изменилась либо предыдущего периода нет
+          enum:
+            - Up
+            - Down
+            - Neutral
+      required:
+        - id
+        - title
+        - max
+        - fact
+        - evolution
+    ViolationsResponse:
+      title: ViolationsResponse
+      type: object
+      properties:
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Violation'
+      required:
+        - violations
+    Violation:
+      title: Violation
+      type: object
+      properties:
+        name:
+          type: string
+          description: Текст нарушения
+          example: Подгорел бортик
+        parentName:
+          type: string
+          nullable: true
+          description: Имя родительского варианта ответа в дереве вопроса. null для верхнего уровня.
+          example: Тесто
+        count:
+          type: integer
+          description: Сколько раз нарушение встретилось за период
+          minimum: 1
+          example: 4
+      required:
+        - name
+        - parentName
+        - count
+    CriterionViolationsResponse:
+      title: CriterionViolationsResponse
+      type: object
+      properties:
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/CriterionViolation'
+      required:
+        - criteria
+    CriterionViolation:
+      title: CriterionViolation
+      type: object
+      properties:
+        criterionId:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор критерия в шаблоне: топ считается за диапазон периодов, поэтому периодный идентификатор здесь не подходит. Совпадает с criteria[].criterionId в детализации.'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        name:
+          type: string
+          description: Имя критерия
+        violationsCount:
+          type: integer
+          description: Количество нарушений по критерию за период
+          minimum: 1
+          example: 4
+      required:
+        - criterionId
+        - name
+        - violationsCount
+    MetricHistoryResponse:
+      title: MetricHistoryResponse
+      type: object
+      properties:
+        metric:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Metric'
+        entries:
+          type: array
+          description: Значения метрики по периодам в хронологическом порядке
+          items:
+            $ref: '#/components/schemas/MetricHistoryEntry'
+      required:
+        - metric
+        - entries
+    Metric:
+      title: Metric
+      type: object
+      description: 'Описание метрики. null, если метрики с переданным id нет.'
+      properties:
+        id:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: Идентификатор метрики
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        name:
+          type: string
+          description: Название метрики
+        valueType:
+          $ref: '#/components/schemas/MetricValueType'
+      required:
+        - id
+        - name
+        - valueType
+    MetricHistoryEntry:
+      title: MetricHistoryEntry
+      type: object
+      properties:
+        periodFrom:
+          $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          $ref: '#/components/schemas/PeriodToDate'
+        publishStatus:
+          $ref: '#/components/schemas/PublishStatus'
+        value:
+          type: number
+          format: decimal
+          description: Значение метрики за период
+          example: 3.5
+      required:
+        - periodFrom
+        - periodTo
+        - publishStatus
+        - value
+    CheckupAverageByCheckupsCalculation:
+      title: CheckupAverageByCheckupsCalculation
+      type: object
+      description: 'Данные проверки для блоков, которые считаются как среднее по проверкам'
+      properties:
+        type:
+          type: string
+          enum:
+            - AverageByCheckups
+        points:
+          type: number
+          format: decimal
+          description: 'Балл, набранный в этой проверке: максимум блока за вычетом снятых баллов'
+          example: 8.5
+      required:
+        - type
+        - points
+    CriterionAverageByCheckupsCalculation:
+      title: CriterionAverageByCheckupsCalculation
+      type: object
+      description: Данные критерия для расчёта «среднее по проверкам»
+      properties:
+        type:
+          type: string
+          enum:
+            - AverageByCheckups
+        checkupPoints:
+          type: array
+          description: Разбивка баллов критерия по проверкам
+          items:
+            $ref: '#/components/schemas/CriterionCheckupPoints'
+      required:
+        - type
+        - checkupPoints
+    CriterionCheckupPoints:
+      title: CriterionCheckupPoints
+      type: object
+      description: Баллы критерия в отдельной проверке
+      properties:
+        checkupId:
+          type: string
+          pattern: '[0-9a-f]{32}'
+          minLength: 32
+          maxLength: 32
+          description: 'Идентификатор проверки, его принимает /checkups/{checkupId}'
+          example: 2a69836ab8f583ec11ed90098ae24dff
+        points:
+          type: number
+          format: decimal
+          description: Баллы по критерию в этой проверке
+          example: -2.5
+        defectCount:
+          type: integer
+          description: Количество нарушений по критерию в этой проверке
+          minimum: 0
+          example: 1
+      required:
+        - checkupId
+        - points
+        - defectCount
+    MetricValueType:
+      title: MetricValueType
+      type: string
+      description: Единица измерения метрики
+      enum:
+        - Unknown
+        - Seconds
+        - Hours
+        - Quantity
+        - Percentage
+        - Score
+      example: Quantity
+    LinkedAnswerType:
+      title: LinkedAnswerType
+      type: string
+      description: |-
+        Влияние ответа на рейтинг:
+         - `Defect` - нарушение, снимает баллы
+         - `Warning` - предупреждение, баллы не снимает
+      enum:
+        - Defect
+        - Warning
+      example: Defect
+    AppealedStatus:
+      title: AppealedStatus
+      type: string
+      description: |-
+        Кто изменил результат критерия по апелляции:
+         - `NotAppealed` - апелляции не было
+         - `Controlling` - команда контроля качества
+         - `ContactCenter` - контактный центр
+      enum:
+        - NotAppealed
+        - Controlling
+        - ContactCenter
+      example: NotAppealed
+    DetalizationRatingResponse:
+      title: DetalizationRatingResponse
+      x-stoplight:
+        id: jy87cwwtsh8o1
+      type: object
+      properties:
+        publishStatus:
+          $ref: '#/components/schemas/PublishStatus'
+        publishedAt:
+          type: string
+          x-stoplight:
+            id: wvu962ss1jagb
+          description: Дата и время публикации рейтинга в UTC. Для ещё не опубликованного периода содержит дату его начала.
+          example: '2024-07-30T14:15:50Z'
+          format: date-time
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
+        periodFrom:
+          $ref: '#/components/schemas/PeriodFromDate'
+        periodTo:
+          $ref: '#/components/schemas/PeriodToDate'
+        rate:
+          type: number
+          format: decimal
+          x-stoplight:
+            id: nr1k1bjisrtc1
+          description: Итоговый показатель рейтинга за период. Может быть дробным.
+          example: 98.5
+        blocks:
+          type: array
+          x-stoplight:
+            id: 84va4wj51tkgo
+          description: Блок критериев
+          items:
+            $ref: '#/components/schemas/CriteriaBlock'
+        criteria:
+          type: array
+          x-stoplight:
+            id: gtprj11njg4ky
+          items:
+            $ref: '#/components/schemas/Criterion'
+        criterias:
+          type: array
+          deprecated: true
+          description: Устаревшее написание поля criteria. Содержит те же данные. Будет удалено в следующей версии API.
+          items:
+            $ref: '#/components/schemas/Criterion'
+      required:
+        - publishStatus
+        - publishedAt
+        - periodFrom
+        - periodTo
+        - rate
+        - blocks
+        - criteria
+        - criterias
+  securitySchemes:
+    Dodo oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          scopes:
+            shared: 'Данные, доступные внутри сети без ограничений'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+        clientCredentials:
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            shared: 'Данные, доступные внутри сети без ограничений'
+      description: ''
+  parameters:
+    unit:
+      name: unit
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: '[0-9a-f]{32}'
+        minLength: 32
+        maxLength: 32
+        example: 000d3a240c719a8711e68aba13f7f862
+      description: Заведение (пиццерия) Dodo IS в формате UUID
+    'on':
+      name: 'on'
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+        pattern: '^\d{4}-\d{2}-\d{2}$'
+        example: '2000-01-01'
+      description: 'Дата, по которой определяется рейтинговый период'
+    top:
+      name: top
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 5
+        minimum: 1
+        maximum: 100
+        example: 5
+      description: Количество позиций в топе
+    criterionIds:
+      name: criterionIds
+      in: query
+      required: false
+      schema:
+        type: string
+        example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a'
+      description: 'Список критериев для фильтрации: идентификаторы критериев в шаблоне (`criteria[].criterionId` из детализации), UUID через запятую без пробелов. Если не передан, возвращаются замечания по всем критериям.'
+    metric:
+      name: metric
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: '[0-9a-f]{32}'
+        minLength: 32
+        maxLength: 32
+        example: 2a69836ab8f583ec11ed90098ae24dff
+      description: Идентификатор метрики в формате UUID
+    units:
+      name: units
+      in: query
+      required: true
+      schema:
+        type: string
+        example: '000d3a240c719a8711e68aba13f7f862,000d3a240c719a8711e68aba13f7fc8a,000d3a240c719a8711e68aba13f7fe13'
+      description: Список заведений (пиццерий) Dodo IS в формате UUID
+    skip:
+      name: skip
+      in: query
+      schema:
+        type: integer
+        default: 0
+        example: 100
+        minimum: 0
+      description: 'Количество записей, которые следует пропустить'
+    take:
+      name: take
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 100
+        example: 100
+        minimum: 0
+        maximum: 1000
+        exclusiveMinimum: true
+      description: 'Количество записей, которые следует выбрать'
+    fromDate:
+      name: fromDate
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+        pattern: '^\d{4}-\d{2}-\d{2}$'
+        example: '2000-01-01'
+      description: Дата начала запрашиваемого интервала в формате ISO 8601
+    toDate:
+      name: toDate
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+        pattern: '^\d{4}-\d{2}-\d{2}$'
+        example: '2000-01-01'
+      description: Дата конца запрашиваемого интервала в формате ISO 8601
+    ratingKind:
+      name: ratingKind
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/RatingKind'
+      description: 'Тип рейтинга. Если не передан, возвращаются данные по обоим рейтингам.'

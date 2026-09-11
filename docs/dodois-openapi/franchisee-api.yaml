@@ -1,0 +1,190 @@
+openapi: 3.0.1
+x-stoplight:
+  id: ecl9l8w4pgyeq
+info:
+  title: Сети заведений
+  version: '1.0'
+  description: ''
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  contact:
+    url: 'https://dodobrands.io'
+    name: Dodo Brands
+  license:
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+    name: Custom
+servers:
+  - url: 'https://api.dodois.io/franchisee'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/franchisee'
+    description: Dodopizza - Other countries
+paths:
+  /units:
+    parameters: []
+    get:
+      summary: Заведения → Сети
+      tags: []
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+            pattern: '[0-9a-f]{32}'
+            minLength: 32
+            maxLength: 32
+            example: 63d4829611ea45c8ae71394860a2481c
+          in: query
+          name: businessId
+          description: Идентификатор бизнеса в формате UUID
+        - schema:
+            type: string
+            example: ru
+          in: query
+          name: countryId
+          description: Идентификатор страны в формате ISO 3166-1 alpha-2
+        - schema:
+            type: string
+            example: 'Open,Close'
+            enum:
+              - Open
+              - Close
+            default: Open
+          in: query
+          name: unitStates
+          description: Состояние юнита
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  units:
+                    type: array
+                    x-stoplight:
+                      id: 1q9depley0yss
+                    minItems: 0
+                    description: Список заведений
+                    items:
+                      x-stoplight:
+                        id: a5kbs1njqajqy
+                      type: object
+                      properties:
+                        id:
+                          $ref: '#/components/schemas/UnitId'
+                        name:
+                          $ref: '#/components/schemas/UnitName'
+                        franchiseeId:
+                          $ref: '#/components/schemas/FranchiseeId'
+                        businessId:
+                          $ref: '#/components/schemas/BusinessId'
+                        countryId:
+                          $ref: '#/components/schemas/CountryId'
+                      required:
+                        - id
+                        - name
+                        - franchiseeId
+                        - businessId
+                        - countryId
+                required:
+                  - units
+        '401':
+          description: '### Пользователь не авторизован'
+      operationId: get-units
+      description: |-
+        Получение информации о сетях заведений.
+
+        #### Идентификаторы концепций (`businessId`)
+        - `63d4829611ea45c8ae71394860a2481c` - Dodo Pizza
+        - `c0b18e725258427a8bffea4f73957b0e` - Drinkit
+         
+        > Доступ к API выдается после публикации приложения в магазине приложений Dodo IS и прохождения модерации.
+      security:
+        - Authorization:
+            - 'franchisee:read'
+        - Service Token:
+            - 'franchisee:read'
+components:
+  schemas:
+    UnitId:
+      title: UnitId
+      x-stoplight:
+        id: 7y0bgr0tq96vt
+      type: string
+      format: uuid
+      example: 000d3a240c719a8711e68aba13f7f862
+      minLength: 32
+      maxLength: 32
+      pattern: '[0-9a-f]{32}'
+      description: Идентификатор заведения (пиццерии)
+    FranchiseeId:
+      title: FranchiseeId
+      x-stoplight:
+        id: yh33vd9yvph91
+      type: string
+      format: uuid
+      example: 000d3a240c719a8711e68aba13f7f862
+      minLength: 32
+      maxLength: 32
+      pattern: '[0-9a-f]{32}'
+      description: Идентификатор сети
+    UnitName:
+      title: UnitName
+      x-stoplight:
+        id: je6fgap6q28qa
+      type: string
+      description: Название заведения
+      example: Москва 0-1
+      minLength: 1
+    BusinessId:
+      title: BusinessId
+      x-stoplight:
+        id: 64i3bmkherb3x
+      type: string
+      format: uuid
+      enum:
+        - 63d4829611ea45c8ae71394860a2481c
+        - 892258ff3ee4481f8b9d7dedeeefd6f4
+      example: 63d4829611ea45c8ae71394860a2481c
+      minLength: 32
+      maxLength: 32
+      pattern: '[0-9a-f]{32}'
+      description: Идентификатор концепции
+    CountryCode:
+      title: CountryCode
+      x-stoplight:
+        id: j2tb2yvip2bts
+      type: integer
+      description: Код страны
+      format: int32
+      example: 643
+    CountryId:
+      title: CountryId
+      x-stoplight:
+        id: dovcbgctf80cb
+      type: string
+      description: Идентификатор страны в формате ISO 3166-1 alpha-2
+      example: ru
+  securitySchemes:
+    Authorization:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'franchisee:read': Получение информации о сетях заведений
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+      description: ''
+    Service Token:
+      type: oauth2
+      flows:
+        clientCredentials:
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'franchisee:read': Получение информации о сетях заведений
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+security:
+  - Authorization:
+      - 'franchisee:read'
+  - Service Token:
+      - 'franchisee:read'

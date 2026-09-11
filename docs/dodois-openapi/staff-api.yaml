@@ -1,0 +1,459 @@
+openapi: 3.0.1
+x-stoplight:
+  id: 5d7e2ictpuoec
+info:
+  title: Staff API
+  version: '1.0'
+  contact:
+    email: support@dodopizza.com
+    name: Dodo Brands
+    url: 'https://dodobrands.io/'
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  license:
+    name: Custom
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/staff'
+paths:
+  /recruitment/responses:
+    get:
+      summary: Найм → Отклики на вакансии
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vacancies:
+                    type: array
+                    description: 'Список откликов на вакансии, полученнных в результате запроса'
+                    items:
+                      $ref: '#/components/schemas/VacancyInsensitiveResponse'
+                  isEndOfListReached:
+                    $ref: '#/components/schemas/IsEndOfListReached'
+                required:
+                  - vacancies
+                  - isEndOfListReached
+              examples: {}
+        '400':
+          description: |
+            #### Некорректный запрос.
+
+            Коды ответа:
+             - `ValidationError` - передан некорректный запрос
+
+
+            Коды ошибок блока `details.errors`:
+             - `Required` - не передано обязательное поле
+             - `InvalidInput` - передано невалидное значение для параметра
+             - `UnitNotFound` - заведение не найдено
+             - `TooManyUnits` - количество переданных заведений превышает лимит в одном запросе
+             - `ValueTooSmall` - переданое значение меньше минимального значения
+             - `ValueTooLarge` - переданое значение превышает максимальное значение для параметра
+             - `DateOutOfRange` - превышен максимальный временной период запрос
+          content:
+            application/json:
+              schema:
+                type: object
+                x-sl-internally-excluded: true
+                x-sl-error-message: You do not have permission to view this reference
+              examples:
+                Параметр `skip` не валиден:
+                  value:
+                    errors:
+                      message: Parametr "skip" is invalid
+                      code: Common_SkipIsInvalid
+                      payload: null
+                Запрошенная пиццерия не найдена:
+                  value:
+                    errors:
+                      message: Unit with id="000d3a240c719a8711e68aba13f7fe13" not found
+                      code: Recruitment_UnitNotFound
+                      payload:
+                        unitId: 000d3a240c719a8711e68aba13f7fe13
+        '401':
+          description: '#### Пользователь не авторизован'
+          content: {}
+        '403':
+          description: |-
+            #### Недостаточно прав
+
+            Коды ошибок:
+            - `InsufficientRoles` - отсутвует необходимая роль для выполнения запроса
+            - `InsufficientScopes` - нет доступа к api. В токене не передан необходымый scope.
+            - `NoAccessToUnit` - нет доступа к заведению
+          content:
+            application/json:
+              schema:
+                type: object
+                x-sl-internally-excluded: true
+                x-sl-error-message: You do not have permission to view this reference
+        '500':
+          description: |-
+            #### Внутренняя ошибка сервера
+
+            Коды ошибок:
+             - `InternalError` - внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                type: object
+                x-sl-internally-excluded: true
+                x-sl-error-message: You do not have permission to view this reference
+      operationId: get-recruitment-vacancy-insensitive
+      security:
+        - Authorization:
+            - 'recruitment:read'
+      description: |-
+        Возвращает отклики на вакансии без персональных данных.
+
+        ### Требования к query параметрам:
+        1. В `units` можно перечислить до 30 заведений в одном запросе;
+        2. В `units` следует перечислять UUID-ы строго через запятую без пробелов;
+        3. Диапазон дат между `to` и `from` параметрами не должен превышать 31 день;
+
+        ### Доступно для следующих ролей:
+          - `Division administrator` - Администратор подразделения
+          - `Store Manager` - Менеджер офиса
+          - `Shift supervisor` - Менеджер смены
+      parameters:
+        - $ref: '#/components/parameters/units'
+        - $ref: '#/components/parameters/skip'
+        - $ref: '#/components/parameters/take'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/to'
+      x-internal: false
+    parameters: []
+components:
+  schemas:
+    VacancyInsensitiveResponse:
+      title: VacancyInsensitiveResponse
+      x-stoplight:
+        id: kh8itplx9qdic
+      type: object
+      x-internal: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: bfaaa4acf5624f228caa907e8ec3f962
+          description: Id отклика
+        unitId:
+          type: string
+          format: uuid
+          example: a7c4ffb2a8f741718238514d031d4b7c
+          description: Id пиццерии
+        unitName:
+          type: string
+          example: Сыктывкар-1
+          description: Название пиццерии
+        vacancyId:
+          type: string
+          format: uuid
+          example: 7e766ea2c8e74388ae86fa41f86ee224
+          description: Id вакансии
+        vacancyName:
+          type: string
+          description: Название вакансии
+          example: Курьер
+        vacancySourceName:
+          type: string
+          description: Источник получения вакансии
+          example: rabotavdodo
+        createdAt:
+          type: string
+          format: date-time
+          description: UTC Дата и время создания отклика.
+          x-stoplight:
+            id: qd1uox0e0hqjh
+        createdAtUtc:
+          type: string
+          format: date-time
+          description: UTC Дата и время создания отклика.
+          x-stoplight:
+            id: qd1uox0e0hqjh
+          deprecated: true
+        utm:
+          $ref: '#/components/schemas/Utm'
+      required:
+        - id
+        - unitId
+        - unitName
+        - vacancyId
+        - vacancyName
+        - vacancySourceName
+        - createdAt
+        - createdAtUtc
+        - utm
+    Utm:
+      title: Utm
+      x-stoplight:
+        id: tt8324d5l5qzn
+      type: object
+      description: Utm-метка отклика на вакансию
+      nullable: true
+      properties:
+        source:
+          type: string
+          x-stoplight:
+            id: iyy3wqzm2mb1t
+          description: 'Идентифицирует сайт, с которого отправляется трафик'
+          nullable: true
+        campaign:
+          type: string
+          x-stoplight:
+            id: j6k4fj49gsefz
+          description: Идентифицирует рекламную кампанию
+          nullable: true
+        medium:
+          type: string
+          x-stoplight:
+            id: 9gnqpumknllfc
+          description: Идентифицирует рекламную модель
+          nullable: true
+        term:
+          type: string
+          x-stoplight:
+            id: szb2mxg0r42bz
+          description: Идентифицирует ключевую фразу из рекламной кампании
+          nullable: true
+        content:
+          type: string
+          x-stoplight:
+            id: bgj1hisb43m21
+          description: 'Идентифицирует конкретный элемент контента, на который кликнул пользователь перед переходом на сайт'
+          nullable: true
+      required:
+        - source
+        - campaign
+        - medium
+        - term
+        - content
+      x-internal: false
+    ErrorContract:
+      title: ErrorContract
+      x-stoplight:
+        id: ptjervs75ebog
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: 8wzvccesuyj11
+          example: NoAccessToUnit
+          description: Код ошибки
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: jrezkorktrj8z
+          format: int32
+          example: 403
+          description: Http статус ответа
+        requestId:
+          type: string
+          x-stoplight:
+            id: mcm31ozws0cy9
+          example: '0HLEACIU86PT6:0000000D'
+          description: Уникальный идентификатор запроса
+        message:
+          type: string
+          x-stoplight:
+            id: 5ru1csk0555ov
+          example: No access to the requested unit
+        details:
+          type: object
+          x-stoplight:
+            id: hmlsjjnsgby6i
+          description: Детализация ошибки. Может содержать дополнительную информацию об ошибке. Формат зависит может отличаться в зависимости от кода ошибки.
+      required:
+        - code
+        - httpStatus
+        - requestId
+    ErrorContractBadRequest:
+      title: ErrorContractBadRequest
+      x-stoplight:
+        id: 0n5qiktdfq7uq
+      type: object
+      properties:
+        code:
+          type: string
+          x-stoplight:
+            id: vfnmgffgx7ce0
+          example: ValidationError
+          description: Код ошибки
+        httpStatus:
+          type: integer
+          x-stoplight:
+            id: laglzf5ugf61x
+          format: int32
+          example: 400
+          description: Http статус ответа
+        requestId:
+          type: string
+          x-stoplight:
+            id: qtdkv03kyv9ho
+          example: '0HLEACIU86PT6:0000000D'
+          description: Уникальный идентификатор запроса
+        message:
+          type: string
+          x-stoplight:
+            id: bkkf455g6oq0l
+        details:
+          type: object
+          x-stoplight:
+            id: hv9o31g0sgs1l
+          description: Детализация ошибки.
+          properties:
+            errors:
+              type: array
+              x-stoplight:
+                id: 4r6izf4z9i1dr
+              description: Список валидационных ошибок.
+              items:
+                $ref: '#/components/schemas/BadRequestError'
+      required:
+        - code
+        - httpStatus
+        - requestId
+    BadRequestError:
+      title: BadRequestError
+      x-stoplight:
+        id: 5imkcwibyqcqg
+      type: object
+      properties:
+        code:
+          type: string
+          description: Код ошибки
+        field:
+          type: string
+          description: 'Параметр запроса, содержащий невалидные данные'
+        message:
+          type: string
+      required:
+        - code
+        - field
+        - message
+    RemoveProgressBatch:
+      title: RemoveProgressBatch
+      x-stoplight:
+        id: ria6i0zcmwtle
+      type: object
+      properties:
+        StaffIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          maxItems: 250
+          items:
+            x-stoplight:
+              id: cd6exn7wu8xcs
+            type: string
+            example: a6aaec244fe549f28b74509d2f931acc
+            format: uuid
+        CoursesIds:
+          type: array
+          x-stoplight:
+            id: 2letwecuj7gml
+          minItems: 0
+          uniqueItems: true
+          items:
+            x-stoplight:
+              id: up4qstb6v3sam
+            type: string
+            format: uuid
+            example: f11b0610faf711ed92a9ba4e5244da0f
+        LessonsIds:
+          type: array
+          x-stoplight:
+            id: f7ttgjn8hw178
+          minItems: 0
+          items:
+            x-stoplight:
+              id: dz35m4pwmy1ir
+            type: string
+            format: uuid
+            example: 1d05d0202b9f11ee93464a2a875d6cb6
+      required:
+        - StaffIds
+      x-examples:
+        Example 1:
+          StaffIds:
+            - a6aaec244fe549f28b74509d2f931acc
+          CoursesIds:
+            - f11b0610faf711ed92a9ba4e5244da0f
+          LessonsIds:
+            - 1d05d0202b9f11ee93464a2a875d6cb6
+    IsEndOfListReached:
+      title: IsEndOfListReached
+      x-stoplight:
+        id: koi8bq4x5hui7
+      type: boolean
+      description: 'Индикатор того, что достигнут конец списка. Выдаёт true, если достигнут конец списка'
+  securitySchemes:
+    Authorization:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: 'https://auth.dodois.io/connect/authorize'
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            dodo_staff_api: Скоуп на общие методы домена staff
+            'recruitment:read': Доступ на чтение к методам Найма.
+            offline_access: Скоуп для получения refresh_token
+            'recruitment:write': Доступ на запись к методам Найма.
+            applicants: Анкеты кандидатов. (включает персональные данные)
+            'training:write': Доступ на запись к информации по обучению
+            'training:read': Доступ на чтение к информации по обучению
+  parameters:
+    units:
+      name: units
+      in: query
+      schema:
+        minItems: 0
+        uniqueItems: true
+        example: 000d3a240c719a8711e68aba13f7fe13
+        type: array
+      description: Список отделов (пиццерий) Dodo IS в формате UUID
+      allowEmptyValue: true
+    skip:
+      name: skip
+      in: query
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        default: 0
+      description: 'Количество записей, которые следует пропустить'
+    take:
+      name: take
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        maximum: 1000
+        minimum: 0
+        exclusiveMinimum: true
+        default: 100
+        example: 100
+      description: 'Количество записей, которые следует выбрать'
+    from:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        example: '2000-01-01T00:00:00'
+      description: Начало периода в формате ISO 8601
+    to:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        example: '2000-01-01T00:00:00'
+      description: Конец периода в формате ISO 8601.
+  responses: {}

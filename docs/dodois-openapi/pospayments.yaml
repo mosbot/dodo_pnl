@@ -1,0 +1,157 @@
+openapi: 3.1.0
+x-stoplight:
+  id: m1nn79eq7rndb
+info:
+  title: Pos Payments API
+  version: '1.0'
+  contact:
+    email: support@dodopizza.com
+    name: Dodo Brands
+    url: 'https://dodobrands.io/'
+  termsOfService: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+  license:
+    name: Custom
+    url: 'https://cdn.dodostatic.net/files/docs/saas_dodopizzaru_ru.pdf'
+servers:
+  - url: 'https://api.dodois.io/pospayments'
+    description: Dodopizza - RU / KZ / BY / KG / TJ / UZ
+  - url: 'https://api.dodois.com/pospayments'
+    description: Dodopizza - Other countries
+  - url: 'https://api.dodois.io/pospayments'
+    description: Drinkit - RU / KZ
+  - url: 'https://api.dodois.io/pospayments'
+    description: Drinkit - AE / Other countries
+paths:
+  /accounting-report:
+    get:
+      summary: Данные для банковской выписки по датам
+      responses:
+        '200':
+          description: Отчёт по заведениям в юр. лице
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operations:
+                    type: array
+                    description: Отчёты по всем датам в интервале
+                    items:
+                      $ref: '#/components/schemas/Operation'
+                required:
+                  - operations
+        '400':
+          description: Неправильный формат запроса
+        '401':
+          description: Проблема аутентификации или авторизации
+      operationId: get-kiosk-accounting-report
+      parameters:
+        - schema:
+            type: string
+            format: date
+            example: '2023-01-30'
+          in: query
+          name: from
+          description: Начало интервала дат
+          required: true
+        - schema:
+            type: string
+            example: '2023-02-05'
+          in: query
+          name: to
+          description: Конец интервала дат
+          required: true
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: legalEntityId
+          description: Id юрлица в Додо ИС
+          required: true
+        - schema:
+            type: string
+            enum:
+              - ibox
+          in: query
+          name: paymentProvider
+          description: Платёжный провайдер
+          required: true
+      description: |-
+        Эндпоинт для получения заведений по юр. лицу за определённые даты через определённого платёжного провайдера.
+
+        В контексте 1С: банк, с которым работает платёжный провайдер, делает перевод на расчётный счёт юрлица без информации о заведении. Этот эндпоинт нужен, чтобы связать банковский перевод с конкретным заведением.
+      security:
+        - ServiceToken:
+            - 'pospayments:read'
+    parameters: []
+components:
+  schemas:
+    Terminal:
+      type: object
+      x-examples:
+        Example 1:
+          name: '1057488'
+          amountWithoutFee: 4701
+          fee: 82.28
+      x-stoplight:
+        id: b7fad55d81526
+      description: Информация о доходе для платежного средства
+      properties:
+        name:
+          type: string
+          description: Идентификатор платёжного устройства
+          minLength: 1
+        amountWithoutFee:
+          type: number
+          description: Сумма без учёта комиссии
+        fee:
+          type: number
+          description: Суммарная комиссия
+      required:
+        - name
+        - amountWithoutFee
+        - fee
+    Operation:
+      title: Operation
+      x-stoplight:
+        id: 3553a441b317a
+      type: object
+      description: Данные по заведению в конкретную дату
+      properties:
+        date:
+          type: string
+          description: 'Дата, к которой относятся данные'
+          example: '2023-01-30T00:00:00'
+        name:
+          type: string
+          description: Имя заведения
+          example: Москва 0-27
+        totalFee:
+          type: number
+          description: Суммарная комиссия по всем терминалам в заведении
+          example: 156.18
+        totalAmountWithoutFee:
+          type: number
+          description: Сумма без учёта комиссии по всем терминалам в заведении
+          example: 8924
+        terminals:
+          type: array
+          description: 'Список подключенных платёжных терминалов, по которым были операции'
+          items:
+            $ref: '#/components/schemas/Terminal'
+      required:
+        - date
+        - name
+        - totalFee
+        - totalAmountWithoutFee
+        - terminals
+  securitySchemes:
+    ServiceToken:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: 'https://auth.dodois.io/connect/token'
+          scopes:
+            'pospayments:read': Чтение данных по платежам в ресторане
+          refreshUrl: 'https://auth.dodois.io/connect/token'
+      description: ''
