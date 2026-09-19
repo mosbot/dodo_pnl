@@ -1396,7 +1396,12 @@ async def list_cache_entries(
             CacheHistory.frozen_at,
             CacheHistory.frozen_by_user_id,
         )
-        .where(CacheHistory.planfact_key_id == planfact_key_id)
+        .where(
+            CacheHistory.planfact_key_id == planfact_key_id,
+            # kind='planfact_structure' (снимок справочников на случай
+            # аварии PlanFact) — служебная запись, в списке месяцев не нужна.
+            CacheHistory.kind == CACHE_KIND_PLANFACT_PNL,
+        )
         .order_by(CacheHistory.period_month.desc())
     )
     result = await session.execute(stmt)

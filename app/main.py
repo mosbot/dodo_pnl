@@ -551,17 +551,64 @@ async def _lite_mode(session: AsyncSession, user: User) -> bool:
     return not await _tenant_has_planfact(session, user.planfact_key_id)
 
 
-async def _pf_projects_stub(session: AsyncSession, user: User) -> list[dict]:
-    """projects в формате PlanFact, собранные из наших projects_config.
+# Снимок справочников PlanFact (проекты + дерево статей). Живёт в
+# cache_history под служебным kind — поле было «зарезервировано под
+# расширение», миграция не нужна. Зачем: P&L закрытого месяца целиком лежит
+# в cache_history, но build_pnl без дерева статей не разложит cat_totals по
+# строкам (выручка рисовалась нулями). Освежаем раз в час при любом успешном
+# обращении к PlanFact, читаем — когда он лежит.
+_PF_STRUCT_KIND = "planfact_structure"
+_PF_STRUCT_PERIOD = "0000-00"  # sentinel: period_month VARCHAR(7), NOT NULL
+_PF_STRUCT_SAVED: dict[int, float] = {}
+_PF_STRUCT_TTL = 3600.0
 
-    Нужен, когда PlanFact лежит, а P&L закрытого месяца целиком есть в
-    cache_history: суммы берём из кэша, а PlanFact там оставался нужен ровно
-    за названиями точек.
+
+async def _pf_structure(
+    session: AsyncSession, user: User, pf: PlanFactClient, pf_key_id: int | None,
+) -> tuple[list[dict], list[dict], bool]:
+    """(projects, categories, degraded). PlanFact лёг → последний снимок.
+
+    Снимка нет → пробрасываем PlanFactError: caller уйдёт в Lite, это честнее
+    полупустой таблицы с нулевой выручкой.
     """
-    return [
-        {"projectId": p["id"], "title": p["name"]}
-        for p in await _projects_from_config(session, user)
-    ]
+    import time
+    try:
+        projects, categories = await asyncio.gather(
+            pf.list_projects(),
+            pf.list_operation_categories(),
+        )
+    except PlanFactError as e:
+        if not _pf_is_outage(e) or pf_key_id is None:
+            raise
+        _pf_mark_down(pf_key_id)
+        snap = await store.get_cache_entry(
+            session, pf_key_id, _PF_STRUCT_PERIOD, kind=_PF_STRUCT_KIND,
+        )
+        if not snap or not snap.get("categories"):
+            raise
+        import logging
+        logging.getLogger("uvicorn.error").warning(
+            "PlanFact лежит, справочники берём из снимка: %s", e,
+        )
+        return (snap.get("projects") or [], snap.get("categories") or [], True)
+    if pf_key_id is not None and (
+        time.time() - _PF_STRUCT_SAVED.get(pf_key_id, 0.0) > _PF_STRUCT_TTL
+    ):
+        _PF_STRUCT_SAVED[pf_key_id] = time.time()
+        try:
+            await store.save_cache_entry(
+                session, pf_key_id, _PF_STRUCT_PERIOD,
+                {"projects": projects, "categories": categories},
+                kind=_PF_STRUCT_KIND,
+            )
+            await session.commit()
+        except Exception:
+            # Снимок — подстраховка, а не обязанность: не роняем ответ.
+            import logging
+            logging.getLogger("uvicorn.error").exception(
+                "не смог сохранить снимок справочников PlanFact",
+            )
+    return projects, categories, False
 
 
 async def _projects_from_config(
@@ -891,29 +938,12 @@ async def _build_pnl_for_period(
     if cached_payload is not None:
         # HIT: операции не нужны, тянем только projects+categories
         # (они описывают структуру и в любом случае читаются live).
-        import asyncio
-        degraded_structure = False
-        try:
-            projects, categories = await asyncio.gather(
-                pf.list_projects(),
-                pf.list_operation_categories(),
-            )
-        except PlanFactError as e:
-            # Суммы закрытого месяца уже в cache_history — PlanFact тут нужен
-            # был только за названиями точек и деревом статей. Если он лёг,
-            # отдаём полный P&L из кэша: названия берём из своих данных,
-            # без дерева статей отвалится только детализация по категориям.
-            if not _pf_is_outage(e):
-                raise
-            _pf_mark_down(pf_key_id)
-            import logging
-            logging.getLogger("uvicorn.error").warning(
-                "PlanFact лежит, P&L %s отдаём из cache_history без структуры: %s",
-                period_month, e,
-            )
-            projects = await _pf_projects_stub(session, user)
-            categories = []
-            degraded_structure = True
+        # Суммы закрытого месяца уже в cache_history — PlanFact тут нужен
+        # только за справочниками. Лежит → берём их из снимка и отдаём
+        # полный P&L; снимка нет → PlanFactError уходит наверх, в Lite.
+        projects, categories, degraded_structure = await _pf_structure(
+            session, user, pf, pf_key_id,
+        )
         result = await pnl_module.build_pnl(
             session=session, owner_id=user.id,
             planfact_key_id=pf_key_id,
@@ -1185,9 +1215,8 @@ async def _build_pnl_v2_result(
     from . import pnl_v2
     log = logging.getLogger("uvicorn.error")
     try:
-        projects, categories = await asyncio.gather(
-            pf.list_projects(),
-            pf.list_operation_categories(),
+        projects, categories, _ = await _pf_structure(
+            session, user, pf, user.planfact_key_id,
         )
         report = await pf.report_opu(
             date_start=date_start, date_end=date_end, method=method,
