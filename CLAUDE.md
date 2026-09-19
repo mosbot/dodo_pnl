@@ -259,6 +259,18 @@ Approximation через `numberOfCouriersInQueue` из couriers-orders =
 ### iOS Safari auto-link длинных чисел как tel:
 `<meta name="format-detection">` + `a[href^="tel:"]{pointer-events:none}` в HTML.
 
+### Падение PlanFact не должно уносить список точек
+`/api/projects` для тенанта С PlanFact раньше отдавал 502, если PlanFact
+недоступен, — и фронт (`board.js` делал `if (!r.ok) return`) оставался с пустым
+`allProjects`: пустой сайдбар в Финансах И пустой экран в Пульсе, хотя Пульс
+живёт на Dodo IS. Инцидент 2026-09-19 (PlanFact отдавал 502/503 больше часа) —
+`docs/audits/planfact-outage-2026-09-19.md`. Теперь при `PlanFactError`
+эндпоинт деградирует на `_projects_from_config` (projects_config +
+dodois_units_cache, та же функция, что у Lite) и добавляет `"degraded":
+"planfact"`. Перечень точек, видимость и `dodo_unit_uuid` — НАШИ данные,
+PlanFact даёт только заголовок и группу. NB: `/api/pnl` при лежащем PlanFact
+всё ещё 502 даже для закрытых месяцев из `cache_history` — не сделано.
+
 ### Не коммитить .py в static/
 `SafeStaticFiles` + .gitignore guard. Был security incident
 (`docs/audits/static-leak-incident.md`).
