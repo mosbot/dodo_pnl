@@ -1302,22 +1302,35 @@ function applyLiteMode(on) {
   document.querySelectorAll('.charts-toolbar:not(.kpi-toolbar)')
     .forEach(t => t.classList.toggle('hidden', on));
 
+  // Два разных повода показать Lite: у тенанта нет PlanFact (degraded=false)
+  // и PlanFact лежит (degraded='planfact'). Экран одинаковый, а текст — нет:
+  // «не подключён» владельцу PiX, у которого PlanFact подключён, читается как
+  // поломка на нашей стороне, и звать его в мастер настройки бессмысленно.
+  const outage = !!(state.pnl && state.pnl.degraded === 'planfact');
   const bar = document.querySelector('.service-bar');
   let badge = document.getElementById('liteBadge');
   if (on && bar && !badge) {
     badge = document.createElement('span');
     badge.id = 'liteBadge';
     badge.className = 'lite-badge';
-    badge.textContent = 'Lite-режим';
-    badge.title = 'PlanFact не подключён. Доступны выручка, каналы и операционные '
-      + 'метрики из Dodo IS. Полный P&L (себестоимость, EBITDA, чистая прибыль) — '
-      + 'после подключения PlanFact.';
     bar.appendChild(badge);
   }
-  if (badge) badge.classList.toggle('hidden', !on);
+  if (badge) {
+    badge.textContent = outage ? 'PlanFact недоступен' : 'Lite-режим';
+    badge.title = outage
+      ? 'PlanFact сейчас не отвечает — это на их стороне. Выручка, каналы и '
+        + 'операционные метрики идут из Dodo IS и актуальны; себестоимость, '
+        + 'EBITDA и чистая прибыль вернутся сами, как только PlanFact поднимется. '
+        + 'Закрытые месяцы, уже посчитанные раньше, показываются полностью.'
+      : 'PlanFact не подключён. Доступны выручка, каналы и операционные '
+        + 'метрики из Dodo IS. Полный P&L (себестоимость, EBITDA, чистая прибыль) — '
+        + 'после подключения PlanFact.';
+    badge.classList.toggle('hidden', !on);
+  }
 
   // Баннер-предложение настроить полный P&L — только Lite + админ + не отклонён.
-  renderSetupBanner(on);
+  // При аварии PlanFact не предлагаем: он подключён, настраивать нечего.
+  renderSetupBanner(on && !outage);
 }
 
 // Мягкое предложение подключить P&L (не авто-модал). «Не сейчас» запоминается

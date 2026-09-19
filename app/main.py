@@ -508,6 +508,62 @@ async def health(
     return info
 
 
+# ── Деградация при падении PlanFact (инцидент 2026-09-19) ──────────────────
+# PlanFact — внешний сервис, и когда он лежит, единственное честное поведение
+# для тенанта с PlanFact — вести себя как Lite: показывать то, что мы и так
+# берём из Dodo IS (выручку, каналы, ops-метрики), вместо 502 на весь экран.
+# Флаг «лежит» — короткоживущий, per planfact_key: ставится по факту 5xx и
+# гаснет сам, чтобы после восстановления PlanFact вернулся полный P&L без
+# рестарта и без ручных действий.
+_PF_DOWN_UNTIL: dict[int, float] = {}
+_PF_DOWN_TTL = 90.0  # сек
+
+
+def _pf_is_outage(e: PlanFactError) -> bool:
+    """5xx = «у них лежит». 4xx (401 — неверный ключ, 400 — наша ошибка) НЕ
+    деградируем: их надо видеть как ошибку, иначе тенант молча живёт в Lite."""
+    return int(getattr(e, "status", 0) or 0) >= 500
+
+
+def _pf_mark_down(pf_key_id: int | None) -> None:
+    import time
+    if pf_key_id is not None:
+        _PF_DOWN_UNTIL[pf_key_id] = time.time() + _PF_DOWN_TTL
+
+
+def _pf_down_recently(pf_key_id: int | None) -> bool:
+    import time
+    if pf_key_id is None:
+        return False
+    return _PF_DOWN_UNTIL.get(pf_key_id, 0.0) > time.time()
+
+
+async def _lite_mode(session: AsyncSession, user: User) -> bool:
+    """Работать ли на данных Dodo IS: у ключа нет PlanFact ЛИБО PlanFact лежит.
+
+    Второй случай — деградация: соседние ручки (история выручки, операции,
+    карточка пиццерии) подхватывают её сами, без 502 на каждый запрос.
+    """
+    if not user.planfact_key_id:
+        return False
+    if _pf_down_recently(user.planfact_key_id):
+        return True
+    return not await _tenant_has_planfact(session, user.planfact_key_id)
+
+
+async def _pf_projects_stub(session: AsyncSession, user: User) -> list[dict]:
+    """projects в формате PlanFact, собранные из наших projects_config.
+
+    Нужен, когда PlanFact лежит, а P&L закрытого месяца целиком есть в
+    cache_history: суммы берём из кэша, а PlanFact там оставался нужен ровно
+    за названиями точек.
+    """
+    return [
+        {"projectId": p["id"], "title": p["name"]}
+        for p in await _projects_from_config(session, user)
+    ]
+
+
 async def _projects_from_config(
     session: AsyncSession, user: User
 ) -> list[dict]:
@@ -563,9 +619,7 @@ async def get_projects(
     # projects_config (заведения Dodo IS), а НЕ из PlanFact. Иначе сайдбар пуст
     # («Нет доступных проектов») — баг: /api/pnl Lite уже ходит в projects_config,
     # а /api/projects оставался на PlanFact (у Lite пустой).
-    if user.planfact_key_id and not await _tenant_has_planfact(
-        session, user.planfact_key_id
-    ):
+    if await _lite_mode(session, user):
         return {"projects": await _projects_from_config(session, user)}
 
     pf = await planfact_for(session, user)
@@ -838,11 +892,29 @@ async def _build_pnl_for_period(
         # HIT: операции не нужны, тянем только projects+categories
         # (они описывают структуру и в любом случае читаются live).
         import asyncio
-        projects, categories = await asyncio.gather(
-            pf.list_projects(),
-            pf.list_operation_categories(),
-        )
-        return await pnl_module.build_pnl(
+        degraded_structure = False
+        try:
+            projects, categories = await asyncio.gather(
+                pf.list_projects(),
+                pf.list_operation_categories(),
+            )
+        except PlanFactError as e:
+            # Суммы закрытого месяца уже в cache_history — PlanFact тут нужен
+            # был только за названиями точек и деревом статей. Если он лёг,
+            # отдаём полный P&L из кэша: названия берём из своих данных,
+            # без дерева статей отвалится только детализация по категориям.
+            if not _pf_is_outage(e):
+                raise
+            _pf_mark_down(pf_key_id)
+            import logging
+            logging.getLogger("uvicorn.error").warning(
+                "PlanFact лежит, P&L %s отдаём из cache_history без структуры: %s",
+                period_month, e,
+            )
+            projects = await _pf_projects_stub(session, user)
+            categories = []
+            degraded_structure = True
+        result = await pnl_module.build_pnl(
             session=session, owner_id=user.id,
             planfact_key_id=pf_key_id,
             categories=categories, operations=[], projects=projects,
@@ -852,6 +924,9 @@ async def _build_pnl_for_period(
             user_visibility_level=user.visibility_level,
             cached_aggregates=cached_payload,
         )
+        if degraded_structure:
+            result["degraded"] = "planfact"
+        return result
 
     if use_cache_after_miss:
         # MISS: ключ-уровневый снэпшот (без project_filter), агрегируем
@@ -2371,6 +2446,9 @@ async def get_pnl(
     # Lite-режим: тенанту назначен PF-ключ, но у ключа нет собственного
     # api_key → работаем на данных Dodo IS (выручка/каналы/ops), без 400.
     # env-fallback к общему ключу для таких тенантов НЕ применяем.
+    # NB: здесь СОЗНАТЕЛЬНО не _lite_mode(): даже когда PlanFact лежит, надо
+    # сперва заглянуть в cache_history — у закрытых месяцев там полный P&L,
+    # он лучше Lite. Деградация на Lite — в except PlanFactError ниже.
     if user.planfact_key_id and not await _tenant_has_planfact(
         session, user.planfact_key_id
     ):
@@ -2414,7 +2492,32 @@ async def get_pnl(
         else:
             result["period"] = {"current": {"start": date_start, "end": date_end}}
     except PlanFactError as e:
-        raise HTTPException(502, str(e))
+        # PlanFact лежит → ведём себя как Lite-тенант: выручка, каналы и
+        # ops-метрики из Dodo IS. Полного P&L за этот период всё равно нет
+        # (закрытые месяцы отдаёт cache_history выше, сюда попадает live),
+        # но пустой экран с 502 хуже, чем половина данных с честной пометкой.
+        # 4xx (401 — ключ неверен, 400 — наша ошибка) по-прежнему 502: такое
+        # надо чинить, а не прятать за деградацией.
+        if not _pf_is_outage(e):
+            raise HTTPException(502, str(e))
+        _pf_mark_down(user.planfact_key_id)
+        import logging
+        logging.getLogger("uvicorn.error").warning(
+            "PlanFact лежит, P&L %s..%s отдаём в Lite-режиме: %s",
+            date_start, date_end, e,
+        )
+        if stage == "revenue":
+            degraded = await _build_pnl_revenue_stage(
+                session, user, date_start, date_end, pm, effective_projects,
+                compare_start=compare_start, compare_end=compare_end,
+            )
+        else:
+            degraded = await _build_pnl_lite(
+                session, user, date_start, date_end, pm, effective_projects,
+                compare_start=compare_start, compare_end=compare_end,
+            )
+        degraded["degraded"] = "planfact"
+        return degraded
 
     # S11.9: проставляем флаг «синк сейчас идёт» — берётся из памяти процесса
     # (set _OPS_SYNC_INFLIGHT). Делаем тут, а не в pnl.py, чтобы не импортить
@@ -2533,9 +2636,7 @@ async def get_project_monthly(
         return {"project": {"id": project_id, "name": project_id},
                 "months": [], "by_month": {}}
 
-    is_lite = bool(user.planfact_key_id) and not await _tenant_has_planfact(
-        session, user.planfact_key_id,
-    )
+    is_lite = await _lite_mode(session, user)
     pf = None if is_lite else await planfact_for(session, user)
     name_holder = {"name": None}
 
@@ -2675,9 +2776,7 @@ async def get_pnl_xlsx(
     pm = period_month or _derive_period_month(date_start, date_end)
     # Lite-тенант (нет PlanFact): xlsx собираем из Lite-данных (выручка/каналы),
     # а не из _build_pnl_for_period (он ходит в PlanFact и упал бы).
-    is_lite = bool(user.planfact_key_id) and not await _tenant_has_planfact(
-        session, user.planfact_key_id
-    )
+    is_lite = await _lite_mode(session, user)
     pf = None if is_lite else await planfact_for(session, user)
 
     async def _build_x(ds: str, de: str, p: str | None) -> dict:
@@ -2771,9 +2870,7 @@ async def get_revenue_history(
     # Lite (нет своего PlanFact): историю выручки строим из Dodo IS с
     # immutable-кэшем закрытых месяцев, а НЕ через PF env-fallback (был
     # медленный ~35с и отдавал данные общего env-аккаунта).
-    if user.planfact_key_id and not await _tenant_has_planfact(
-        session, user.planfact_key_id
-    ):
+    if await _lite_mode(session, user):
         cur = await _build_revenue_history_lite(
             session, user, period_months, effective_projects,
         )
@@ -2839,7 +2936,37 @@ async def get_revenue_history(
                 "period": {"start": ly_start, "end": ly_end},
             }
     except PlanFactError as e:
-        raise HTTPException(502, str(e))
+        # То же, что в /api/pnl: график выручки целиком строится из Dodo IS,
+        # держать его заложником PlanFact незачем.
+        if not _pf_is_outage(e):
+            raise HTTPException(502, str(e))
+        _pf_mark_down(user.planfact_key_id)
+        cur = await _build_revenue_history_lite(
+            session, user, period_months, effective_projects,
+        )
+        out = {
+            "months": cur["months"], "totals": cur["totals"],
+            "by_channel": cur["by_channel"], "projects": cur["projects"],
+            "project_names": cur["project_names"],
+            "period": {"start": date_start, "end": date_end},
+            "degraded": "planfact",
+        }
+        if include_ly:
+            ly_anchor_y, ly_anchor_m = (int(x) for x in anchor.split("-"))
+            ly_anchor = f"{ly_anchor_y - 1:04d}-{ly_anchor_m:02d}"
+            ly_months = pnl_module.month_range(ly_anchor, months)
+            ly = await _build_revenue_history_lite(
+                session, user, ly_months, effective_projects,
+            )
+            ly_y, ly_m = (int(x) for x in ly_months[-1].split("-"))
+            out["ly"] = {
+                "months": ly["months"], "totals": ly["totals"],
+                "by_channel": ly["by_channel"],
+                "period": {
+                    "start": f"{ly_months[0]}-01",
+                    "end": f"{ly_months[-1]}-{monthrange(ly_y, ly_m)[1]:02d}",
+                },
+            }
     return out
 
 
@@ -2861,9 +2988,7 @@ async def get_operations(
     offset = max(0, int(offset))
     await _require_capability(session, user, "finance")
     # Lite-тенант: операционной детализации из PlanFact нет — пусто, не 502.
-    if user.planfact_key_id and not await _tenant_has_planfact(
-        session, user.planfact_key_id
-    ):
+    if await _lite_mode(session, user):
         return {
             "items": [], "total": 0, "raw_count": 0,
             "filtered_count": 0, "sum_value": 0.0,
@@ -3038,9 +3163,7 @@ async def get_operations_xlsx(
 
     # Lite-тенант: операций из PlanFact нет — отдаём пустой xlsx (в Lite кнопка
     # детализации скрыта, это защита от прямого вызова).
-    if user.planfact_key_id and not await _tenant_has_planfact(
-        session, user.planfact_key_id
-    ):
+    if await _lite_mode(session, user):
         iso = (
             date_start[:7] if date_start[:7] == date_end[:7]
             else f"{date_start[:7]}_{date_end[:7]}"
