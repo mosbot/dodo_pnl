@@ -268,8 +268,17 @@ Approximation через `numberOfCouriersInQueue` из couriers-orders =
 эндпоинт деградирует на `_projects_from_config` (projects_config +
 dodois_units_cache, та же функция, что у Lite) и добавляет `"degraded":
 "planfact"`. Перечень точек, видимость и `dodo_unit_uuid` — НАШИ данные,
-PlanFact даёт только заголовок и группу. NB: `/api/pnl` при лежащем PlanFact
-всё ещё 502 даже для закрытых месяцев из `cache_history` — не сделано.
+PlanFact даёт только заголовок и группу. 
+**PlanFact лёг → работаем как Lite** (2a63963, 58c7127). `get_pnl` на
+`PlanFactError` с **5xx** отдаёт `_build_pnl_lite` + `"degraded": "planfact"`
+(4xx — по-прежнему 502: 401/400 надо чинить, а не прятать). `_lite_mode()` =
+«нет ключа ИЛИ PlanFact лежал последние 90 с» (`_PF_DOWN_UNTIL`) — его же
+используют история выручки, карточка пиццерии, операции, xlsx. ЗАКРЫТЫЕ месяцы при
+аварии отдаются ПОЛНОСТЬЮ: агрегаты в `cache_history`, а справочники
+(проекты + дерево статей) снимаются туда же под `kind='planfact_structure'`,
+`period_month='0000-00'` (раз в час при успешном ответе). Снимка нет →
+ошибка уходит наверх и месяц показывается в Lite. Фронт при `degraded`
+пишет «PlanFact недоступен» и не зовёт в мастер настройки.
 
 ### Не коммитить .py в static/
 `SafeStaticFiles` + .gitignore guard. Был security incident
