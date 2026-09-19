@@ -180,7 +180,18 @@ function saveSelection(set) {
 async function loadProjects() {
   try {
     const r = await fetch("/api/projects", { credentials: "same-origin" });
-    if (!r.ok) return;
+    if (!r.ok) {
+      // Раньше тут был голый return: allProjects оставался пустым, а с ним и
+      // выбор точек — Пульс рисовал пустой экран, хотя /api/board и Dodo IS
+      // были живы (инцидент 2026-09-19, падение PlanFact). Бэкенд теперь
+      // деградирует на свой список из projects_config, но подстраховка нужна
+      // на любой другой сбой: сохраняем то, что уже показывали, и не молчим.
+      console.warn("loadProjects: /api/projects вернул", r.status);
+      if (!allProjects.length) {
+        showError("список пиццерий временно недоступен, попробуйте обновить страницу");
+      }
+      return;
+    }
     const data = await r.json();
     const list = data.projects || [];
     // Фильтр: доступен юзеру + есть dodo_unit_uuid (иначе нет данных для /board).

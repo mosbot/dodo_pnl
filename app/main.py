@@ -508,6 +508,53 @@ async def health(
     return info
 
 
+async def _projects_from_config(
+    session: AsyncSession, user: User
+) -> list[dict]:
+    """Список проектов из НАШИХ данных: projects_config + dodois_units_cache.
+
+    Используется в двух случаях:
+      1. Lite-тенант (своего PlanFact нет) — единственный возможный источник;
+      2. PlanFact недоступен (см. get_projects) — деградация вместо 502.
+    PlanFact даёт только заголовок и группу; сам перечень точек, флаги
+    видимости и dodo_unit_uuid — наши, поэтому список строится и без него.
+    """
+    cfg = await store.list_projects_config(session, user.planfact_key_id)
+    hidden = await store.get_user_hidden_projects(session, user.id)
+    show_admin_unmanaged = user.is_super_admin
+    # Имена: у Lite нет PlanFact-title, поэтому пустой display_name раньше
+    # показывал числовой project_id в сайдбаре. Подставляем имя юнита из
+    # dodois_units_cache по dodo_unit_uuid (только чтение кэша, без запроса
+    # в Dodo IS). Карточки /api/pnl обогащаются так же — теперь и сайдбар.
+    unit_uuids = [c["dodo_unit_uuid"] for c in cfg.values() if c.get("dodo_unit_uuid")]
+    unit_names = await store.get_units_cache(session, unit_uuids) if unit_uuids else {}
+    norm: list[dict] = []
+    for pid, c in cfg.items():
+        if not bool(c.get("is_admin_managed", True)) and not show_admin_unmanaged:
+            continue
+        key_active = bool(c.get("is_active", True))
+        user_visible = pid not in hidden
+        uuid = c.get("dodo_unit_uuid")
+        cached_name = (unit_names.get(uuid) or {}).get("name") if uuid else None
+        name = c.get("display_name") or cached_name or pid
+        norm.append({
+            "id": pid,
+            "planfact_name": name,
+            "name": name,
+            "display_name": c.get("display_name"),
+            "is_active": key_active and user_visible,
+            "key_active": key_active,
+            "user_visible": user_visible,
+            "sort_order": c.get("sort_order"),
+            "planfact_active": True,
+            "dodo_unit_uuid": c.get("dodo_unit_uuid"),
+            "project_group_id": None,
+            "project_group_title": "Заведения",
+            "project_group_is_undistributed": False,
+        })
+    return norm
+
+
 @app.get("/api/projects")
 async def get_projects(
     user: User = Depends(require_user), session: AsyncSession = Depends(get_session)
@@ -519,50 +566,26 @@ async def get_projects(
     if user.planfact_key_id and not await _tenant_has_planfact(
         session, user.planfact_key_id
     ):
-        cfg = await store.list_projects_config(session, user.planfact_key_id)
-        hidden = await store.get_user_hidden_projects(session, user.id)
-        show_admin_unmanaged = user.is_super_admin
-        # Lite-фолбэк имён: у Lite нет PlanFact-title, поэтому пустой display_name
-        # раньше показывал числовой project_id в сайдбаре. Подставляем имя юнита
-        # из dodois_units_cache по dodo_unit_uuid (только чтение кэша, без запроса
-        # в Dodo IS). Карточки /api/pnl обогащаются так же — теперь и сайдбар.
-        unit_uuids = [
-            c["dodo_unit_uuid"] for c in cfg.values() if c.get("dodo_unit_uuid")
-        ]
-        unit_names = (
-            await store.get_units_cache(session, unit_uuids) if unit_uuids else {}
-        )
-        norm = []
-        for pid, c in cfg.items():
-            if not bool(c.get("is_admin_managed", True)) and not show_admin_unmanaged:
-                continue
-            key_active = bool(c.get("is_active", True))
-            user_visible = pid not in hidden
-            uuid = c.get("dodo_unit_uuid")
-            cached_name = (unit_names.get(uuid) or {}).get("name") if uuid else None
-            name = c.get("display_name") or cached_name or pid
-            norm.append({
-                "id": pid,
-                "planfact_name": name,
-                "name": name,
-                "display_name": c.get("display_name"),
-                "is_active": key_active and user_visible,
-                "key_active": key_active,
-                "user_visible": user_visible,
-                "sort_order": c.get("sort_order"),
-                "planfact_active": True,
-                "dodo_unit_uuid": c.get("dodo_unit_uuid"),
-                "project_group_id": None,
-                "project_group_title": "Заведения",
-                "project_group_is_undistributed": False,
-            })
-        return {"projects": norm}
+        return {"projects": await _projects_from_config(session, user)}
 
     pf = await planfact_for(session, user)
     try:
         projects = await pf.list_projects()
     except PlanFactError as e:
-        raise HTTPException(502, str(e))
+        # PlanFact лёг (инцидент 2026-09-19: их API отдавал 502/503 час с лишним).
+        # Перечень точек — НАШИ данные (projects_config), PlanFact даёт только
+        # заголовок и группу. Раньше отсюда летел 502, и фронт получал пустой
+        # allProjects: сайдбар «Нет доступных проектов», а в Пульсе — пустой
+        # экран, хотя /api/board и Dodo IS были живы. Деградируем на свой
+        # список; флаг degraded отдаём фронту, чтобы он мог сказать почему.
+        import logging
+        logging.getLogger("uvicorn.error").warning(
+            "PlanFact недоступен, список проектов из projects_config: %s", e
+        )
+        return {
+            "projects": await _projects_from_config(session, user),
+            "degraded": "planfact",
+        }
     cfg = (
         await store.list_projects_config(session, user.planfact_key_id)
         if user.planfact_key_id else {}
