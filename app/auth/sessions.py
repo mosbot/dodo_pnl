@@ -22,7 +22,9 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import delete, select
+import logging
+
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +35,11 @@ from .models import User, UserSession
 SESSION_TTL_DAYS = 30
 # Аудит 2026-09-03 P12: rolling-продление не должно делать сессию вечной.
 SESSION_ABSOLUTE_TTL_DAYS = 90
+# Rolling refresh не чаще раза в минуту: 30-дневному TTL точность до запроса
+# не нужна, а каждая запись — это row-lock на строке сессии.
+TOUCH_MIN_INTERVAL = timedelta(seconds=60)
+
+log = logging.getLogger(__name__)
 
 
 def _new_token() -> str:
@@ -102,6 +109,42 @@ async def get_session_with_user(
         await session.flush()
         return None
     return s
+
+
+async def touch_session_detached(s: UserSession) -> None:
+    """Rolling refresh в ОТДЕЛЬНОЙ короткой транзакции, не в транзакции запроса.
+
+    Инцидент 2026-09-25 (23:46–00:07 MSK, весь pnl отдавал 500): touch_session
+    писал в транзакцию запроса, и row-lock на строке сессии держался до конца
+    запроса. /api/board ждал Dodo IS больше 20 минут — все прочие запросы того
+    же пользователя (та же кука → та же строка) вставали в очередь за lock'ом,
+    каждый с занятым соединением, пул (5 + 10) кончился, и лёг сервис у всех.
+
+    Здесь: не чаще TOUCH_MIN_INTERVAL, своя сессия с commit сразу,
+    lock_timeout 2 с. Любая ошибка глотается — продление сессии не повод
+    отказывать в запросе.
+    """
+    from ..db import get_session_factory
+
+    now = _now()
+    if s.last_seen_at is not None and now - s.last_seen_at < TOUCH_MIN_INTERVAL:
+        return
+    hard_limit = s.created_at + timedelta(days=SESSION_ABSOLUTE_TTL_DAYS)
+    new_exp = min(now + timedelta(days=SESSION_TTL_DAYS), hard_limit)
+    try:
+        async with get_session_factory()() as db:
+            await db.execute(text("SET LOCAL lock_timeout = '2s'"))
+            await db.execute(
+                update(UserSession)
+                .where(UserSession.token == s.token)
+                .values(last_seen_at=now, expires_at=new_exp)
+            )
+            await db.commit()
+        # держим объект в согласии с БД (expire_on_commit у фабрики выключен)
+        s.last_seen_at = now
+        s.expires_at = new_exp
+    except Exception:  # noqa: BLE001
+        log.warning("touch_session_detached: не продлили сессию", exc_info=True)
 
 
 async def touch_session(session: AsyncSession, s: UserSession) -> None:

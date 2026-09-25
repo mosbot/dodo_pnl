@@ -39,6 +39,18 @@ _UPSERT = text("""
 """)
 
 
+async def _flush(user_id: int, day: date, module: str, n: int) -> None:
+    """Upsert в своей короткой транзакции — не в транзакции запроса, иначе
+    row-lock на (user, day, module) живёт весь запрос (инцидент 2026-09-25,
+    см. sessions.touch_session_detached). Ошибки ловит note_activity."""
+    from ..db import get_session_factory
+
+    async with get_session_factory()() as db:
+        await db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        await db.execute(_UPSERT, {"uid": user_id, "day": day, "module": module, "n": n})
+        await db.commit()
+
+
 def module_for_path(path: str) -> str:
     """Модуль платформы по пути запроса. Пульс и Финансы живут в одном
     сервисе — различаем по URL; новые модули добавлять сюда."""
@@ -71,22 +83,13 @@ async def note_activity(
         n = int(st[0])
         st[0] = 0.0
         st[1] = now_mono
-        async with db.begin_nested():
-            await db.execute(
-                _UPSERT,
-                {"uid": user_id, "day": day_date, "module": module, "n": n},
-            )
+        await _flush(user_id, day_date, module, n)
         # заодно доливаем и чистим ключи прошлых дней (rollover полуночи)
         stale = [k for k in _acc if k[1] != day]
         for k in stale:
             pend = int(_acc[k][0])
             if pend > 0:
-                async with db.begin_nested():
-                    await db.execute(
-                        _UPSERT,
-                        {"uid": k[0], "day": date.fromisoformat(k[1]),
-                         "module": k[2], "n": pend},
-                    )
+                await _flush(k[0], date.fromisoformat(k[1]), k[2], pend)
             del _acc[k]
     except Exception:  # noqa: BLE001 — активность не должна ломать auth
         log.warning("user activity upsert failed", exc_info=True)

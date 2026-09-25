@@ -3680,6 +3680,7 @@ def is_ops_sync_running(planfact_key_id: int, period: str) -> bool:
 # часа ограничен _BOARD_CACHE_MAX_VARIANTS фильтр-вариаций на ключ.
 _BOARD_CACHE: dict[tuple[int, str, tuple], tuple[float, dict]] = {}
 _BOARD_CACHE_TTL = 60  # секунд для live-слоя; вне часа — полная перегенерация
+_BOARD_BUILD_DEADLINE_SEC = 60.0  # потолок сборки /api/board (инцидент 2026-09-25)
 _BOARD_CACHE_MAX_VARIANTS = 8  # максимум filter-вариаций на (pf_key, час)
 _BOARD_LOCKS: dict[tuple[int, str, tuple], asyncio.Lock] = {}
 
@@ -3748,6 +3749,13 @@ async def get_board(
     # ── токен Dodo IS ── (до лока: дешёвый DB-read)
     token = await get_dodois_token(session, user)
 
+    # Отпускаем соединение с БД на время ожидания лока и походов в Dodo IS
+    # (SQLAlchemy 2.x возвращает коннект в пул по концу транзакции; фабрика с
+    # expire_on_commit=False, объекты не протухают). Инцидент 2026-09-25: сборка
+    # висела на Dodo IS >20 мин, а каждый запрос-ожидатель держал коннект —
+    # пул кончился, весь сервис отдавал 500.
+    await session.commit()
+
     lock = _BOARD_LOCKS.setdefault(cache_key, asyncio.Lock())
     async with lock:
         # Re-check внутри лока: пока ждали, сосед мог уже собрать payload.
@@ -3757,11 +3765,19 @@ async def get_board(
 
         # ── основная сборка ──
         try:
-            payload = await board_module.build_board_payload(
-                session=session, token=token,
-                planfact_key_id=pf_key_id,
-                projects=projects, now=now,
+            # Общий потолок сборки: критичные ручки (продажи, месяц) идут без
+            # safe-fetch и при «зависшем» Dodo IS ретраились по ~4 мин на
+            # попытку. Интерактивному экрану больше минуты ждать незачем.
+            payload = await asyncio.wait_for(
+                board_module.build_board_payload(
+                    session=session, token=token,
+                    planfact_key_id=pf_key_id,
+                    projects=projects, now=now,
+                ),
+                timeout=_BOARD_BUILD_DEADLINE_SEC,
             )
+        except asyncio.TimeoutError:
+            raise HTTPException(504, "Dodo IS отвечает слишком долго, попробуйте через минуту")
         except (DodoISError, NoTokenError) as e:
             raise HTTPException(502, "Dodo IS временно недоступен, попробуйте позже")  # P10
 

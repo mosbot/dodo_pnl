@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from .models import User, UserSession
 from .activity import module_for_path, note_activity
-from .sessions import get_session_with_user, touch_session
+from .sessions import get_session_with_user, touch_session_detached
 
 
 SESSION_COOKIE = "pnl_session"
@@ -38,8 +38,9 @@ async def _resolve_user(
     s = await get_session_with_user(db, token)
     if s is None:
         return None
-    # rolling refresh — обновляем last_seen_at
-    await touch_session(db, s)
+    # rolling refresh — в своей короткой транзакции (см. docstring
+    # touch_session_detached: инцидент 2026-09-25, lock-очередь и пустой пул)
+    await touch_session_detached(s)
     # дневной лог активности (дебаунс внутри, ошибки глотает)
     await note_activity(db, s.user_id, module_for_path(request.url.path))
     return s, s.user

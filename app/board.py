@@ -607,6 +607,11 @@ async def build_board_payload(
         if not empty_ly_day else []
     )
 
+    # Кэш прочитан — до записи ниже БД не нужна. Возвращаем коннект в пул на
+    # время походов в Dodo IS (секунды в норме, минуты — когда он тормозит):
+    # иначе каждая висящая сборка держит соединение (инцидент 2026-09-25).
+    await session.commit()
+
     (
         sales_today, sales_lw, mtd_data, mtd_lfl_data, sales_ly_day,
         stops_channels_raw, stops_sectors_raw,
